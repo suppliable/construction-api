@@ -1,45 +1,25 @@
-const productService = require('../services/productService');
+const { getAllProducts, getProductById } = require('../services/productService');
 
-const getAllProducts = (req, res) => {
+const getProducts = async (req, res) => {
   try {
     const { category } = req.query;
-    const products = productService.getAllProducts(category);
-
-    res.json({
-      success: true,
-      count: products.length,
-      data: products
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    const products = await getAllProducts(category);
+    res.json({ success: true, count: products.length, data: products });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
-const getProductById = (req, res) => {
+const getProduct = async (req, res) => {
   try {
-    const { id } = req.params;
-    const product = productService.getProductById(id);
-
+    const product = await getProductById(req.params.id);
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: `Product with id ${id} not found`
-      });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
-
-    res.json({
-      success: true,
-      data: product
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.json({ success: true, data: product });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
-module.exports = { getAllProducts, getProductById };
+module.exports = { getProducts, getProduct };

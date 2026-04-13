@@ -4,14 +4,8 @@ const { calculateItemPrice } = require('../utils/gstCalculator');
 
 function addToCart(userId, productId, quantity) {
   const cart = getCart(userId);
-  const product = getProductById(productId);
-
-  if (!product) {
-    throw new Error(`Product ${productId} not found`);
-  }
 
   const existingItem = cart.items.find(i => i.productId === productId);
-
   if (existingItem) {
     existingItem.quantity += quantity;
   } else {
@@ -44,36 +38,42 @@ function removeFromCart(userId, productId) {
   return buildCartResponse(userId);
 }
 
-function buildCartResponse(userId) {
+async function buildCartResponse(userId) {
   const cart = getCart(userId);
 
   let grandTotal = 0;
   let totalGST = 0;
 
-  const items = cart.items.map(item => {
-    const product = getProductById(item.productId);
-    const priced = calculateItemPrice(product, item.quantity);
+  const items = await Promise.all(cart.items.map(async (item) => {
+    const product = await getProductById(item.productId);
+    if (!product) return null;
 
-    grandTotal += priced.totalWithGST;
-    totalGST += priced.gstAmount;
+    const subtotal = parseFloat((product.price * item.quantity).toFixed(2));
+    const gstAmount = parseFloat((subtotal * product.gst_percentage / 100).toFixed(2));
+    const totalWithGST = parseFloat((subtotal + gstAmount).toFixed(2));
+
+    grandTotal += totalWithGST;
+    totalGST += gstAmount;
 
     return {
       productId: item.productId,
       name: product.name,
       quantity: item.quantity,
-      unitPrice: product.selling_price,
+      unitPrice: product.price,
       gstRate: product.gst_percentage,
-      subtotal: priced.subtotal,
-      gstAmount: priced.gstAmount,
-      totalWithGST: priced.totalWithGST
+      subtotal,
+      gstAmount,
+      totalWithGST
     };
-  });
+  }));
+
+  const validItems = items.filter(Boolean);
 
   return {
     userId,
-    items,
+    items: validItems,
     summary: {
-      totalItems: items.reduce((sum, i) => sum + i.quantity, 0),
+      totalItems: validItems.reduce((sum, i) => sum + i.quantity, 0),
       totalGST: parseFloat(totalGST.toFixed(2)),
       grandTotal: parseFloat(grandTotal.toFixed(2))
     }

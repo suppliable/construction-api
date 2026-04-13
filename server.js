@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
+
 const productRoutes = require('./src/routes/products');
 const cartRoutes = require('./src/routes/cart');
 const homeRoutes = require('./src/routes/home');
@@ -15,7 +16,7 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 
-// Health check route
+// Health check
 app.get('/', (req, res) => {
   res.json({ message: 'Construction API is running!' });
 });
