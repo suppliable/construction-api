@@ -56,10 +56,35 @@ async function getZohoItemGroupById(groupId) {
   return response.data.item_group;
 }
 
+async function createZohoContact(contactData) {
+  const token = await getAccessToken();
+  const response = await axios.post('https://www.zohoapis.in/books/v3/contacts', {
+    contact_name: contactData.name || contactData.phone,
+    company_name: contactData.name || contactData.phone,
+    contact_type: 'customer',
+    contact_persons: [
+      {
+        first_name: contactData.name || contactData.phone,
+        last_name: '',
+        phone: contactData.phone,
+        phone_code: '+91',
+        mobile: contactData.phone,
+        mobile_code: '+91',
+        is_primary_contact: true
+      }
+    ]
+  }, {
+    headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    params: { organization_id: process.env.ZOHO_ORG_ID }
+  });
+  return response.data.contact;
+}
+
 module.exports = {
   getAccessToken,
   getZohoProducts,
   getZohoProductById,
   getZohoItemGroups,
-  getZohoItemGroupById
+  getZohoItemGroupById,
+  createZohoContact
 };
