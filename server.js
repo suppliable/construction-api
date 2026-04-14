@@ -7,6 +7,7 @@ const productRoutes = require('./src/routes/products');
 const cartRoutes = require('./src/routes/cart');
 const homeRoutes = require('./src/routes/home');
 const authRoutes = require('./src/routes/auth');
+const customerRoutes = require('./src/routes/customers');
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/customers', customerRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

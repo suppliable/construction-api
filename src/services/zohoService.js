@@ -59,20 +59,29 @@ async function getZohoItemGroupById(groupId) {
 async function createZohoContact(contactData) {
   const token = await getAccessToken();
   const response = await axios.post('https://www.zohoapis.in/books/v3/contacts', {
-    contact_name: contactData.name || contactData.phone,
-    company_name: contactData.name || contactData.phone,
+    contact_name: contactData.business_name || contactData.name || contactData.phone,
+    company_name: contactData.business_name || contactData.name || contactData.phone,
     contact_type: 'customer',
+    gst_treatment: contactData.is_business ? 'business_gst' : 'consumer',
+    gst_no: contactData.gstin || '',
+    place_of_contact: contactData.registered_address?.state_code || 'TN',
     contact_persons: [
       {
         first_name: contactData.name || contactData.phone,
         last_name: '',
-        phone: contactData.phone,
-        phone_code: '+91',
         mobile: contactData.phone,
-        mobile_code: '+91',
         is_primary_contact: true
       }
-    ]
+    ],
+    billing_address: contactData.registered_address ? {
+      attention: contactData.business_name || contactData.name || '',
+      address: contactData.registered_address.address_line1 || '',
+      street2: contactData.registered_address.address_line2 || '',
+      city: contactData.registered_address.city || '',
+      state: contactData.registered_address.state || '',
+      zip: contactData.registered_address.pincode || '',
+      country: 'India'
+    } : {}
   }, {
     headers: { Authorization: `Zoho-oauthtoken ${token}` },
     params: { organization_id: process.env.ZOHO_ORG_ID }
