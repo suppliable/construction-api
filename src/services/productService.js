@@ -15,9 +15,9 @@ const extractGST = (item) => {
   return item.tax_percentage || 0;
 };
 
-// Build a placeholder image URL from item name
-const buildImage = (name) =>
-  `https://placehold.co/400x300?text=${encodeURIComponent(name)}`;
+// Build image URL from custom field or fallback to placeholder
+const buildImage = (name, imageUrl) =>
+  imageUrl || `https://placehold.co/400x300?text=${encodeURIComponent(name)}`;
 
 const getAllProducts = async (category) => {
   // Fetch item groups and plain items in parallel
@@ -45,11 +45,13 @@ const getAllProducts = async (category) => {
       const prices = variants.map(v => v.price);
       const priceRange = `₹${Math.min(...prices)} - ₹${Math.max(...prices)}`;
 
-      // Get GST from first variant item
+      // Get GST and image from first variant item
       let gst_percentage = 0;
+      let groupImageUrl = null;
       if (group.items[0]?.item_id) {
         const firstItem = await getZohoProductById(group.items[0].item_id);
         gst_percentage = extractGST(firstItem);
+        groupImageUrl = firstItem.custom_field_hash?.cf_image_url || null;
       }
 
       return {
@@ -64,7 +66,7 @@ const getAllProducts = async (category) => {
         variants,
         gst_percentage,
         hsn: group.items[0]?.hsn_or_sac || '',
-        image: buildImage(group.group_name),
+        image: buildImage(group.group_name, groupImageUrl),
         fallbackImage: buildImage(group.group_name)
       };
     })
@@ -75,6 +77,7 @@ const getAllProducts = async (category) => {
   const plainProducts = await Promise.all(
     plainItems.map(async (item) => {
       const fullItem = await getZohoProductById(item.item_id);
+      const imageUrl = fullItem.custom_field_hash?.cf_image_url || null;
       return {
         id: item.item_id,
         name: item.name,
@@ -86,7 +89,7 @@ const getAllProducts = async (category) => {
         price: item.rate,
         gst_percentage: extractGST(fullItem),
         hsn: item.hsn_or_sac || '',
-        image: buildImage(item.name),
+        image: buildImage(item.name, imageUrl),
         fallbackImage: buildImage(item.name)
       };
     })
@@ -106,6 +109,7 @@ const getAllProducts = async (category) => {
 const getProductById = async (id) => {
   const item = await getZohoProductById(id);
   if (!item) return null;
+  const imageUrl = item.custom_field_hash?.cf_image_url || null;
   return {
     id: item.item_id,
     name: item.name,
@@ -117,7 +121,7 @@ const getProductById = async (id) => {
     price: item.rate,
     gst_percentage: extractGST(item),
     hsn: item.hsn_or_sac || '',
-    image: buildImage(item.name),
+    image: buildImage(item.name, imageUrl),
     fallbackImage: buildImage(item.name)
   };
 };
