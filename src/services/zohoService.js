@@ -89,11 +89,23 @@ async function createZohoContact(contactData) {
   return response.data.contact;
 }
 
+async function updateZohoItemImage(itemId, imageUrl) {
+  const token = await getAccessToken();
+  const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+    custom_fields: [{ label: 'Image URL', value: imageUrl }]
+  }, {
+    headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    params: { organization_id: process.env.ZOHO_ORG_ID }
+  });
+  return response.data.item;
+}
+
 module.exports = {
   getAccessToken,
   getZohoProducts,
   getZohoProductById,
   getZohoItemGroups,
   getZohoItemGroupById,
-  createZohoContact
+  createZohoContact,
+  updateZohoItemImage
 };

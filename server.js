@@ -2,16 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
+dotenv.config();
 
 const productRoutes = require('./src/routes/products');
 const cartRoutes = require('./src/routes/cart');
 const homeRoutes = require('./src/routes/home');
 const authRoutes = require('./src/routes/auth');
 const customerRoutes = require('./src/routes/customers');
-
-dotenv.config();
+const uploadRoutes = require('./src/routes/upload');
 
 const app = express();
+
+// Static files
+app.use(express.static('public'));
 
 // Middleware
 app.use(cors());
@@ -29,6 +32,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

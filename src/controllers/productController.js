@@ -1,4 +1,5 @@
 const { getAllProducts, getProductById } = require('../services/productService');
+const zohoService = require('../services/zohoService');
 
 const getProducts = async (req, res) => {
   try {
@@ -22,4 +23,28 @@ const getProduct = async (req, res) => {
   }
 };
 
-module.exports = { getProducts, getProduct };
+const PLACEHOLDER_IMAGE = 'https://placehold.co/400x300?text=No+Image';
+
+const updateProductImage = async (req, res) => {
+  const { id } = req.params;
+  const raw = req.body.image_url;
+  const image_url = (!raw || raw.includes('placehold.co')) ? PLACEHOLDER_IMAGE : raw;
+  try {
+    await zohoService.updateZohoItemImage(id, image_url);
+    res.json({ success: true, message: 'Image updated successfully' });
+  } catch (err) {
+    // Error code 2006 means item not found — likely a group_id
+    if (err.response?.data?.code === 2006) {
+      try {
+        const group = await zohoService.getZohoItemGroupById(id);
+        await Promise.all(group.items.map(item => zohoService.updateZohoItemImage(item.item_id, image_url)));
+        return res.json({ success: true, message: 'Image updated successfully for all variants' });
+      } catch (groupErr) {
+        return res.status(500).json({ success: false, message: groupErr.message });
+      }
+    }
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = { getProducts, getProduct, updateProductImage };

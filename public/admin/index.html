@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suppliable — Product Image Manager</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+    .navbar { background: #1a1a2e; color: white; padding: 16px 32px; display: flex; align-items: center; }
+    .navbar h1 { font-size: 18px; font-weight: 600; }
+    .container { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f8f9fa; padding: 14px 16px; text-align: left; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; }
+    td { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; font-size: 14px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    .product-img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; background: #eee; }
+    .placeholder { width: 60px; height: 60px; border-radius: 8px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; text-align: center; }
+    .product-name { font-weight: 500; }
+    .category-badge { background: #e8f4ff; color: #0066cc; padding: 3px 10px; border-radius: 20px; font-size: 12px; }
+    .price { font-weight: 600; color: #1a1a2e; }
+    .upload-btn { background: #0066cc; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: background 0.2s; }
+    .upload-btn:hover { background: #0052a3; }
+    .upload-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .remove-btn { background: white; color: #c0392b; border: 1px solid #c0392b; padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: background 0.2s; margin-left: 8px; }
+    .remove-btn:hover { background: #fde8e8; }
+    .remove-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; margin-left: 8px; }
+    .badge-success { background: #e6f4ea; color: #1e7e34; }
+    .badge-error { background: #fde8e8; color: #c0392b; }
+    .loading { text-align: center; padding: 48px; color: #999; font-size: 16px; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #0066cc; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .page-title { font-size: 22px; font-weight: 600; margin-bottom: 20px; color: #1a1a2e; }
+  </style>
+</head>
+<body>
+  <div class="navbar">
+    <h1>🏗️ Suppliable — Product Image Manager</h1>
+  </div>
+  <div class="container">
+    <div class="page-title">Manage Product Images</div>
+    <div class="card">
+      <div id="loading" class="loading">Loading products...</div>
+      <table id="product-table" style="display:none">
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Product Name</th>
+            <th>Category</th>
+            <th>Price</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="product-list"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const BASE_URL = 'http://localhost:3000';
+
+    async function loadProducts() {
+      try {
+        const res = await fetch(`${BASE_URL}/api/products`);
+        const data = await res.json();
+        renderProducts(data.data);
+      } catch (err) {
+        document.getElementById('loading').textContent = 'Failed to load products.';
+      }
+    }
+
+    function renderProducts(products) {
+      const tbody = document.getElementById('product-list');
+      tbody.innerHTML = '';
+      products.forEach(product => {
+        const tr = document.createElement('tr');
+        tr.id = `row-${product.id}`;
+        tr.innerHTML = `
+          <td>
+            ${product.image && !product.image.includes('placehold.co')
+              ? `<img src="${product.image}" class="product-img" id="img-${product.id}" />`
+              : `<div class="placeholder" id="img-${product.id}">No Image</div>`}
+          </td>
+          <td><span class="product-name">${product.name}</span></td>
+          <td><span class="category-badge">${product.category || '—'}</span></td>
+          <td><span class="price">₹${product.hasVariants ? product.priceRange : product.price}</span></td>
+          <td>
+            <input type="file" id="file-${product.id}" accept="image/*" style="display:none" onchange="uploadImage('${product.id}', this)" />
+            <button class="upload-btn" id="btn-${product.id}" onclick="document.getElementById('file-${product.id}').click()">
+              Upload Image
+            </button>
+            ${product.image && !product.image.includes('placehold.co')
+              ? `<button class="remove-btn" id="remove-btn-${product.id}" onclick="removeImage('${product.id}')">Remove Image</button>`
+              : `<button class="remove-btn" id="remove-btn-${product.id}" onclick="removeImage('${product.id}')" style="display:none">Remove Image</button>`}
+            <span id="badge-${product.id}"></span>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('product-table').style.display = 'table';
+    }
+
+    async function uploadImage(productId, input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const btn = document.getElementById(`btn-${productId}`);
+      const badge = document.getElementById(`badge-${productId}`);
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Uploading...';
+      badge.innerHTML = '';
+
+      try {
+        // Step 1: Upload to Cloudinary
+        const formData = new FormData();
+        formData.append('image', file);
+        const uploadRes = await fetch(`${BASE_URL}/api/upload`, { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.success) throw new Error('Upload failed');
+
+        // Step 2: Update Zoho
+        const updateRes = await fetch(`${BASE_URL}/api/products/${productId}/image`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: uploadData.image_url })
+        });
+        const updateData = await updateRes.json();
+        if (!updateData.success) throw new Error('Zoho update failed');
+
+        // Step 3: Update UI
+        const imgEl = document.getElementById(`img-${productId}`);
+        if (imgEl.tagName === 'DIV') {
+          const newImg = document.createElement('img');
+          newImg.src = uploadData.image_url;
+          newImg.className = 'product-img';
+          newImg.id = `img-${productId}`;
+          imgEl.replaceWith(newImg);
+        } else {
+          imgEl.src = uploadData.image_url;
+        }
+
+        document.getElementById(`remove-btn-${productId}`).style.display = 'inline-block';
+        badge.innerHTML = '<span class="badge badge-success">✓ Updated!</span>';
+        setTimeout(() => badge.innerHTML = '', 3000);
+      } catch (err) {
+        badge.innerHTML = '<span class="badge badge-error">✗ Failed</span>';
+        setTimeout(() => badge.innerHTML = '', 3000);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Upload Image';
+        input.value = '';
+      }
+    }
+
+    async function removeImage(productId) {
+      const removeBtn = document.getElementById(`remove-btn-${productId}`);
+      const badge = document.getElementById(`badge-${productId}`);
+      removeBtn.disabled = true;
+      badge.innerHTML = '';
+
+      try {
+        const res = await fetch(`${BASE_URL}/api/products/${productId}/image`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: 'https://placehold.co/400x300?text=No+Image' })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error('Remove failed');
+
+        // Replace image with placeholder
+        const imgEl = document.getElementById(`img-${productId}`);
+        const placeholder = document.createElement('div');
+        placeholder.className = 'placeholder';
+        placeholder.id = `img-${productId}`;
+        placeholder.textContent = 'No Image';
+        imgEl.replaceWith(placeholder);
+
+        removeBtn.style.display = 'none';
+        badge.innerHTML = '<span class="badge badge-success">✓ Removed!</span>';
+        setTimeout(() => badge.innerHTML = '', 3000);
+      } catch (err) {
+        badge.innerHTML = '<span class="badge badge-error">✗ Failed</span>';
+        setTimeout(() => badge.innerHTML = '', 3000);
+      } finally {
+        removeBtn.disabled = false;
+      }
+    }
+
+    loadProducts();
+  </script>
+</body>
+</html>
