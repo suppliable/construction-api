@@ -75,12 +75,14 @@ const getAllProducts = async (category) => {
       : `₹${prices[0]}`;
 
     const firstVariantItem = itemMap[group.items[0]?.item_id];
+    const category = group.category_name || firstVariantItem?.category_name || '';
+    console.log('Group:', group.group_name, 'category_name:', group.category_name, 'firstVariantItem category:', firstVariantItem?.category_name);
 
     return {
       id: group.group_id,
       name: group.group_name,
       brand: group.brand || group.group_name,
-      category: group.category_name || '',
+      category,
       unit: group.unit,
       description: group.description || '',
       hasVariants: true,
@@ -153,6 +155,28 @@ const getProductById = async (id) => {
       image: firstVariantItem?.custom_field_hash?.cf_image_url || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
     };
+  }
+
+  // Check if it's a variant item id inside a group
+  for (const group of groups) {
+    const variant = group.items.find(v => v.item_id === id);
+    if (variant) {
+      const fullItem = items.find(i => i.item_id === id);
+      return {
+        id: variant.item_id,
+        name: `${group.group_name} ${variant.attribute_option_name1 || ''}`.trim(),
+        brand: group.brand || group.group_name,
+        category: fullItem?.category_name || '',
+        unit: group.unit,
+        description: group.description || '',
+        hasVariants: false,
+        price: variant.rate,
+        gst_percentage: fullItem ? extractGST(fullItem) : 0,
+        hsn: fullItem?.hsn_or_sac || '',
+        image: fullItem?.custom_field_hash?.cf_image_url || buildImage(group.group_name),
+        fallbackImage: buildImage(group.group_name)
+      };
+    }
   }
 
   // Check plain items
