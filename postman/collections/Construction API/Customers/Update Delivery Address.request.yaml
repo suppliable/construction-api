@@ -1,0 +1,21 @@
+$kind: http-request
+name: Update Delivery Address
+method: PUT
+url: '{{baseUrl}}/api/customers/{{userId}}/delivery-address'
+description: Updates the delivery address for a customer.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "lat": 12.9716,
+      "lng": 77.5946,
+      "address_line1": "123 MG Road",
+      "address_line2": "Near City Mall",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "pincode": "560001",
+      "label": "Home"
+    }

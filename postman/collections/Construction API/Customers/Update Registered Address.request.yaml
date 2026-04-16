@@ -1,0 +1,19 @@
+$kind: http-request
+name: Update Registered Address
+method: PUT
+url: '{{baseUrl}}/api/customers/{{userId}}/registered-address'
+description: Updates the registered business address. Only applicable for business customers.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "address_line1": "456 Industrial Area",
+      "address_line2": "Phase 2",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "state_code": "KA",
+      "pincode": "560058"
+    }

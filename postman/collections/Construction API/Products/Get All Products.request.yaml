@@ -1,0 +1,10 @@
+$kind: http-request
+name: Get All Products
+method: GET
+url: '{{baseUrl}}/api/products'
+description: Returns all products. Optionally filter by category using the query param.
+queryParams:
+  - key: category
+    value: Cement
+    description: Filter products by category name (optional)
+    disabled: true

@@ -1,0 +1,5 @@
+$kind: http-request
+name: Get Home Screen Data
+method: GET
+url: '{{baseUrl}}/api/home'
+description: Returns full home screen data — categories and products — in a single call.

@@ -58,7 +58,7 @@ async function getZohoItemGroupById(groupId) {
 
 async function createZohoContact(contactData) {
   const token = await getAccessToken();
-  const response = await axios.post('https://www.zohoapis.in/books/v3/contacts', {
+  const contactBody = {
     contact_name: contactData.business_name || contactData.name || contactData.phone,
     company_name: contactData.business_name || contactData.name || contactData.phone,
     contact_type: 'customer',
@@ -82,11 +82,19 @@ async function createZohoContact(contactData) {
       zip: contactData.registered_address.pincode || '',
       country: 'India'
     } : {}
-  }, {
-    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    params: { organization_id: process.env.ZOHO_ORG_ID }
-  });
-  return response.data.contact;
+  };
+  console.log('Zoho contact request body:', JSON.stringify(contactBody, null, 2));
+  try {
+    const response = await axios.post('https://www.zohoapis.in/books/v3/contacts', contactBody, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      params: { organization_id: process.env.ZOHO_ORG_ID }
+    });
+    console.log('Zoho contact response:', JSON.stringify(response.data, null, 2));
+    return response.data.contact;
+  } catch (error) {
+    console.log('Zoho contact error:', JSON.stringify(error.response?.data, null, 2));
+    throw error;
+  }
 }
 
 async function updateZohoItemImage(itemId, imageUrl) {

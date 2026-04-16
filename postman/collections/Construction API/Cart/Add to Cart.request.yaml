@@ -1,0 +1,16 @@
+$kind: http-request
+name: Add to Cart
+method: POST
+url: '{{baseUrl}}/api/cart/add'
+description: Adds a product to the user's cart.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "userId": "{{userId}}",
+      "productId": "{{productId}}",
+      "quantity": 2
+    }

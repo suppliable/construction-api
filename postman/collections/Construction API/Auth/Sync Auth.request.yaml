@@ -1,0 +1,20 @@
+$kind: http-request
+name: Sync Auth
+method: POST
+url: '{{baseUrl}}/api/auth'
+description: Sync or register a user after Firebase authentication. Creates or updates the customer record.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "firebaseUid": "uid_abc123",
+      "phone": "+919876543210",
+      "name": "Arun Kumar",
+      "is_business": false,
+      "business_name": "",
+      "gstin": "",
+      "registered_address": null
+    }

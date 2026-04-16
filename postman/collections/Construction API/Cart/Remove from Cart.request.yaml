@@ -1,0 +1,15 @@
+$kind: http-request
+name: Remove from Cart
+method: DELETE
+url: '{{baseUrl}}/api/cart/remove'
+description: Removes a product from the user's cart.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "userId": "{{userId}}",
+      "productId": "{{productId}}"
+    }

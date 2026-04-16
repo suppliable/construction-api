@@ -3,7 +3,13 @@ const { createZohoContact } = require('./zohoService');
 
 async function syncCustomer(firebaseUid, phone, name, is_business, business_name, gstin, registered_address) {
   const existing = getCustomer(firebaseUid);
-  if (existing) return existing;
+  if (existing) {
+    if (name && name.trim() !== '') {
+      existing.name = name;
+      saveCustomer(existing);
+    }
+    return existing;
+  }
 
   const zohoContact = await createZohoContact({ phone, name, is_business, business_name, gstin, registered_address });
 

@@ -1,0 +1,16 @@
+$kind: http-request
+name: Update Cart Item
+method: PUT
+url: '{{baseUrl}}/api/cart/update'
+description: Updates the quantity of a product already in the cart.
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "userId": "{{userId}}",
+      "productId": "{{productId}}",
+      "quantity": 5
+    }

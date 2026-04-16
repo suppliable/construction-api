@@ -1,4 +1,4 @@
-const { getCustomer, saveCustomer } = require('../data/customers');
+const { getCustomer, saveCustomer, getAllCustomers } = require('../data/customers');
 
 function getCustomerHandler(req, res) {
   const customer = getCustomer(req.params.userId);
@@ -38,4 +38,16 @@ function updateRegisteredAddress(req, res) {
   res.json({ success: true, user: customer });
 }
 
-module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress };
+function listCustomers(req, res) {
+  res.json({ success: true, users: getAllCustomers() });
+}
+
+function getCustomerByPhone(req, res) {
+  const customer = getAllCustomers().find(c => c.phone === req.params.phone);
+  if (!customer) {
+    return res.status(404).json({ success: false, message: 'Customer not found' });
+  }
+  res.json({ success: true, user: customer });
+}
+
+module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, listCustomers, getCustomerByPhone };

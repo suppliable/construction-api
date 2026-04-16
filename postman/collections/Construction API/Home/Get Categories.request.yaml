@@ -1,0 +1,5 @@
+$kind: http-request
+name: Get Categories
+method: GET
+url: '{{baseUrl}}/api/home/categories'
+description: Returns the list of product categories derived from Zoho item groups and products.

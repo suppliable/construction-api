@@ -1,0 +1,5 @@
+$kind: http-request
+name: Get Cart
+method: GET
+url: '{{baseUrl}}/api/cart/{{userId}}'
+description: Returns the cart contents for a given user.
