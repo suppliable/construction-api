@@ -1,5 +1,19 @@
 const cartService = require('../services/cartService');
 
+async function setDeliveryCharge(req, res) {
+  try {
+    const { userId } = req.params;
+    const { deliveryCharge, addressId } = req.body;
+    if (deliveryCharge === undefined || deliveryCharge === null) {
+      return res.status(400).json({ error: 'deliveryCharge is required' });
+    }
+    const result = await cartService.setDeliveryCharge(userId, parseFloat(deliveryCharge), addressId || null);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
 async function addToCart(req, res) {
   try {
     const { userId, productId, quantity } = req.body;
@@ -43,4 +57,4 @@ async function getCart(req, res) {
   }
 }
 
-module.exports = { addToCart, updateCart, removeFromCart, getCart };
+module.exports = { addToCart, updateCart, removeFromCart, getCart, setDeliveryCharge };

@@ -83,7 +83,8 @@ const getAllProducts = async (category) => {
       id: v.item_id,
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
-      stock: v.reorder_level || 0
+      stock: itemMap[v.item_id]?.stock_on_hand || 0,
+      available_stock: itemMap[v.item_id]?.available_stock || 0
     }));
 
     const prices = variants.map(v => v.price);
@@ -124,6 +125,8 @@ const getAllProducts = async (category) => {
       description: item.description || '',
       hasVariants: false,
       price: item.rate,
+      stock: item.stock_on_hand || 0,
+      available_stock: item.available_stock || 0,
       gst_percentage: extractGST(item),
       hsn: item.hsn_or_sac || '',
       image: cache.imageMap[item.item_id] || buildImage(item.name),
@@ -154,7 +157,8 @@ const getProductById = async (id) => {
       id: v.item_id,
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
-      stock: v.reorder_level || 0
+      stock: itemMap[v.item_id]?.stock_on_hand || 0,
+      available_stock: itemMap[v.item_id]?.available_stock || 0
     }));
     const prices = variants.map(v => v.price);
     return {
@@ -188,6 +192,8 @@ const getProductById = async (id) => {
         description: group.description || '',
         hasVariants: false,
         price: variant.rate,
+        stock: fullItem?.stock_on_hand || 0,
+        available_stock: fullItem?.available_stock || 0,
         gst_percentage: fullItem ? extractGST(fullItem) : 0,
         hsn: fullItem?.hsn_or_sac || '',
         image: cache.imageMap[id] || buildImage(group.group_name),
@@ -208,6 +214,8 @@ const getProductById = async (id) => {
     description: item.description || '',
     hasVariants: false,
     price: item.rate,
+    stock: item.stock_on_hand || 0,
+    available_stock: item.available_stock || 0,
     gst_percentage: extractGST(item),
     hsn: item.hsn_or_sac || '',
     image: cache.imageMap[item.item_id] || buildImage(item.name),

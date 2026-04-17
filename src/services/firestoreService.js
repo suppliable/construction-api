@@ -121,6 +121,33 @@ async function setDefaultAddress(userId, addressId) {
   return true;
 }
 
+// ORDERS
+async function saveOrder(order) {
+  await db.collection('orders').doc(order.orderId).set(order);
+  return order;
+}
+
+async function getOrdersByUser(userId) {
+  const snapshot = await db.collection('orders')
+    .where('userId', '==', userId)
+    .orderBy('createdAt', 'desc')
+    .get();
+  if (snapshot.empty) return [];
+  return snapshot.docs.map(doc => doc.data());
+}
+
+async function getOrderById(orderId) {
+  const doc = await db.collection('orders').doc(orderId).get();
+  if (!doc.exists) return null;
+  return doc.data();
+}
+
+async function getAddressById(addressId) {
+  const doc = await db.collection('addresses').doc(addressId).get();
+  if (!doc.exists) return null;
+  return doc.data();
+}
+
 // DELIVERY CONFIG
 async function getDeliveryConfig() {
   try {
@@ -162,5 +189,9 @@ module.exports = {
   deleteAddress,
   setDefaultAddress,
   getDeliveryConfig,
-  updateDeliveryConfig
+  updateDeliveryConfig,
+  saveOrder,
+  getOrdersByUser,
+  getOrderById,
+  getAddressById
 };

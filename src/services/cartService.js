@@ -5,6 +5,24 @@ const { calculateItemPrice } = require('../utils/gstCalculator');
 async function addToCart(userId, productId, quantity) {
   const cart = await getCart(userId);
 
+  const product = await getProductById(productId);
+  if (!product) throw new Error('Product not found');
+
+  if (product.available_stock !== undefined && product.available_stock !== null) {
+    const existingItem = cart.items.find(i => i.productId === productId);
+    const existingQty = existingItem ? existingItem.quantity : 0;
+    const totalRequestedQty = existingQty + quantity;
+
+    if (totalRequestedQty > product.available_stock) {
+      const availableToAdd = product.available_stock - existingQty;
+      throw new Error(
+        availableToAdd <= 0
+          ? `Sorry, ${product.name} is out of stock`
+          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+      );
+    }
+  }
+
   const existingItem = cart.items.find(i => i.productId === productId);
   if (existingItem) {
     existingItem.quantity += quantity;
@@ -18,6 +36,25 @@ async function addToCart(userId, productId, quantity) {
 
 async function updateCartItem(userId, productId, quantity) {
   const cart = await getCart(userId);
+
+  if (quantity > 0) {
+    const product = await getProductById(productId);
+    if (!product) throw new Error('Product not found');
+
+    if (product.available_stock !== undefined && product.available_stock !== null) {
+      const existingItem = cart.items.find(i => i.productId === productId);
+      const existingQty = existingItem ? existingItem.quantity : 0;
+
+      if (quantity > product.available_stock) {
+        const availableToAdd = product.available_stock - existingQty;
+        throw new Error(
+          availableToAdd <= 0
+            ? `Sorry, ${product.name} is out of stock`
+            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+        );
+      }
+    }
+  }
 
   if (quantity <= 0) {
     cart.items = cart.items.filter(i => i.productId !== productId);
@@ -36,6 +73,14 @@ async function removeFromCart(userId, productId) {
   cart.items = cart.items.filter(i => i.productId !== productId);
   await saveCart(userId, cart);
   return await buildCartResponse(userId);
+}
+
+async function setDeliveryCharge(userId, deliveryCharge, addressId) {
+  const cart = await getCart(userId);
+  cart.deliveryCharge = deliveryCharge;
+  cart.deliveryAddressId = addressId || null;
+  await saveCart(userId, cart);
+  return { deliveryCharge, deliveryAddressId: cart.deliveryAddressId };
 }
 
 async function buildCartResponse(userId) {
@@ -70,17 +115,20 @@ async function buildCartResponse(userId) {
 
   const validItems = items.filter(Boolean);
   const totalWithoutGST = parseFloat(validItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));
+  const deliveryCharge = cart.deliveryCharge || 0;
 
   return {
     userId,
     items: validItems,
+    deliveryCharge,
+    deliveryAddressId: cart.deliveryAddressId || null,
     summary: {
       totalItems: validItems.reduce((sum, i) => sum + i.quantity, 0),
       totalWithoutGST,
       totalGST: parseFloat(totalGST.toFixed(2)),
-      grandTotal: parseFloat(grandTotal.toFixed(2))
+      grandTotal: parseFloat((grandTotal + deliveryCharge).toFixed(2))
     }
   };
 }
 
-module.exports = { addToCart, updateCartItem, removeFromCart, buildCartResponse };
+module.exports = { addToCart, updateCartItem, removeFromCart, setDeliveryCharge, buildCartResponse };
