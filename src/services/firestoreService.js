@@ -121,7 +121,34 @@ async function setDefaultAddress(userId, addressId) {
   return true;
 }
 
+// DELIVERY CONFIG
+async function getDeliveryConfig() {
+  try {
+    const doc = await db.collection('config').doc('deliveryConfig').get();
+    if (!doc.exists) {
+      return {
+        freeDeliveryEnabled: false,
+        freeDeliveryThreshold: null,
+        freeDeliveryPincodes: []
+      };
+    }
+    return doc.data();
+  } catch (err) {
+    return {
+      freeDeliveryEnabled: false,
+      freeDeliveryThreshold: null,
+      freeDeliveryPincodes: []
+    };
+  }
+}
+
+async function updateDeliveryConfig(config) {
+  await db.collection('config').doc('deliveryConfig').set(config, { merge: true });
+  return config;
+}
+
 module.exports = {
+  db,
   getCustomer,
   saveCustomer,
   getCustomerByPhone,
@@ -133,5 +160,7 @@ module.exports = {
   addAddress,
   updateAddress,
   deleteAddress,
-  setDefaultAddress
+  setDefaultAddress,
+  getDeliveryConfig,
+  updateDeliveryConfig
 };

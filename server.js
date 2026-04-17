@@ -11,6 +11,7 @@ const authRoutes = require('./src/routes/auth');
 const customerRoutes = require('./src/routes/customers');
 const uploadRoutes = require('./src/routes/upload');
 const addressRoutes = require('./src/routes/address');
+const deliveryRoutes = require('./src/routes/delivery');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/address', addressRoutes);
+app.use('/api/delivery', deliveryRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {
