@@ -1,12 +1,50 @@
-const { getCart, saveCart, getCustomer, getAddressById, saveOrder, getOrdersByUser, getOrderById } = require('../services/firestoreService');
+const { getCart, saveCart, getCustomer, getAddressById, saveOrder, getOrdersByUser, getOrderById, getSettings } = require('../services/firestoreService');
 const { getProductById } = require('../services/productService');
-const { createZohoSalesOrder } = require('../services/zohoOrderService');
+
+const STATUS_LABELS = {
+  pending_payment: 'Awaiting Payment',
+  payment_confirmed: 'Payment Confirmed',
+  warehouse_review: 'Order Placed',
+  accepted: 'Order Accepted',
+  packing: 'Order Accepted',
+  ready_for_dispatch: 'Ready for Pickup',
+  loading: 'Loading into Vehicle',
+  out_for_delivery: 'Out for Delivery',
+  arrived: 'Driver has Arrived',
+  delivered: 'Delivered',
+  declined: 'Order Cancelled'
+};
+
+function enrichOrderForCustomer(order) {
+  return {
+    ...order,
+    statusLabel: STATUS_LABELS[order.status] || order.status,
+    driverName: order.vehicle?.driverName || null,
+    driverPhone: order.vehicle?.driverPhone || null,
+    deliveryOtp: order.status === 'arrived' ? order.deliveryOtp : undefined,
+    estimatedDelivery: null
+  };
+}
 
 const createOrder = async (req, res) => {
   try {
-    const { userId, addressId } = req.body;
+    const { userId, addressId, paymentType } = req.body;
     if (!userId) return res.status(400).json({ success: false, message: 'userId is required' });
     if (!addressId) return res.status(400).json({ success: false, message: 'addressId is required' });
+    if (!paymentType || !['COD', 'ONLINE'].includes(paymentType)) {
+      return res.status(400).json({ success: false, message: 'paymentType must be COD or ONLINE' });
+    }
+
+    // 0. Check warehouse is open
+    const settings = await getSettings();
+    if (settings.warehouseOpen === false) {
+      return res.status(400).json({
+        success: false,
+        error: 'WAREHOUSE_CLOSED',
+        message: settings.warehouseClosedMessage || 'We are currently closed.',
+        canAddToCart: true
+      });
+    }
 
     // 1. Fetch cart
     const cart = await getCart(userId);
@@ -20,7 +58,7 @@ const createOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Address not found' });
     }
 
-    // 3. Re-validate stock for all items and build enriched line items
+    // 3. Re-validate stock and build enriched line items
     const stockIssues = [];
     const lineItems = [];
 
@@ -66,36 +104,44 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Stock validation failed', issues: stockIssues });
     }
 
-    // 4. Fetch Zoho contact ID and phone from customer record
-    const customer = await getCustomer(userId);
-    if (!customer || !customer.zoho_contact_id) {
-      return res.status(400).json({ success: false, message: 'Customer Zoho account not found' });
-    }
-    const phone = customer.phone || null;
-    const deliveryCharge = cart.deliveryCharge || cart.delivery_charge || 0;
-
-    // 5. Create Sales Order in Zoho Inventory
-    const zohoSO = await createZohoSalesOrder(customer.zoho_contact_id, lineItems, address, deliveryCharge, phone);
-
-    // 6. Compute totals
+    // 4. Compute totals
     const subtotal = parseFloat(lineItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));
     const gst_total = parseFloat(lineItems.reduce((sum, i) => sum + i.gstAmount, 0).toFixed(2));
-    const grand_total = parseFloat(lineItems.reduce((sum, i) => sum + i.grandTotal, 0).toFixed(2));
+    const deliveryCharge = cart.deliveryCharge || cart.delivery_charge || 0;
+    const grand_total = parseFloat((subtotal + gst_total + deliveryCharge).toFixed(2));
+
+    // 5. COD threshold check
+    if (paymentType === 'COD') {
+      const cod_threshold = settings.cod_threshold ?? 7500;
+      if (grand_total > cod_threshold) {
+        return res.status(400).json({
+          success: false,
+          error: 'COD_THRESHOLD_EXCEEDED',
+          message: `COD not available for orders above ₹${cod_threshold}. Please use online payment.`
+        });
+      }
+    }
+
+    // 6. Fetch customer record
+    const customer = await getCustomer(userId);
+    if (!customer) {
+      return res.status(400).json({ success: false, message: 'Customer not found' });
+    }
 
     // 7. Save order to Firestore
     const orderId = 'ORD' + Date.now();
     const order = {
       orderId,
-      zoho_so_id: zohoSO.salesorder_id,
-      zoho_so_number: zohoSO.salesorder_number,
       userId,
       addressId,
       items: lineItems,
       subtotal,
       gst_total,
       delivery_charge: deliveryCharge,
-      grand_total: parseFloat((grand_total + deliveryCharge).toFixed(2)),
-      status: 'confirmed',
+      grand_total,
+      paymentType,
+      paymentStatus: paymentType === 'COD' ? 'confirmed' : 'pending',
+      status: 'warehouse_review',
       createdAt: new Date().toISOString()
     };
     await saveOrder(order);
@@ -115,7 +161,7 @@ const getUserOrders = async (req, res) => {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ success: false, message: 'userId is required' });
     const orders = await getOrdersByUser(userId);
-    res.json({ success: true, orders });
+    res.json({ success: true, orders: orders.map(enrichOrderForCustomer) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -126,7 +172,7 @@ const getOrderDetail = async (req, res) => {
     const { orderId } = req.params;
     const order = await getOrderById(orderId);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    res.json({ success: true, order });
+    res.json({ success: true, order: enrichOrderForCustomer(order) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

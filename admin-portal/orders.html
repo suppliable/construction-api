@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --navy-hover:#323a5c;
+    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --amber:#f59e0b; --blue2:#3b82f6; --purple:#8b5cf6;
+    --orange:#f97316; --green:#10b981; --red2:#ef4444;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  /* SIDEBAR */
+  .sidebar {
+    width:220px; min-height:100vh; background:var(--navy);
+    display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40;
+  }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px;
+    padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
+    cursor:pointer; text-decoration:none; transition:background 0.15s;
+    border-left:3px solid transparent;
+  }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; flex-shrink:0; }
+
+  /* MAIN */
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+
+  /* TOP BAR */
+  .topbar {
+    height:60px; background:#fff; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; position:sticky; top:0; z-index:30;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+  }
+  .topbar-title { font-size:18px; font-weight:700; color:var(--text); }
+  .topbar-right { display:flex; align-items:center; gap:12px; }
+  .icon-btn {
+    background:none; border:1px solid var(--border); border-radius:8px;
+    width:36px; height:36px; cursor:pointer; font-size:16px;
+    display:flex; align-items:center; justify-content:center; position:relative;
+    transition:background 0.15s;
+  }
+  .icon-btn:hover { background:var(--bg); }
+  .badge {
+    position:absolute; top:-5px; right:-5px;
+    background:var(--red); color:#fff; font-size:10px; font-weight:700;
+    min-width:18px; height:18px; border-radius:9px; display:flex;
+    align-items:center; justify-content:center; padding:0 4px;
+  }
+  .badge.hidden { display:none; }
+  .btn-logout {
+    background:none; border:none; color:var(--muted); font-size:13px;
+    font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px;
+    border-radius:6px; transition:background 0.15s;
+  }
+  .btn-logout:hover { background:var(--bg); color:var(--text); }
+
+  /* CONTENT */
+  .content { padding:24px; overflow-y:auto; flex:1; }
+
+  /* STATS */
+  .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+  .stat-card {
+    background:#fff; border-radius:10px; padding:20px;
+    border-left:4px solid var(--border);
+    box-shadow:0 1px 3px rgba(0,0,0,0.06);
+  }
+  .stat-card.blue { border-left-color:var(--blue2); }
+  .stat-card.amber { border-left-color:var(--amber); }
+  .stat-card.orange { border-left-color:var(--orange); }
+  .stat-card.green { border-left-color:var(--green); }
+  .stat-num { font-size:32px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); }
+  .stat-label { font-size:12px; color:var(--muted); margin-top:4px; font-weight:500; }
+
+  /* FILTERS */
+  .filters-row { display:flex; gap:8px; margin-bottom:16px; overflow-x:auto; padding-bottom:4px; flex-wrap:wrap; }
+  .filter-pill {
+    padding:6px 14px; border-radius:20px; font-size:13px; font-weight:500;
+    border:1.5px solid var(--border); background:#fff; color:var(--muted);
+    cursor:pointer; white-space:nowrap; transition:all 0.15s;
+  }
+  .filter-pill:hover { border-color:#aaa; color:var(--text); }
+  .filter-pill.active-all { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .filter-pill.active-amber { background:var(--amber); color:#fff; border-color:var(--amber); }
+  .filter-pill.active-blue2 { background:var(--blue2); color:#fff; border-color:var(--blue2); }
+  .filter-pill.active-purple { background:var(--purple); color:#fff; border-color:var(--purple); }
+  .filter-pill.active-orange { background:var(--orange); color:#fff; border-color:var(--orange); }
+  .filter-pill.active-green { background:var(--green); color:#fff; border-color:var(--green); }
+  .filter-pill.active-red2 { background:var(--red2); color:#fff; border-color:var(--red2); }
+
+  /* SEARCH */
+  .search-wrap { margin-bottom:12px; }
+  .search-input {
+    width:100%; max-width:380px; padding:9px 14px;
+    border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text);
+    outline:none; transition:border-color 0.2s;
+  }
+  .search-input:focus { border-color:var(--blue); }
+
+  /* TABLE */
+  .table-card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  table { width:100%; border-collapse:collapse; }
+  thead th {
+    padding:11px 14px; text-align:left; font-size:11px; font-weight:700;
+    color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
+    background:#f8f9fc; border-bottom:1px solid var(--border);
+  }
+  tbody tr { border-bottom:1px solid var(--border); transition:background 0.12s; cursor:pointer; }
+  tbody tr:last-child { border-bottom:none; }
+  tbody tr:hover { background:#f8f9fc; }
+  tbody tr.row-review { background:#fffbeb; border-left:3px solid var(--amber); }
+  tbody tr.row-review:hover { background:#fef3c7; }
+  td { padding:12px 14px; font-size:13px; vertical-align:middle; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .order-id-link { color:var(--blue); font-weight:600; }
+  .amount { font-family:'JetBrains Mono',monospace; font-weight:600; font-size:13px; }
+  .pill {
+    display:inline-flex; align-items:center;
+    padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; white-space:nowrap;
+  }
+  .pill-cod { background:#fff3e0; color:#e65100; }
+  .pill-online { background:#e3f2fd; color:#1565c0; }
+  .pill-review { background:#fef3c7; color:#92400e; }
+  .pill-accepted { background:#dbeafe; color:#1e40af; }
+  .pill-packing { background:#ede9fe; color:#5b21b6; }
+  .pill-ready { background:#ede9fe; color:#5b21b6; }
+  .pill-loading { background:#fff3e0; color:#c2410c; }
+  .pill-out { background:#fff3e0; color:#c2410c; }
+  .pill-arrived { background:#fef9c3; color:#92400e; }
+  .pill-delivered { background:#d1fae5; color:#065f46; }
+  .pill-declined { background:#fee2e2; color:#991b1b; }
+  .action-btn {
+    background:none; border:1px solid var(--border); border-radius:6px;
+    width:30px; height:30px; cursor:pointer; font-size:14px;
+    display:flex; align-items:center; justify-content:center; transition:all 0.15s;
+  }
+  .action-btn:hover { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
+  .empty-state .icon { font-size:48px; display:block; margin-bottom:12px; }
+
+  /* PANEL OVERLAY */
+  .overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35);
+    z-index:45; backdrop-filter:blur(2px);
+  }
+  .overlay.show { display:block; }
+
+  /* SIDE PANEL */
+  .side-panel {
+    position:fixed; right:0; top:0; height:100vh; width:480px;
+    background:#fff; z-index:50; box-shadow:-8px 0 40px rgba(0,0,0,0.15);
+    transform:translateX(100%); transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);
+    display:flex; flex-direction:column;
+  }
+  .side-panel.open { transform:translateX(0); }
+  .panel-header {
+    background:var(--navy); color:#fff; padding:18px 20px;
+    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+  }
+  .panel-title { font-size:15px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .panel-close {
+    background:rgba(255,255,255,0.15); border:none; color:#fff;
+    width:32px; height:32px; border-radius:6px; cursor:pointer;
+    font-size:18px; display:flex; align-items:center; justify-content:center;
+    transition:background 0.15s;
+  }
+  .panel-close:hover { background:rgba(255,255,255,0.25); }
+  .panel-body { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+
+  .p-section { background:#f8f9fc; border-radius:10px; padding:16px; border:1px solid var(--border); }
+  .p-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:12px; }
+  .p-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:14px; }
+  .p-row:last-child { margin-bottom:0; }
+  .p-row a { color:var(--blue); text-decoration:none; }
+  .p-row a:hover { text-decoration:underline; }
+  .p-label { color:var(--muted); font-size:12px; width:90px; flex-shrink:0; }
+  .p-val { font-weight:600; }
+
+  .items-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .items-table th { padding:8px 10px; text-align:left; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; border-bottom:1px solid var(--border); }
+  .items-table td { padding:9px 10px; border-bottom:1px solid var(--border); }
+  .items-table tr:last-child td { border-bottom:none; }
+  .items-table tr:nth-child(even) td { background:#f8f9fc; }
+
+  .totals-block { text-align:right; }
+  .total-row { display:flex; justify-content:flex-end; gap:24px; padding:4px 0; font-size:13px; color:var(--muted); }
+  .total-row.grand { font-size:16px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:10px; margin-top:6px; }
+  .total-row .amt { font-family:'JetBrains Mono',monospace; min-width:80px; text-align:right; }
+
+  .action-panel { display:flex; flex-direction:column; gap:10px; }
+  .btn-full {
+    width:100%; padding:13px; border-radius:8px; border:none;
+    font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
+    cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .btn-full:disabled { opacity:0.5; cursor:not-allowed; }
+  .btn-green { background:var(--green); color:#fff; }
+  .btn-green:hover:not(:disabled) { background:#059669; }
+  .btn-red-outline { background:#fff; color:var(--red2); border:1.5px solid var(--red2); }
+  .btn-red-outline:hover:not(:disabled) { background:#fee2e2; }
+  .btn-blue { background:var(--blue); color:#fff; }
+  .btn-blue:hover:not(:disabled) { background:#0d47a1; }
+  .btn-navy { background:var(--navy); color:#fff; }
+  .btn-navy:hover:not(:disabled) { background:var(--navy-light); }
+
+  .vehicle-form { display:flex; flex-direction:column; gap:10px; }
+  .vehicle-form select {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:7px;
+    font-family:'DM Sans',sans-serif; font-size:14px; outline:none; background:#fff; cursor:pointer;
+  }
+  .vehicle-form select:focus { border-color:var(--blue); }
+
+  .info-box { padding:14px; border-radius:8px; font-size:13px; }
+  .info-box.grey { background:#f1f5f9; color:var(--muted); border:1px solid var(--border); }
+  .info-box.success { background:#d1fae5; color:#065f46; border:1px solid #a7f3d0; }
+  .delivery-photo { width:100%; border-radius:8px; margin-top:10px; border:1px solid var(--border); }
+
+  /* TIMELINE */
+  .timeline { padding:4px 0; }
+  .tl-item { display:flex; align-items:flex-start; gap:12px; margin-bottom:4px; }
+  .tl-left { display:flex; flex-direction:column; align-items:center; width:20px; flex-shrink:0; }
+  .tl-dot {
+    width:20px; height:20px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:10px;
+  }
+  .tl-dot.done { background:var(--green); color:#fff; }
+  .tl-dot.current { background:var(--blue2); color:#fff; box-shadow:0 0 0 4px rgba(59,130,246,0.2); }
+  .tl-dot.future { background:var(--border); color:var(--muted); }
+  .tl-line { width:2px; height:20px; background:var(--border); margin:2px 0; }
+  .tl-line.done { background:var(--green); }
+  .tl-line.dashed { background:repeating-linear-gradient(to bottom, var(--border) 0, var(--border) 4px, transparent 4px, transparent 8px); }
+  .tl-content { padding-top:1px; }
+  .tl-label { font-size:13px; font-weight:600; color:var(--text); }
+  .tl-label.done { color:var(--green); }
+  .tl-label.current { color:var(--blue2); }
+  .tl-label.future { color:var(--muted); }
+  .tl-time { font-size:11px; color:var(--muted); margin-top:1px; }
+
+  /* TOAST */
+  #toast {
+    position:fixed; bottom:24px; right:24px; z-index:999;
+    background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px;
+    font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25);
+    transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none;
+  }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.error { background:var(--red2); }
+  #toast.success { background:var(--green); }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item active" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Orders</div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="soundToggle" onclick="toggleSound()" title="Toggle sound alerts">🔔</button>
+      <button class="icon-btn" id="bellBtn" title="Pending review orders">
+        🔔<span class="badge hidden" id="pendingBadge">0</span>
+      </button>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- STATS -->
+    <div class="stats-grid">
+      <div class="stat-card blue"><div class="stat-num mono" id="stat-today">—</div><div class="stat-label">Today's Orders</div></div>
+      <div class="stat-card amber"><div class="stat-num mono" id="stat-review">—</div><div class="stat-label">Pending Review</div></div>
+      <div class="stat-card orange"><div class="stat-num mono" id="stat-delivering">—</div><div class="stat-label">Out for Delivery</div></div>
+      <div class="stat-card green"><div class="stat-num mono" id="stat-delivered">—</div><div class="stat-label">Delivered Today</div></div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filters-row" id="filterRow">
+      <button class="filter-pill active-all" data-filter="all" onclick="setFilter('all',this)">All</button>
+      <button class="filter-pill" data-filter="warehouse_review" onclick="setFilter('warehouse_review',this)">Review</button>
+      <button class="filter-pill" data-filter="accepted" onclick="setFilter('accepted',this)">Accepted</button>
+      <button class="filter-pill" data-filter="packing" onclick="setFilter('packing',this)">Packing</button>
+      <button class="filter-pill" data-filter="ready_for_dispatch" onclick="setFilter('ready_for_dispatch',this)">Ready</button>
+      <button class="filter-pill" data-filter="out_for_delivery" onclick="setFilter('out_for_delivery',this)">Out for Delivery</button>
+      <button class="filter-pill" data-filter="delivered" onclick="setFilter('delivered',this)">Delivered</button>
+      <button class="filter-pill" data-filter="declined" onclick="setFilter('declined',this)">Declined</button>
+    </div>
+
+    <!-- SEARCH -->
+    <div class="search-wrap">
+      <input type="text" class="search-input" id="searchInput" placeholder="Search by Order ID or customer name..." oninput="renderTable()">
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Order ID</th><th>Customer</th><th>Phone</th>
+            <th>Items</th><th>Amount</th><th>Payment</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="ordersTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- OVERLAY -->
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+
+<!-- SIDE PANEL -->
+<div class="side-panel" id="sidePanel">
+  <div class="panel-header">
+    <div>
+      <div class="panel-title" id="panelOrderId">Order #—</div>
+      <div id="panelStatusBadge" style="margin-top:6px;"></div>
+    </div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body" id="panelBody"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = 'http://localhost:3000';
+
+// Auth guard
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+
+function logout() {
+  sessionStorage.clear();
+  window.location.href = 'login.html';
+}
+
+// ---- DATA ----
+let ordersData = [];
+let currentFilter = 'all';
+let currentOrder = null;
+let lastNewCount = 0;
+
+// ---- FETCH ORDERS ----
+async function fetchOrders() {
+  try {
+    const res = await apiFetch('/api/admin/orders');
+    const data = await res.json();
+    if (data.success) {
+      ordersData = data.orders || [];
+      updateStats();
+      renderTable();
+    }
+  } catch(e) {}
+}
+
+function updateStats() {
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('stat-today').textContent =
+    ordersData.filter(o => o.createdAt && o.createdAt.startsWith(today)).length;
+  document.getElementById('stat-review').textContent =
+    ordersData.filter(o => o.status === 'warehouse_review').length;
+  document.getElementById('stat-delivering').textContent =
+    ordersData.filter(o => ['out_for_delivery','loading','arrived'].includes(o.status)).length;
+  document.getElementById('stat-delivered').textContent =
+    ordersData.filter(o => o.status === 'delivered' && o.createdAt && o.createdAt.startsWith(today)).length;
+}
+
+// ---- FILTER + SEARCH ----
+function setFilter(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-pill').forEach(p => {
+    p.className = 'filter-pill';
+  });
+  const colorMap = {
+    all:'active-all', warehouse_review:'active-amber', accepted:'active-blue2',
+    packing:'active-purple', ready_for_dispatch:'active-purple',
+    out_for_delivery:'active-orange', delivered:'active-green', declined:'active-red2'
+  };
+  el.classList.add(colorMap[f] || 'active-all');
+  renderTable();
+}
+
+function getFiltered() {
+  let list = currentFilter === 'all' ? ordersData : ordersData.filter(o => o.status === currentFilter);
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (q) {
+    list = list.filter(o =>
+      o.orderId?.toLowerCase().includes(q) ||
+      o.customer?.name?.toLowerCase().includes(q)
+    );
+  }
+  return list;
+}
+
+// ---- RENDER TABLE ----
+function renderTable() {
+  const list = getFiltered();
+  const tbody = document.getElementById('ordersTableBody');
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><span class="icon">📭</span>No orders found</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(o => {
+    const rowClass = o.status === 'warehouse_review' ? 'row-review' : '';
+    const itemCount = o.items?.length || 0;
+    const amt = '₹' + (o.grand_total || 0).toLocaleString('en-IN');
+    return `<tr class="${rowClass}" onclick="openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">
+      <td style="color:var(--muted);font-size:12px">${timeAgo(o.createdAt)}</td>
+      <td><span class="mono order-id-link">${o.orderId}</span></td>
+      <td>${o.customer?.name || '—'}</td>
+      <td style="font-size:12px;color:var(--muted)">${o.customer?.phone || '—'}</td>
+      <td style="color:var(--muted)">${itemCount} item${itemCount!==1?'s':''}</td>
+      <td><span class="amount">${amt}</span></td>
+      <td><span class="pill ${o.paymentType==='COD'?'pill-cod':'pill-online'}">${o.paymentType}</span></td>
+      <td>${statusPill(o.status)}</td>
+      <td><button class="action-btn" onclick="event.stopPropagation();openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">👁</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// ---- PANEL ----
+async function openPanel(order) {
+  currentOrder = order;
+  document.getElementById('panelOrderId').textContent = 'Order #' + order.orderId;
+  document.getElementById('panelStatusBadge').innerHTML = statusPill(order.status);
+  document.getElementById('panelBody').innerHTML = buildPanelBody(order);
+  document.getElementById('sidePanel').classList.add('open');
+  document.getElementById('overlay').classList.add('show');
+  // Fetch full detail to get deliveryAddress and complete data
+  try {
+    const res = await apiFetch(`/api/admin/orders/${order.orderId}`);
+    const data = await res.json();
+    if (data.success && data.order) {
+      currentOrder = data.order;
+      document.getElementById('panelBody').innerHTML = buildPanelBody(data.order);
+      // Reload vehicle/driver dropdowns if still on ready_for_dispatch
+      if (data.order.status === 'ready_for_dispatch') loadVehiclesAndDrivers();
+    }
+  } catch(e) {}
+}
+
+function closePanel() {
+  document.getElementById('sidePanel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+  currentOrder = null;
+}
+
+function buildPanelBody(o) {
+  const addr = o.deliveryAddress;
+  let addrStr = '—';
+  if (addr) {
+    const line1 = [addr.flatNo, addr.buildingName, addr.streetAddress].filter(Boolean).join(', ');
+    const line2 = [addr.landmark, addr.area].filter(Boolean).join(', ');
+    const line3 = [addr.city, addr.state ? addr.state + ' — ' + (addr.pincode || '') : addr.pincode].filter(Boolean).join(', ');
+    addrStr = [line1, line2, line3].filter(Boolean).join(', ');
+  }
+
+  // Items table
+  const itemRows = (o.items || []).map((it, i) => `
+    <tr>
+      <td>${it.name || it.productName}</td>
+      <td style="color:var(--muted);font-size:12px">${it.rackNumber || 'N/A'}</td>
+      <td class="mono">${it.quantity}</td>
+      <td style="color:var(--muted)">${it.unit || ''}</td>
+      <td class="mono">₹${(it.unitPrice||0).toLocaleString('en-IN')}</td>
+      <td class="mono" style="font-weight:600">₹${(it.grandTotal||0).toLocaleString('en-IN')}</td>
+    </tr>`).join('');
+
+  // Totals
+  const totals = `
+    <div class="totals-block">
+      <div class="total-row"><span>Subtotal</span><span class="amt">₹${(o.subtotal||0).toLocaleString('en-IN')}</span></div>
+      <div class="total-row"><span>GST</span><span class="amt">₹${(o.gst_total||0).toLocaleString('en-IN')}</span></div>
+      <div class="total-row"><span>Delivery</span><span class="amt">₹${(o.delivery_charge ?? o.deliveryCharge ?? 0).toLocaleString('en-IN')}</span></div>
+      <div class="total-row grand"><span>Grand Total</span><span class="amt">₹${(o.grand_total||0).toLocaleString('en-IN')}</span></div>
+    </div>`;
+
+  // Actions
+  const actions = buildActions(o);
+
+  // Timeline
+  const timeline = buildTimeline(o);
+
+  return `
+    <div class="p-section">
+      <div class="p-section-title">Customer</div>
+      <div class="p-row">👤 <strong>${o.customer?.name || '—'}</strong></div>
+      <div class="p-row">📞 <a href="tel:${o.customer?.phone}">${o.customer?.phone || '—'}</a></div>
+      <div class="p-row">
+        <span class="p-label">Payment</span>
+        <span class="pill ${o.paymentType==='COD'?'pill-cod':'pill-online'}">${o.paymentType}</span>
+        &nbsp;${statusPill(o.paymentStatus||o.status)}
+      </div>
+      ${o.zoho_so_number ? `<div class="p-row"><span class="p-label">SO#</span><span class="mono" style="font-size:12px;color:var(--blue)">${o.zoho_so_number}</span></div>` : ''}
+      ${o.zoho_invoice_number ? `<div class="p-row"><span class="p-label">Invoice#</span><span class="mono" style="font-size:12px">${o.zoho_invoice_number}</span></div>` : ''}
+    </div>
+
+    <div class="p-section">
+      <div class="p-section-title">Delivery Address</div>
+      <div style="font-size:14px;line-height:1.6">📍 ${addrStr}</div>
+    </div>
+
+    <div class="p-section">
+      <div class="p-section-title">Items</div>
+      <table class="items-table">
+        <thead><tr><th>Product</th><th>Rack</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Total</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <div style="margin-top:12px">${totals}</div>
+    </div>
+
+    <div class="p-section">
+      <div class="p-section-title">Actions</div>
+      <div class="action-panel" id="actionPanel">${actions}</div>
+    </div>
+
+    <div class="p-section">
+      <div class="p-section-title">Status Timeline</div>
+      ${timeline}
+    </div>`;
+}
+
+function buildActions(o) {
+  switch(o.status) {
+    case 'warehouse_review':
+      return `
+        <button class="btn-full btn-green" onclick="acceptOrder('${o.orderId}')">✓ Accept Order</button>
+        <button class="btn-full btn-red-outline" onclick="declineOrder('${o.orderId}')">✗ Decline Order</button>`;
+    case 'accepted':
+      return `<button class="btn-full btn-blue" onclick="markPacked('${o.orderId}')">📦 Mark as Packed</button>`;
+    case 'ready_for_dispatch':
+      loadVehiclesAndDrivers();
+      return `
+        <div class="vehicle-form">
+          <select id="vSelect"><option value="">Loading vehicles...</option></select>
+          <select id="dSelect"><option value="">Loading drivers...</option></select>
+          <button class="btn-full btn-navy" onclick="assignVehicle('${o.orderId}')">🚗 Assign & Dispatch</button>
+        </div>`;
+    case 'loading':
+      return `<div class="info-box grey">🔄 Vehicle loaded — driver is preparing for departure.<br><small style="margin-top:4px;display:block;color:var(--muted)">Assigned: ${o.assignedAt ? fmtDate(o.assignedAt) : '—'}</small></div>`;
+    case 'out_for_delivery':
+      return `<div class="info-box grey">🚚 Order is out for delivery.<br><small style="margin-top:4px;display:block;color:var(--muted)">Dispatched: ${o.loadingCompleteAt ? fmtDate(o.loadingCompleteAt) : '—'}</small></div>`;
+    case 'arrived':
+      return `<div class="info-box grey">📍 Driver has arrived at delivery location.<br><small style="margin-top:4px;display:block;color:var(--muted)">Arrived: ${o.arrivedAt ? fmtDate(o.arrivedAt) : '—'}</small></div>`;
+    case 'delivered':
+      return `<div class="info-box success">✅ Delivered on ${o.deliveredAt ? fmtDate(o.deliveredAt) : '—'}
+        ${o.deliveryPhotoUrl ? `<br><img src="${o.deliveryPhotoUrl}" class="delivery-photo" alt="Delivery proof">` : ''}
+      </div>`;
+    case 'declined':
+      return `<div class="info-box grey">❌ Order was declined on ${o.declinedAt ? fmtDate(o.declinedAt) : '—'}</div>`;
+    default:
+      return `<div class="info-box grey">Status: ${o.status}</div>`;
+  }
+}
+
+function buildTimeline(o) {
+  const steps = [
+    { key: 'warehouse_review', label: 'Order Placed', ts: o.createdAt },
+    { key: 'accepted', label: 'Accepted', ts: o.acceptedAt },
+    { key: 'ready_for_dispatch', label: 'Packing Done', ts: o.packedAt },
+    { key: 'loading', label: 'Dispatched', ts: o.assignedAt },
+    { key: 'out_for_delivery', label: 'Out for Delivery', ts: o.loadingCompleteAt },
+    { key: 'delivered', label: 'Delivered', ts: o.deliveredAt }
+  ];
+  const order_seq = ['warehouse_review','accepted','ready_for_dispatch','loading','out_for_delivery','arrived','delivered'];
+  const currentIdx = order_seq.indexOf(o.status);
+
+  return `<div class="timeline">` + steps.map((step, i) => {
+    const stepIdx = order_seq.indexOf(step.key);
+    const isDone = currentIdx > stepIdx;
+    const isCurrent = currentIdx === stepIdx || (step.key === 'out_for_delivery' && ['out_for_delivery','arrived'].includes(o.status));
+    const isFuture = !isDone && !isCurrent;
+    const dotClass = isDone ? 'done' : isCurrent ? 'current' : 'future';
+    const labelClass = isDone ? 'done' : isCurrent ? 'current' : 'future';
+    const lineClass = isDone ? 'done' : isCurrent ? '' : 'dashed';
+    const isLast = i === steps.length - 1;
+    return `
+      <div class="tl-item">
+        <div class="tl-left">
+          <div class="tl-dot ${dotClass}">${isDone ? '✓' : isCurrent ? '●' : ''}</div>
+          ${!isLast ? `<div class="tl-line ${lineClass}"></div>` : ''}
+        </div>
+        <div class="tl-content" style="padding-bottom:${isLast?'0':'16px'}">
+          <div class="tl-label ${labelClass}">${step.label}</div>
+          ${step.ts ? `<div class="tl-time">${fmtDate(step.ts)}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('') + `</div>`;
+}
+
+// ---- ORDER ACTIONS ----
+async function acceptOrder(orderId) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Processing...';
+  try {
+    const res = await apiFetch(`/api/admin/orders/${orderId}/accept`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Order accepted! SO created.', 'success');
+      await fetchOrders();
+      // Refresh panel with updated order
+      const updated = ordersData.find(o => o.orderId === orderId);
+      if (updated) openPanel(updated); else closePanel();
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '✓ Accept Order';
+    }
+  } catch(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '✓ Accept Order'; }
+}
+
+async function declineOrder(orderId) {
+  if (!confirm(`Decline order ${orderId}? This cannot be undone.`)) return;
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Declining...';
+  try {
+    const res = await apiFetch(`/api/admin/orders/${orderId}/decline`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Order declined.', 'error');
+      await fetchOrders();
+      closePanel();
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '✗ Decline Order';
+    }
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function markPacked(orderId) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Updating...';
+  try {
+    const res = await apiFetch(`/api/admin/orders/${orderId}/packed`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Marked as packed!', 'success');
+      await fetchOrders();
+      const updated = ordersData.find(o => o.orderId === orderId);
+      if (updated) openPanel(updated); else closePanel();
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '📦 Mark as Packed';
+    }
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function loadVehiclesAndDrivers() {
+  try {
+    const [vRes, dRes] = await Promise.all([
+      apiFetch('/api/admin/vehicles'),
+      apiFetch('/api/admin/drivers')
+    ]);
+    const [vData, dData] = await Promise.all([vRes.json(), dRes.json()]);
+    const vSel = document.getElementById('vSelect');
+    const dSel = document.getElementById('dSelect');
+    if (!vSel || !dSel) return;
+    const available = (vData.vehicles || []).filter(v => v.isAvailable);
+    vSel.innerHTML = available.length
+      ? `<option value="">Select vehicle...</option>` + available.map(v => `<option value="${v.vehicleId}">${v.name}</option>`).join('')
+      : `<option value="">No vehicles available</option>`;
+    const dAvail = (dData.drivers || []).filter(d => d.isAvailable);
+    dSel.innerHTML = dAvail.length
+      ? `<option value="">Select driver...</option>` + dAvail.map(d => `<option value="${d.driverId}">${d.name} — ${d.phone}</option>`).join('')
+      : `<option value="">No drivers available</option>`;
+  } catch(e) {}
+}
+
+async function assignVehicle(orderId) {
+  const vehicleId = document.getElementById('vSelect')?.value;
+  const driverId = document.getElementById('dSelect')?.value;
+  if (!vehicleId || !driverId) { showToast('Select a vehicle and driver', 'error'); return; }
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Assigning...';
+  try {
+    const res = await apiFetch(`/api/admin/orders/${orderId}/assign-vehicle`, {
+      method: 'POST',
+      body: JSON.stringify({ vehicleId, driverId })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Vehicle assigned! Order dispatched.', 'success');
+      await fetchOrders();
+      const updated = ordersData.find(o => o.orderId === orderId);
+      if (updated) openPanel(updated); else closePanel();
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '🚗 Assign & Dispatch';
+    }
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ---- SOUND + POLLING ----
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 400, 800].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880; gain.gain.value = 0.3;
+      osc.start(ctx.currentTime + delay/1000);
+      osc.stop(ctx.currentTime + delay/1000 + 0.25);
+    });
+  } catch(e) {}
+}
+
+function toggleSound() {
+  const enabled = localStorage.getItem('soundEnabled') !== 'false';
+  localStorage.setItem('soundEnabled', enabled ? 'false' : 'true');
+  document.getElementById('soundToggle').textContent = enabled ? '🔕' : '🔔';
+}
+
+// Init sound icon
+document.getElementById('soundToggle').textContent =
+  localStorage.getItem('soundEnabled') === 'false' ? '🔕' : '🔔';
+
+async function pollNewOrders() {
+  try {
+    const res = await apiFetch('/api/admin/orders/new-count');
+    const data = await res.json();
+    if (data.success) {
+      const count = data.count || 0;
+      const badge = document.getElementById('pendingBadge');
+      if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+      if (count > lastNewCount && lastNewCount >= 0) {
+        if (localStorage.getItem('soundEnabled') !== 'false') playBeep();
+        const diff = count - lastNewCount;
+        showToast(`🔔 ${diff} new order${diff>1?'s':''}!`);
+      }
+      lastNewCount = count;
+    }
+  } catch(e) {}
+}
+
+// ---- HELPERS ----
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+function statusPill(status) {
+  const map = {
+    warehouse_review: ['pill-review', 'Review'],
+    accepted: ['pill-accepted', 'Accepted'],
+    packing: ['pill-packing', 'Packing'],
+    ready_for_dispatch: ['pill-ready', 'Ready'],
+    loading: ['pill-loading', 'Loading'],
+    out_for_delivery: ['pill-out', 'Out for Delivery'],
+    arrived: ['pill-arrived', 'Arrived'],
+    delivered: ['pill-delivered', 'Delivered'],
+    declined: ['pill-declined', 'Declined'],
+    confirmed: ['pill-accepted', 'Confirmed'],
+    pending: ['pill-review', 'Pending'],
+  };
+  const [cls, label] = map[status] || ['pill-review', status];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+}
+
+// ---- INIT ----
+fetchOrders();
+pollNewOrders();
+setInterval(pollNewOrders, 30000);
+setInterval(fetchOrders, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+const express = require('express');
+const router = express.Router();
+const {
+  listOrders,
+  getNewOrderCount,
+  getOrderDetail,
+  acceptOrder,
+  declineOrder,
+  markPacked,
+  assignVehicle,
+  getPickingList,
+  getPendingCOD,
+  reconcileCOD,
+  listVehicles,
+  createVehicle,
+  removeVehicle,
+  listDrivers,
+  createDriver,
+  removeDriver
+} = require('../controllers/adminController');
+
+// Auth — no middleware on this route
+router.post('/auth', (req, res) => {
+  const { password } = req.body;
+  if (!password || password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ success: false, message: 'Invalid password' });
+  }
+  res.json({ success: true, token: process.env.ADMIN_PASSWORD });
+});
+
+// Middleware: all routes below require valid token
+router.use((req, res, next) => {
+  const auth = req.headers.authorization || '';
+  const token = auth.replace('Bearer ', '').trim();
+  if (!token || token !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+  next();
+});
+
+// Static routes first — must come before /:orderId to avoid conflicts
+router.get('/orders/new-count', getNewOrderCount);
+router.get('/cod/pending', getPendingCOD);
+router.post('/cod/:orderId/reconcile', reconcileCOD);
+
+// Order list and detail
+router.get('/orders', listOrders);
+router.get('/orders/:orderId', getOrderDetail);
+
+// Order actions
+router.post('/orders/:orderId/accept', acceptOrder);
+router.post('/orders/:orderId/decline', declineOrder);
+router.post('/orders/:orderId/packed', markPacked);
+router.post('/orders/:orderId/assign-vehicle', assignVehicle);
+router.get('/orders/:orderId/picking-list', getPickingList);
+
+// Vehicles
+router.get('/vehicles', listVehicles);
+router.post('/vehicles', createVehicle);
+router.delete('/vehicles/:vehicleId', removeVehicle);
+
+// Drivers
+router.get('/drivers', listDrivers);
+router.post('/drivers', createDriver);
+router.delete('/drivers/:driverId', removeDriver);
+
+module.exports = router;

@@ -142,10 +142,34 @@ async function getOrderById(orderId) {
   return doc.data();
 }
 
+async function getAllOrders() {
+  const snapshot = await db.collection('orders').orderBy('createdAt', 'desc').get();
+  if (snapshot.empty) return [];
+  return snapshot.docs.map(doc => doc.data());
+}
+
+async function updateOrder(orderId, data) {
+  await db.collection('orders').doc(orderId).update(data);
+  const doc = await db.collection('orders').doc(orderId).get();
+  return doc.data();
+}
+
 async function getAddressById(addressId) {
   const doc = await db.collection('addresses').doc(addressId).get();
   if (!doc.exists) return null;
   return doc.data();
+}
+
+// APP SETTINGS
+async function getSettings() {
+  const doc = await db.collection('config').doc('settings').get();
+  if (!doc.exists) return { cod_threshold: 7500 };
+  return doc.data();
+}
+
+async function updateSettings(data) {
+  await db.collection('config').doc('settings').set(data, { merge: true });
+  return data;
 }
 
 // DELIVERY CONFIG
@@ -174,6 +198,62 @@ async function updateDeliveryConfig(config) {
   return config;
 }
 
+// VEHICLES
+async function getVehicles() {
+  const snapshot = await db.collection('vehicles').get();
+  if (snapshot.empty) return [];
+  return snapshot.docs.map(doc => ({ vehicleId: doc.id, ...doc.data() }));
+}
+
+async function addVehicle(name) {
+  const vehicleId = 'VH' + Date.now();
+  const vehicle = { vehicleId, name, isAvailable: true };
+  await db.collection('vehicles').doc(vehicleId).set(vehicle);
+  return vehicle;
+}
+
+async function updateVehicle(vehicleId, data) {
+  await db.collection('vehicles').doc(vehicleId).update(data);
+}
+
+async function deleteVehicle(vehicleId) {
+  await db.collection('vehicles').doc(vehicleId).delete();
+}
+
+async function getVehicleById(vehicleId) {
+  const doc = await db.collection('vehicles').doc(vehicleId).get();
+  if (!doc.exists) return null;
+  return { vehicleId: doc.id, ...doc.data() };
+}
+
+// DRIVERS
+async function getDrivers() {
+  const snapshot = await db.collection('drivers').where('isActive', '==', true).get();
+  if (snapshot.empty) return [];
+  return snapshot.docs.map(doc => ({ driverId: doc.id, ...doc.data() }));
+}
+
+async function addDriver(name, phone) {
+  const driverId = 'DR' + Date.now();
+  const driver = { driverId, name, phone, isActive: true, isAvailable: true };
+  await db.collection('drivers').doc(driverId).set(driver);
+  return driver;
+}
+
+async function updateDriver(driverId, data) {
+  await db.collection('drivers').doc(driverId).update(data);
+}
+
+async function softDeleteDriver(driverId) {
+  await db.collection('drivers').doc(driverId).update({ isActive: false });
+}
+
+async function getDriverById(driverId) {
+  const doc = await db.collection('drivers').doc(driverId).get();
+  if (!doc.exists) return null;
+  return { driverId: doc.id, ...doc.data() };
+}
+
 module.exports = {
   db,
   getCustomer,
@@ -188,10 +268,24 @@ module.exports = {
   updateAddress,
   deleteAddress,
   setDefaultAddress,
+  getSettings,
+  updateSettings,
   getDeliveryConfig,
   updateDeliveryConfig,
   saveOrder,
   getOrdersByUser,
   getOrderById,
-  getAddressById
+  getAllOrders,
+  updateOrder,
+  getAddressById,
+  getVehicles,
+  addVehicle,
+  updateVehicle,
+  deleteVehicle,
+  getVehicleById,
+  getDrivers,
+  addDriver,
+  updateDriver,
+  softDeleteDriver,
+  getDriverById
 };

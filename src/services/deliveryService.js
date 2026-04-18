@@ -1,8 +1,9 @@
 const { getDeliveryConfig } = require('./firestoreService');
+const { getRoadDistance } = require('./googleMapsService');
 
 const WAREHOUSE = {
-  latitude: 12.863326,
-  longitude: 80.226196,
+  latitude: parseFloat(process.env.WAREHOUSE_LAT) || 12.863326,
+  longitude: parseFloat(process.env.WAREHOUSE_LNG) || 80.226196,
   pincode: '600119'
 };
 
@@ -31,8 +32,8 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-async function calculateDelivery(pincode, latitude, longitude, orderValue = 0) {
-  // Step 1 - Pincode check
+async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, addressString = null) {
+  // Step 1 — Pincode check
   if (!serviceablePincodes.includes(pincode)) {
     return {
       serviceable: false,
@@ -40,33 +41,46 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0) {
     };
   }
 
-  // Step 2 - Distance calculation
-  const oneWayKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
-  const roundTripKm = oneWayKm * 2;
-  const distance_km = Math.ceil(roundTripKm / 2) * 2;
+  // Step 2 — Distance via Google Maps, fallback to Haversine
+  let distanceKm;
+  let distanceText = null;
+  let distanceSource = 'haversine';
 
-  // Step 3 - Get delivery config from Firestore
+  if (addressString && process.env.GOOGLE_MAPS_API_KEY) {
+    try {
+      const result = await getRoadDistance(WAREHOUSE.latitude, WAREHOUSE.longitude, addressString);
+      distanceKm = result.distanceKm;
+      distanceText = result.distanceText;
+      distanceSource = 'google_maps';
+    } catch (err) {
+      console.warn('Google Maps distance failed, falling back to Haversine:', err.message);
+      distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
+    }
+  } else {
+    distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
+  }
+
+  // Round up to nearest even km (existing logic)
+  const distance_km = Math.ceil(distanceKm / 2) * 2;
+
+  // Step 3 — Get delivery config from Firestore
   const config = await getDeliveryConfig();
 
-  // Step 4 - Check free delivery
+  // Step 4 — Check free delivery
   let delivery_charge;
   let is_free_delivery = false;
   let free_delivery_reason = null;
 
   if (config.freeDeliveryEnabled) {
-    // Check global free delivery
     if (config.freeDeliveryThreshold && orderValue >= config.freeDeliveryThreshold) {
       delivery_charge = 0;
       is_free_delivery = true;
       free_delivery_reason = `Free delivery on orders above ₹${config.freeDeliveryThreshold}`;
-    }
-    // Check pincode specific free delivery
-    else if (config.freeDeliveryPincodes && config.freeDeliveryPincodes.includes(pincode)) {
+    } else if (config.freeDeliveryPincodes && config.freeDeliveryPincodes.includes(pincode)) {
       delivery_charge = 0;
       is_free_delivery = true;
       free_delivery_reason = 'Free delivery in your area';
-    }
-    else {
+    } else {
       const calculated = distance_km * RATE_PER_KM;
       delivery_charge = Math.max(calculated, MIN_DELIVERY_CHARGE);
     }
@@ -79,8 +93,10 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0) {
 
   return {
     serviceable: true,
-    one_way_km: Math.round(oneWayKm * 10) / 10,
+    one_way_km: Math.round(distanceKm * 10) / 10,
     distance_km,
+    distance_text: distanceText,
+    distance_source: distanceSource,
     delivery_charge,
     is_free_delivery,
     free_delivery_reason,

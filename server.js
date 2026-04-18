@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
+const path = require('path');
 dotenv.config();
 
 const productRoutes = require('./src/routes/products');
@@ -13,11 +14,15 @@ const uploadRoutes = require('./src/routes/upload');
 const addressRoutes = require('./src/routes/address');
 const deliveryRoutes = require('./src/routes/delivery');
 const orderRoutes = require('./src/routes/orders');
+const configRoutes = require('./src/routes/config');
+const adminRoutes = require('./src/routes/admin');
+const driverRoutes = require('./src/routes/driver');
 
 const app = express();
 
 // Static files
 app.use(express.static('public'));
+app.use('/admin', express.static(path.join(__dirname, 'admin-portal')));
 
 // Middleware
 app.use(cors());
@@ -39,6 +44,9 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/address', addressRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/config', configRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/driver', driverRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

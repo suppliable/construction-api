@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #1e2235; --navy-light: #2a3050; --red: #e53935; --blue: #1565c0;
+    --text: #1a1f36; --muted: #6b7280; --border: #e5e7eb;
+  }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #1e2235 0%, #2a3050 100%);
+  }
+  .card {
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+    width: 400px;
+    padding: 48px;
+  }
+  .logo { text-align: center; margin-bottom: 32px; }
+  .logo .emoji { font-size: 48px; display: block; margin-bottom: 12px; }
+  .logo h1 { font-size: 28px; font-weight: 700; color: var(--text); }
+  .logo p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .form-group { margin-bottom: 20px; }
+  label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  input[type="password"] {
+    width: 100%; padding: 12px 14px;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--text);
+    outline: none; transition: border-color 0.2s;
+  }
+  input[type="password"]:focus { border-color: var(--blue); }
+  .btn-login {
+    width: 100%; height: 48px;
+    background: var(--red); color: #fff;
+    border: none; border-radius: 8px;
+    font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .btn-login:hover { background: #c62828; }
+  .btn-login:disabled { background: #aaa; cursor: not-allowed; }
+  .error-msg {
+    display: none; color: var(--red); font-size: 13px;
+    text-align: center; margin-top: 14px; padding: 10px;
+    background: #fef2f2; border-radius: 6px; border: 1px solid #fecaca;
+  }
+  .error-msg.show { display: block; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <span class="emoji">🧱</span>
+    <h1>Suppliable</h1>
+    <p>Order Management Portal</p>
+  </div>
+  <div class="form-group">
+    <label for="password">Admin Password</label>
+    <input type="password" id="password" placeholder="Enter password" autofocus>
+  </div>
+  <button class="btn-login" id="loginBtn" onclick="doLogin()">Login</button>
+  <div class="error-msg" id="errorMsg">Invalid password. Please try again.</div>
+</div>
+
+<script>
+const API_BASE = 'http://localhost:3000';
+
+if (sessionStorage.getItem('adminToken')) {
+  window.location.href = 'orders.html';
+}
+
+document.getElementById('password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  const password = document.getElementById('password').value.trim();
+  if (!password) return;
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('errorMsg');
+  btn.disabled = true; btn.textContent = 'Logging in...';
+  err.classList.remove('show');
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (res.ok && data.token) {
+      sessionStorage.setItem('adminToken', data.token);
+      window.location.href = 'orders.html';
+    } else {
+      err.classList.add('show');
+      btn.disabled = false; btn.textContent = 'Login';
+    }
+  } catch (e) {
+    err.textContent = 'Connection error. Is the server running?';
+    err.classList.add('show');
+    btn.disabled = false; btn.textContent = 'Login';
+  }
+}
+</script>
+</body>
+</html>

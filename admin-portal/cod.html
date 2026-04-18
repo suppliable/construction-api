@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — COD Reconciliation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --navy-hover:#323a5c;
+    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --amber:#f59e0b; --green:#10b981; --orange:#f97316;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  .sidebar {
+    width:220px; min-height:100vh; background:var(--navy);
+    display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40;
+  }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px;
+    padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
+    cursor:pointer; text-decoration:none; transition:background 0.15s;
+    border-left:3px solid transparent;
+  }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
+
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
+  .topbar {
+    height:60px; background:#fff; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; position:sticky; top:0; z-index:30;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+  }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout {
+    background:none; border:none; color:var(--muted); font-size:13px;
+    font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px;
+    border-radius:6px; transition:background 0.15s;
+  }
+  .btn-logout:hover { background:var(--bg); color:var(--text); }
+
+  .content { padding:24px; }
+
+  .stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; max-width:520px; margin-bottom:24px; }
+  .stat-card {
+    background:#fff; border-radius:10px; padding:20px;
+    border-left:4px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.06);
+  }
+  .stat-card.amber { border-left-color:var(--amber); }
+  .stat-card.orange { border-left-color:var(--orange); }
+  .stat-num { font-size:28px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); }
+  .stat-label { font-size:12px; color:var(--muted); margin-top:4px; font-weight:500; }
+
+  .table-card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  table { width:100%; border-collapse:collapse; }
+  thead th {
+    padding:11px 14px; text-align:left; font-size:11px; font-weight:700;
+    color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
+    background:#f8f9fc; border-bottom:1px solid var(--border);
+  }
+  tbody tr { border-bottom:1px solid var(--border); }
+  tbody tr:last-child { border-bottom:none; }
+  tbody tr:hover { background:#f8f9fc; }
+  td { padding:13px 14px; font-size:13px; vertical-align:middle; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .order-id { color:var(--blue); font-weight:600; font-family:'JetBrains Mono',monospace; font-size:13px; }
+  .amount { font-family:'JetBrains Mono',monospace; font-weight:600; }
+  .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
+  .empty-state .icon { font-size:48px; display:block; margin-bottom:12px; }
+
+  .btn-reconcile {
+    background:var(--green); color:#fff; border:none; border-radius:6px;
+    padding:7px 14px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600;
+    cursor:pointer; transition:background 0.15s;
+  }
+  .btn-reconcile:hover { background:#059669; }
+  .btn-reconcile:disabled { background:#aaa; cursor:not-allowed; }
+
+  #toast {
+    position:fixed; bottom:24px; right:24px; z-index:999;
+    background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px;
+    font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25);
+    transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none;
+  }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.success { background:var(--green); }
+  #toast.error { background:#ef4444; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item active" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">COD Reconciliation</div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+  <div class="content">
+    <div class="stats-grid">
+      <div class="stat-card amber">
+        <div class="stat-num mono" id="stat-count">—</div>
+        <div class="stat-label">Pending COD Orders</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-num mono" id="stat-total">—</div>
+        <div class="stat-label">Total Pending Amount</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th><th>Customer</th><th>Driver</th>
+            <th>Collected</th><th>Order Total</th><th>Date</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="codTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = 'http://localhost:3000';
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, {
+    ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+
+let pendingOrders = [];
+
+async function fetchCOD() {
+  try {
+    const res = await apiFetch('/api/admin/cod/pending');
+    const data = await res.json();
+    if (data.success) {
+      pendingOrders = data.orders || [];
+      renderStats();
+      renderTable();
+    }
+  } catch(e) {}
+}
+
+function renderStats() {
+  document.getElementById('stat-count').textContent = pendingOrders.length;
+  const total = pendingOrders.reduce((s, o) => s + (o.codAmountCollected || o.grand_total || 0), 0);
+  document.getElementById('stat-total').textContent = '₹' + total.toLocaleString('en-IN');
+}
+
+function renderTable() {
+  const tbody = document.getElementById('codTableBody');
+  if (!pendingOrders.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">✅</span>All COD orders reconciled!</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = pendingOrders.map(o => `
+    <tr id="row-${o.orderId}">
+      <td><span class="order-id">${o.orderId}</span></td>
+      <td>${o.customer?.name || o.userId || '—'}</td>
+      <td>${o.vehicle?.driverName || '—'}</td>
+      <td><span class="amount">₹${(o.codAmountCollected || 0).toLocaleString('en-IN')}</span></td>
+      <td><span class="amount">₹${(o.grand_total || 0).toLocaleString('en-IN')}</span></td>
+      <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt || o.createdAt)}</td>
+      <td><button class="btn-reconcile" id="btn-${o.orderId}" onclick="reconcile('${o.orderId}', ${o.codAmountCollected || o.grand_total || 0})">✓ Reconcile</button></td>
+    </tr>`).join('');
+}
+
+async function reconcile(orderId, amount) {
+  if (!confirm(`Mark ${orderId} as reconciled? Amount: ₹${amount}`)) return;
+  const btn = document.getElementById('btn-' + orderId);
+  btn.disabled = true; btn.textContent = 'Processing...';
+  try {
+    const res = await apiFetch(`/api/admin/cod/${orderId}/reconcile`, {
+      method: 'POST',
+      body: JSON.stringify({ amountReceived: amount })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('row-' + orderId)?.remove();
+      pendingOrders = pendingOrders.filter(o => o.orderId !== orderId);
+      renderStats();
+      if (!pendingOrders.length) renderTable();
+      showToast('Reconciled!', 'success');
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '✓ Reconcile';
+    }
+  } catch(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '✓ Reconcile'; }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+}
+
+fetchCOD();
+</script>
+</body>
+</html>
