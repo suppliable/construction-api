@@ -71,7 +71,7 @@
 </div>
 
 <script>
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'https://construction-api-2.onrender.com';
 
 if (sessionStorage.getItem('adminToken')) {
   window.location.href = 'orders.html';
@@ -103,7 +103,7 @@ async function doLogin() {
       btn.disabled = false; btn.textContent = 'Login';
     }
   } catch (e) {
-    err.textContent = 'Connection error. Is the server running?';
+    err.textContent = 'Connection error: ' + e.message;
     err.classList.add('show');
     btn.disabled = false; btn.textContent = 'Login';
   }
