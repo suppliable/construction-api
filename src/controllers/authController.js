@@ -9,7 +9,12 @@ async function syncAuth(req, res) {
 
   try {
     const customer = await syncCustomer(firebaseUid, phone, name, is_business, business_name, gstin, registered_address);
-    res.json({ success: true, user: customer });
+    res.json({
+      success: true,
+      data: { customer },   // new shape
+      customer,             // backward compat
+      user: customer        // backward compat
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

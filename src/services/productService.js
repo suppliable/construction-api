@@ -1,6 +1,7 @@
 const {
   getZohoProducts,
-  getZohoItemGroups
+  getZohoItemGroups,
+  getZohoCategories
 } = require('./zohoService');
 const { getImageMap } = require('./firestoreService');
 
@@ -22,6 +23,7 @@ const buildImage = (name, imageUrl) =>
 const cache = {
   products: null,
   groups: null,
+  categoryMap: null,
   imageMap: null,
   lastFetched: null,
   TTL: 10 * 60 * 1000 // 10 minutes
@@ -35,10 +37,15 @@ async function fetchZohoData() {
   if (isCacheValid()) {
     return { items: cache.products, groups: cache.groups };
   }
-  const [items, groups] = await Promise.all([
+  const [items, groups, zohoCategories] = await Promise.all([
     getZohoProducts(),
-    getZohoItemGroups()
+    getZohoItemGroups(),
+    getZohoCategories()
   ]);
+
+  // Build category id → name map
+  const categoryMap = {};
+  zohoCategories.forEach(c => { categoryMap[c.category_id] = c.name; });
 
   // Build imageMap from Zoho items (custom_field_hash if available)
   const imageMap = {};
@@ -54,20 +61,22 @@ async function fetchZohoData() {
 
   cache.products = items;
   cache.groups = groups;
+  cache.categoryMap = categoryMap;
   cache.imageMap = mergedImageMap;
   cache.lastFetched = Date.now();
-  return { items, groups };
+  return { items, groups, categoryMap };
 }
 
 function clearCache() {
   cache.products = null;
   cache.groups = null;
+  cache.categoryMap = null;
   cache.imageMap = null;
   cache.lastFetched = null;
 }
 
 const getAllProducts = async (category) => {
-  const { items, groups } = await fetchZohoData();
+  const { items, groups, categoryMap } = await fetchZohoData();
 
   // Build item lookup map for GST and custom fields
   const itemMap = {};
@@ -94,8 +103,7 @@ const getAllProducts = async (category) => {
       : `₹${prices[0]}`;
 
     const firstVariantItem = itemMap[group.items[0]?.item_id];
-    const category = group.category_name || firstVariantItem?.category_name || '';
-    console.log('Group:', group.group_name, 'category_name:', group.category_name, 'firstVariantItem category:', firstVariantItem?.category_name);
+    const category = categoryMap[group.category_id] || categoryMap[firstVariantItem?.category_id] || '';
 
     return {
       id: group.group_id,
@@ -110,6 +118,7 @@ const getAllProducts = async (category) => {
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
       image: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
     };
   });
@@ -121,7 +130,7 @@ const getAllProducts = async (category) => {
       id: item.item_id,
       name: item.name,
       brand: item.manufacturer || item.group_name || '',
-      category: item.category_name || '',
+      category: categoryMap[item.category_id] || '',
       unit: item.unit,
       description: item.description || '',
       hasVariants: false,
@@ -131,6 +140,7 @@ const getAllProducts = async (category) => {
       gst_percentage: extractGST(item),
       hsn: item.hsn_or_sac || '',
       image: cache.imageMap[item.item_id] || buildImage(item.name),
+      imageUrl: cache.imageMap[item.item_id] || buildImage(item.name),
       fallbackImage: buildImage(item.name)
     }));
 
@@ -146,7 +156,7 @@ const getAllProducts = async (category) => {
 };
 
 const getProductById = async (id) => {
-  const { items, groups } = await fetchZohoData();
+  const { items, groups, categoryMap } = await fetchZohoData();
 
   // Check if it's a group id first
   const group = groups.find(g => g.group_id === id);
@@ -166,7 +176,7 @@ const getProductById = async (id) => {
       id: group.group_id,
       name: group.group_name,
       brand: group.brand || group.group_name,
-      category: group.category_name || '',
+      category: categoryMap[group.category_id] || '',
       unit: group.unit,
       description: group.description || '',
       hasVariants: true,
@@ -175,6 +185,7 @@ const getProductById = async (id) => {
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
       image: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
     };
   }
@@ -188,7 +199,7 @@ const getProductById = async (id) => {
         id: variant.item_id,
         name: `${group.group_name} ${variant.attribute_option_name1 || ''}`.trim(),
         brand: group.brand || group.group_name,
-        category: fullItem?.category_name || '',
+        category: categoryMap[fullItem?.category_id] || '',
         unit: group.unit,
         description: group.description || '',
         hasVariants: false,
@@ -198,6 +209,7 @@ const getProductById = async (id) => {
         gst_percentage: fullItem ? extractGST(fullItem) : 0,
         hsn: fullItem?.hsn_or_sac || '',
         image: cache.imageMap[id] || buildImage(group.group_name),
+        imageUrl: cache.imageMap[id] || buildImage(group.group_name),
         fallbackImage: buildImage(group.group_name)
       };
     }
@@ -210,7 +222,7 @@ const getProductById = async (id) => {
     id: item.item_id,
     name: item.name,
     brand: item.manufacturer || '',
-    category: item.category_name || '',
+    category: categoryMap[item.category_id] || '',
     unit: item.unit,
     description: item.description || '',
     hasVariants: false,
@@ -220,6 +232,7 @@ const getProductById = async (id) => {
     gst_percentage: extractGST(item),
     hsn: item.hsn_or_sac || '',
     image: cache.imageMap[item.item_id] || buildImage(item.name),
+    imageUrl: cache.imageMap[item.item_id] || buildImage(item.name),
     fallbackImage: buildImage(item.name)
   };
 };

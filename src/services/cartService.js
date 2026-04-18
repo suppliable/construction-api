@@ -104,10 +104,14 @@ async function buildCartResponse(userId) {
     return {
       productId: item.productId,
       productName: product.name,
+      unit: product.unit || '',
       quantity: item.quantity,
       unitPrice: Number(product.price),
       gstRate: Number(product.gst_percentage),
-      itemTotal
+      totalWithoutGST,
+      gstAmount,
+      itemTotal,
+      grandTotal: itemTotal
     };
   }));
 
@@ -124,7 +128,12 @@ async function buildCartResponse(userId) {
       subtotal,
       gstTotal,
       deliveryCharge,
-      grandTotal
+      grandTotal,
+      summary: {
+        totalWithoutGST: subtotal,
+        totalGST: gstTotal,
+        grandTotal
+      }
     }
   };
 }

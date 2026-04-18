@@ -1,34 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const { getAllProducts } = require('../services/productService');
-const { getZohoItemGroups, getZohoProducts } = require('../services/zohoService');
+const { getZohoCategories } = require('../services/zohoService');
 
 async function buildCategories() {
-  const [groups, items] = await Promise.all([getZohoItemGroups(), getZohoProducts()]);
-
-  const seen = new Set();
-  const categories = [];
-
-  for (const g of groups) {
-    const name = g.category_name;
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      categories.push(name);
-    }
-  }
-
-  for (const item of items) {
-    const name = item.category_name;
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      categories.push(name);
-    }
-  }
-
-  return categories.map((name, index) => ({
-    id: index + 1,
-    name,
-    image: `https://placehold.co/200x200?text=${encodeURIComponent(name)}`
+  const zohoCategories = await getZohoCategories();
+  return zohoCategories.map((c, index) => ({
+    id: c.category_id,
+    name: c.name,
+    image: `https://placehold.co/200x200?text=${encodeURIComponent(c.name)}`
   }));
 }
 

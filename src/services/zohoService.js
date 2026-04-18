@@ -29,6 +29,15 @@ async function getZohoProducts() {
   return response.data.items;
 }
 
+async function getZohoCategories() {
+  const token = await getAccessToken();
+  const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/categories`, {
+    headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    params: { organization_id: process.env.ZOHO_ORG_ID }
+  });
+  return (response.data.categories || []).filter(c => c.category_id !== '-1' && c.has_active_items);
+}
+
 async function getZohoProductById(itemId) {
   const token = await getAccessToken();
   const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
@@ -185,6 +194,7 @@ module.exports = {
   getAccessToken,
   getZohoProducts,
   getZohoProductById,
+  getZohoCategories,
   getZohoItemGroups,
   getZohoItemGroupById,
   createZohoContact,
