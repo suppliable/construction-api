@@ -2,6 +2,16 @@ const cartService = require('../services/cartService');
 const { getCart: getRawCart } = require('../data/cart');
 const { getProductById } = require('../services/productService');
 
+async function clearCart(req, res) {
+  try {
+    const { userId } = req.params;
+    const result = await cartService.clearCart(userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: 'BAD_REQUEST', message: err.message });
+  }
+}
+
 async function setDeliveryCharge(req, res) {
   try {
     const { userId } = req.params;
@@ -92,4 +102,4 @@ async function validateCart(req, res) {
   }
 }
 
-module.exports = { addToCart, updateCart, removeFromCart, getCart, setDeliveryCharge, validateCart };
+module.exports = { addToCart, updateCart, removeFromCart, getCart, setDeliveryCharge, validateCart, clearCart };

@@ -126,4 +126,9 @@ async function buildCartResponse(userId) {
   };
 }
 
-module.exports = { addToCart, updateCartItem, removeFromCart, setDeliveryCharge, buildCartResponse };
+async function clearCart(userId) {
+  await saveCart(userId, { items: [] });
+  return await buildCartResponse(userId);
+}
+
+module.exports = { addToCart, updateCartItem, removeFromCart, setDeliveryCharge, buildCartResponse, clearCart };

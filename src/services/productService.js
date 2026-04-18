@@ -73,6 +73,7 @@ const getAllProducts = async (category) => {
   const itemMap = {};
   items.forEach(item => { itemMap[item.item_id] = item; });
 
+
   // Track grouped item IDs
   const groupedItemIds = new Set();
   groups.forEach(g => g.items.forEach(i => groupedItemIds.add(i.item_id)));
@@ -83,8 +84,8 @@ const getAllProducts = async (category) => {
       id: v.item_id,
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
-      stock: itemMap[v.item_id]?.stock_on_hand || 0,
-      available_stock: itemMap[v.item_id]?.available_stock || 0
+      stock: v.stock_on_hand || 0,
+      available_stock: v.available_stock || v.actual_available_stock || 0
     }));
 
     const prices = variants.map(v => v.price);
@@ -157,8 +158,8 @@ const getProductById = async (id) => {
       id: v.item_id,
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
-      stock: itemMap[v.item_id]?.stock_on_hand || 0,
-      available_stock: itemMap[v.item_id]?.available_stock || 0
+      stock: v.stock_on_hand || 0,
+      available_stock: v.available_stock || v.actual_available_stock || 0
     }));
     const prices = variants.map(v => v.price);
     return {
@@ -192,8 +193,8 @@ const getProductById = async (id) => {
         description: group.description || '',
         hasVariants: false,
         price: variant.rate,
-        stock: fullItem?.stock_on_hand || 0,
-        available_stock: fullItem?.available_stock || 0,
+        stock: variant.stock_on_hand || 0,
+        available_stock: variant.available_stock || variant.actual_available_stock || 0,
         gst_percentage: fullItem ? extractGST(fullItem) : 0,
         hsn: fullItem?.hsn_or_sac || '',
         image: cache.imageMap[id] || buildImage(group.group_name),

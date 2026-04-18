@@ -1,4 +1,5 @@
-const { getCart, saveCart, getCustomer, getAddressById, saveOrder, getOrdersByUser, getOrderById, getSettings } = require('../services/firestoreService');
+const { getCustomer, getAddressById, saveOrder, getOrdersByUser, getOrderById, getSettings } = require('../services/firestoreService');
+const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('../services/productService');
 const { formatTimestamps } = require('../utils/formatDoc');
 
