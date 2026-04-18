@@ -95,8 +95,8 @@ async function doLogin() {
       body: JSON.stringify({ password })
     });
     const data = await res.json();
-    if (res.ok && data.token) {
-      sessionStorage.setItem('adminToken', data.token);
+    if (res.ok && data.data?.token) {
+      sessionStorage.setItem('adminToken', data.data.token);
       window.location.href = 'orders.html';
     } else {
       err.classList.add('show');

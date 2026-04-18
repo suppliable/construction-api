@@ -23,17 +23,17 @@ const {
 router.post('/auth', (req, res) => {
   const { password } = req.body;
   if (!password || password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: 'Invalid password' });
+    return res.status(401).json({ success: false, error: 'INVALID_PASSWORD', message: 'Invalid password' });
   }
-  res.json({ success: true, token: process.env.ADMIN_PASSWORD });
+  res.json({ success: true, data: { token: process.env.ADMIN_TOKEN } });
 });
 
 // Middleware: all routes below require valid token
 router.use((req, res, next) => {
   const auth = req.headers.authorization || '';
   const token = auth.replace('Bearer ', '').trim();
-  if (!token || token !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Unauthorized' });
   }
   next();
 });
