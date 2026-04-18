@@ -13,11 +13,13 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
     })),
     shipping_charge: deliveryCharge || 0,
     shipping_address: {
-      address: shippingAddress.streetAddress.substring(0, 99),
-      city: shippingAddress.city,
-      state: shippingAddress.state,
-      zip: shippingAddress.pincode,
-      country: 'India'
+      address: [shippingAddress.flatNo, shippingAddress.buildingName, shippingAddress.streetAddress]
+        .filter(Boolean).join(', ').substring(0, 99),
+      city: (shippingAddress.city || '').substring(0, 50),
+      state: (shippingAddress.state || '').substring(0, 50),
+      zip: shippingAddress.pincode || '',
+      country: 'India',
+      phone: phone || ''
     },
     notes: `Suppliable B2B Order${phone ? ` | Phone: ${phone}` : ''}`
   };

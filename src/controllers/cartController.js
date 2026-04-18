@@ -1,4 +1,6 @@
 const cartService = require('../services/cartService');
+const { getCart: getRawCart } = require('../data/cart');
+const { getProductById } = require('../services/productService');
 
 async function setDeliveryCharge(req, res) {
   try {
@@ -57,4 +59,37 @@ async function getCart(req, res) {
   }
 }
 
-module.exports = { addToCart, updateCart, removeFromCart, getCart, setDeliveryCharge };
+async function validateCart(req, res) {
+  try {
+    const { userId } = req.params;
+    const cart = await getRawCart(userId);
+    const issues = [];
+
+    await Promise.all((cart.items || []).map(async (item) => {
+      const product = await getProductById(item.productId);
+      if (!product) {
+        issues.push({ productId: item.productId, message: 'Product not found' });
+        return;
+      }
+      if (product.available_stock !== undefined && product.available_stock !== null) {
+        if (item.quantity > product.available_stock) {
+          issues.push({
+            productId: item.productId,
+            productName: product.name,
+            requested: item.quantity,
+            available: product.available_stock,
+            message: product.available_stock <= 0
+              ? `${product.name} is out of stock`
+              : `Only ${product.available_stock} units available for ${product.name}`
+          });
+        }
+      }
+    }));
+
+    res.json({ success: true, data: { valid: issues.length === 0, issues } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+}
+
+module.exports = { addToCart, updateCart, removeFromCart, getCart, setDeliveryCharge, validateCart };
