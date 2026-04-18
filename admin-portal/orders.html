@@ -392,7 +392,7 @@ async function fetchOrders() {
     const res = await apiFetch('/api/admin/orders');
     const data = await res.json();
     if (data.success) {
-      ordersData = data.orders || [];
+      ordersData = data.data?.orders || [];
       updateStats();
       renderTable();
     }
@@ -449,7 +449,7 @@ function renderTable() {
   tbody.innerHTML = list.map(o => {
     const rowClass = o.status === 'warehouse_review' ? 'row-review' : '';
     const itemCount = o.items?.length || 0;
-    const amt = '₹' + (o.grand_total || 0).toLocaleString('en-IN');
+    const amt = '₹' + (o.grandTotal || o.grand_total || 0).toLocaleString('en-IN');
     return `<tr class="${rowClass}" onclick="openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">
       <td style="color:var(--muted);font-size:12px">${timeAgo(o.createdAt)}</td>
       <td><span class="mono order-id-link">${o.orderId}</span></td>
@@ -476,11 +476,11 @@ async function openPanel(order) {
   try {
     const res = await apiFetch(`/api/admin/orders/${order.orderId}`);
     const data = await res.json();
-    if (data.success && data.order) {
-      currentOrder = data.order;
-      document.getElementById('panelBody').innerHTML = buildPanelBody(data.order);
+    if (data.success && data.data?.order) {
+      currentOrder = data.data.order;
+      document.getElementById('panelBody').innerHTML = buildPanelBody(data.data.order);
       // Reload vehicle/driver dropdowns if still on ready_for_dispatch
-      if (data.order.status === 'ready_for_dispatch') loadVehiclesAndDrivers();
+      if (data.data.order.status === 'ready_for_dispatch') loadVehiclesAndDrivers();
     }
   } catch(e) {}
 }
@@ -700,11 +700,11 @@ async function loadVehiclesAndDrivers() {
     const vSel = document.getElementById('vSelect');
     const dSel = document.getElementById('dSelect');
     if (!vSel || !dSel) return;
-    const available = (vData.vehicles || []).filter(v => v.isAvailable);
+    const available = (vData.data?.vehicles || []).filter(v => v.isAvailable);
     vSel.innerHTML = available.length
       ? `<option value="">Select vehicle...</option>` + available.map(v => `<option value="${v.vehicleId}">${v.name}</option>`).join('')
       : `<option value="">No vehicles available</option>`;
-    const dAvail = (dData.drivers || []).filter(d => d.isAvailable);
+    const dAvail = (dData.data?.drivers || []).filter(d => d.isAvailable);
     dSel.innerHTML = dAvail.length
       ? `<option value="">Select driver...</option>` + dAvail.map(d => `<option value="${d.driverId}">${d.name} — ${d.phone}</option>`).join('')
       : `<option value="">No drivers available</option>`;
@@ -765,7 +765,7 @@ async function pollNewOrders() {
     const res = await apiFetch('/api/admin/orders/new-count');
     const data = await res.json();
     if (data.success) {
-      const count = data.count || 0;
+      const count = data.data?.count || 0;
       const badge = document.getElementById('pendingBadge');
       if (count > 0) {
         badge.textContent = count;

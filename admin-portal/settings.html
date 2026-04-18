@@ -275,7 +275,7 @@ async function fetchWarehouseStatus() {
   try {
     const res = await apiFetch('/api/config/warehouse-status');
     const data = await res.json();
-    if (data.success) applyWarehouseState(data.isOpen, data.closedMessage);
+    if (data.success) applyWarehouseState(data.data?.isOpen, data.data?.closedMessage);
   } catch(e) {}
 }
 
@@ -312,8 +312,8 @@ async function saveWarehouseStatus() {
     });
     const data = await res.json();
     if (data.success) {
-      applyWarehouseState(data.isOpen, data.closedMessage);
-      showToast(data.isOpen ? '✅ Warehouse is now Open' : '🔴 Warehouse is now Closed', 'success');
+      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage);
+      showToast(data.data?.isOpen ? '✅ Warehouse is now Open' : '🔴 Warehouse is now Closed', 'success');
     } else { showToast(data.message || 'Save failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Status'; }
@@ -325,10 +325,10 @@ async function fetchVehicles() {
     const res = await apiFetch('/api/admin/vehicles');
     const data = await res.json();
     const tbody = document.getElementById('vehicleTableBody');
-    if (!data.vehicles?.length) {
+    if (!data.data?.vehicles?.length) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No vehicles added yet</td></tr>'; return;
     }
-    tbody.innerHTML = data.vehicles.map(v => `
+    tbody.innerHTML = data.data.vehicles.map(v => `
       <tr>
         <td style="font-weight:500">${v.name}</td>
         <td><span class="pill ${v.isAvailable ? 'pill-free' : 'pill-busy'}">${v.isAvailable ? 'Free' : 'On Delivery'}</span></td>
@@ -368,10 +368,10 @@ async function fetchDrivers() {
     const res = await apiFetch('/api/admin/drivers');
     const data = await res.json();
     const tbody = document.getElementById('driverTableBody');
-    if (!data.drivers?.length) {
+    if (!data.data?.drivers?.length) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No drivers added yet</td></tr>'; return;
     }
-    tbody.innerHTML = data.drivers.map(d => `
+    tbody.innerHTML = data.data.drivers.map(d => `
       <tr>
         <td style="font-weight:500">${d.name}</td>
         <td style="color:var(--muted)">${d.phone}</td>
@@ -416,7 +416,7 @@ async function fetchThreshold() {
     const res = await fetch(`${API_BASE}/api/config/cod-threshold`, { headers: authHeaders() });
     const data = await res.json();
     if (data.success) {
-      currentThreshold = data.cod_threshold;
+      currentThreshold = data.data?.cod_threshold;
       document.getElementById('thresholdDisplay').textContent = '₹' + Number(currentThreshold).toLocaleString('en-IN');
       document.getElementById('newThreshold').value = currentThreshold;
     }

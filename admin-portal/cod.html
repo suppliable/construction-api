@@ -174,7 +174,7 @@ async function fetchCOD() {
     const res = await apiFetch('/api/admin/cod/pending');
     const data = await res.json();
     if (data.success) {
-      pendingOrders = data.orders || [];
+      pendingOrders = data.data?.orders || [];
       renderStats();
       renderTable();
     }
