@@ -9,6 +9,18 @@ const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO } =
 const { getAccessToken } = require('../services/zohoService');
 const { formatTimestamps } = require('../utils/formatDoc');
 
+async function markZohoInvoiceAsSent(invoiceId) {
+  const token = await getAccessToken();
+  await axios.post(
+    `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoiceId}/status/sent`,
+    {},
+    {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      params: { organization_id: process.env.ZOHO_ORG_ID }
+    }
+  );
+}
+
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
   try {
@@ -119,6 +131,15 @@ const acceptOrder = async (req, res) => {
       zohoInvoice = await createZohoInvoiceFromSO(zohoSO.salesorder_id);
     } catch (invoiceErr) {
       console.error('Invoice creation failed (non-fatal):', invoiceErr.response?.data || invoiceErr.message);
+    }
+
+    if (zohoInvoice?.invoice_id) {
+      try {
+        await markZohoInvoiceAsSent(zohoInvoice.invoice_id);
+        console.log('Invoice marked as sent:', zohoInvoice.invoice_id);
+      } catch (sentErr) {
+        console.error('Mark invoice as sent failed (non-fatal):', sentErr.response?.data || sentErr.message);
+      }
     }
 
     const deliveryOtp = String(Math.floor(1000 + Math.random() * 9000));
@@ -291,15 +312,33 @@ const getInvoiceUrl = async (req, res) => {
         }
       );
       const invoice = response.data.invoice || {};
-      const invoiceUrl = invoice.invoice_url || invoice.pdf_url || invoice.public_url
-        || `https://invoice.zoho.in/portal/suppliable/invoices/${order.zoho_invoice_id}`;
+      const invoiceUrl = invoice.invoice_pdf_url || invoice.pdf_url || invoice.invoice_url
+        || `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}/pdf?organization_id=${process.env.ZOHO_ORG_ID}`;
       return res.json({ success: true, data: { invoiceUrl } });
     } catch (zohoErr) {
-      const invoiceUrl = `https://invoice.zoho.in/portal/suppliable/invoices/${order.zoho_invoice_id}`;
+      const invoiceUrl = `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}/pdf?organization_id=${process.env.ZOHO_ORG_ID}`;
       return res.json({ success: true, data: { invoiceUrl } });
     }
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/orders/:orderId/fix-invoice
+const fixInvoice = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await getOrderById(orderId);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (!order.zoho_invoice_id) {
+      return res.status(404).json({ success: false, error: 'INVOICE_NOT_FOUND', message: 'No invoice on this order' });
+    }
+    await markZohoInvoiceAsSent(order.zoho_invoice_id);
+    console.log('fix-invoice: marked as sent:', order.zoho_invoice_id);
+    res.json({ success: true, message: `Invoice ${order.zoho_invoice_id} marked as sent` });
+  } catch (err) {
+    console.error('fix-invoice error:', err.response?.data || err.message);
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.response?.data?.message || err.message });
   }
 };
 
@@ -427,6 +466,7 @@ module.exports = {
   assignVehicle,
   getPickingList,
   getInvoiceUrl,
+  fixInvoice,
   getPendingCOD,
   reconcileCOD,
   listVehicles,
