@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const driverAuth = require('../middleware/driverAuth');
-const { driverAuth: driverLogin, loadingComplete, getEta, arrived, codCollected, completeDelivery } = require('../controllers/driverController');
+const { driverAuth: driverLogin, loadingComplete, getEta, arrived, codCollected, completeDelivery, getDriverProfile, updateDriverStatus } = require('../controllers/driverController');
 
 // Public — no auth
 router.post('/auth', driverLogin);
 
 // All routes below require driver token
 router.use(driverAuth);
+
+router.get('/profile', getDriverProfile);
+router.patch('/status', updateDriverStatus);
 
 router.post('/orders/:orderId/loading-complete', loadingComplete);
 router.get('/orders/:orderId/eta', getEta);

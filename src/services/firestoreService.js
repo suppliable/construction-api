@@ -266,6 +266,15 @@ async function getDriverByToken(token) {
   return { driverId: snapshot.docs[0].id, ...snapshot.docs[0].data() };
 }
 
+async function getOrdersByDriver(driverId, startISO, endISO) {
+  let q = db.collection('orders').where('driverId', '==', driverId);
+  if (startISO) q = q.where('assignedAt', '>=', startISO);
+  if (endISO) q = q.where('assignedAt', '<=', endISO);
+  const snapshot = await q.get();
+  if (snapshot.empty) return [];
+  return snapshot.docs.map(doc => ({ orderId: doc.id, ...doc.data() }));
+}
+
 module.exports = {
   db,
   getCustomer,
@@ -301,5 +310,6 @@ module.exports = {
   softDeleteDriver,
   getDriverById,
   getDriverByPhone,
-  getDriverByToken
+  getDriverByToken,
+  getOrdersByDriver
 };

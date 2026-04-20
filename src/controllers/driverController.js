@@ -1,6 +1,6 @@
 const multer = require('multer');
 const bcrypt = require('bcrypt');
-const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone } = require('../services/firestoreService');
+const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getOrdersByDriver } = require('../services/firestoreService');
 const { getETA } = require('../services/googleMapsService');
 const { uploadImage } = require('../services/cloudinaryService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
@@ -192,4 +192,82 @@ const completeDelivery = [
   }
 ];
 
-module.exports = { driverAuth, loadingComplete, getEta, arrived, codCollected, completeDelivery };
+// GET /api/driver/profile
+const getDriverProfile = async (req, res) => {
+  try {
+    const { driverId } = req.driver;
+    const driver = await getDriverById(driverId);
+    if (!driver) return res.status(404).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Driver not found' });
+
+    const allDriverOrders = await getOrdersByDriver(driverId, null, null);
+    const todayIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }).split(',')[0];
+    const todayOrders = allDriverOrders.filter(o => {
+      if (!o.assignedAt) return false;
+      return new Date(o.assignedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }).split(',')[0] === todayIST;
+    });
+    const deliveredOrders = todayOrders.filter(o => o.status === 'delivered');
+    const pendingOrders = todayOrders.filter(o => o.status !== 'delivered' && o.status !== 'declined');
+    const todayCodCollected = deliveredOrders
+      .filter(o => o.paymentType === 'COD' && o.codCollectedByDriver)
+      .reduce((sum, o) => sum + (o.codAmountCollected || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        driverId: driver.driverId,
+        name: driver.name,
+        phone: driver.phone,
+        isActive: driver.isActive,
+        isAvailable: driver.isAvailable,
+        todayStats: {
+          totalOrders: todayOrders.length,
+          deliveredOrders: deliveredOrders.length,
+          pendingOrders: pendingOrders.length,
+          todayCodCollected
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// PATCH /api/driver/status
+const updateDriverStatus = async (req, res) => {
+  try {
+    const { driverId } = req.driver;
+    const { isAvailable } = req.body;
+
+    if (req.body.isAvailable === undefined) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'isAvailable is required' });
+    }
+    if (typeof isAvailable !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'isAvailable must be true or false' });
+    }
+
+    if (!isAvailable) {
+      const IN_PROGRESS = ['loading', 'out_for_delivery', 'arrived'];
+      const allOrders = await getOrdersByDriver(driverId, null, null);
+      const hasActive = allOrders.some(o => IN_PROGRESS.includes(o.status));
+      if (hasActive) {
+        return res.status(400).json({ success: false, error: 'ORDER_IN_PROGRESS', message: 'Cannot go offline while an order is in progress' });
+      }
+    }
+
+    await updateDriver(driverId, { isAvailable });
+    const driver = await getDriverById(driverId);
+
+    res.json({
+      success: true,
+      data: {
+        driverId: driver.driverId,
+        name: driver.name,
+        isAvailable: driver.isAvailable
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+module.exports = { driverAuth, loadingComplete, getEta, arrived, codCollected, completeDelivery, getDriverProfile, updateDriverStatus };

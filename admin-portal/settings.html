@@ -102,12 +102,11 @@
   .pill-free { background:#d1fae5; color:#065f46; }
   .pill-busy { background:#fee2e2; color:#991b1b; }
   .empty-row td { text-align:center; padding:24px; color:var(--muted); font-size:13px; }
-  .pin-form { display:none; padding:8px 16px 12px; background:#f8f9fc; border-top:1px solid var(--border); }
-  .pin-form.show { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .pin-form input { width:100px; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:15px; letter-spacing:4px; outline:none; text-align:center; }
-  .pin-form input:focus { border-color:var(--blue); }
-  .btn-pin { background:none; border:1px solid var(--blue); color:var(--blue); font-size:11px; font-weight:600; padding:5px 10px; border-radius:5px; cursor:pointer; transition:all 0.15s; font-family:'DM Sans',sans-serif; }
-  .btn-pin:hover { background:var(--blue); color:#fff; }
+  .pin-inline { display:flex; align-items:center; gap:6px; }
+  .pin-inline input { width:80px; padding:5px 8px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:14px; letter-spacing:3px; outline:none; text-align:center; }
+  .pin-inline input:focus { border-color:var(--blue); }
+  .btn-pin-save { background:var(--blue); color:#fff; border:none; font-size:11px; font-weight:600; padding:5px 10px; border-radius:5px; cursor:pointer; font-family:'DM Sans',sans-serif; white-space:nowrap; }
+  .btn-pin-save:hover { background:#0d47a1; }
 
   /* COD THRESHOLD */
   .threshold-display { margin:16px 0 14px; }
@@ -215,8 +214,8 @@
         <button class="btn btn-ghost btn-sm" onclick="toggleAddForm('driverAddForm', null)">Cancel</button>
       </div>
       <table class="mini-table">
-        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>PIN</th><th></th></tr></thead>
-        <tbody id="driverTableBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th style="text-align:right">PIN / Actions</th></tr></thead>
+        <tbody id="driverTableBody"><tr class="empty-row"><td colspan="4">Loading...</td></tr></tbody>
       </table>
     </div>
 
@@ -375,45 +374,32 @@ async function fetchDrivers() {
     const data = await res.json();
     const tbody = document.getElementById('driverTableBody');
     if (!data.data?.drivers?.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No drivers added yet</td></tr>'; return;
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No drivers added yet</td></tr>'; return;
     }
     tbody.innerHTML = data.data.drivers.map(d => `
-      <tr id="drow-${d.driverId}">
+      <tr>
         <td style="font-weight:500">${d.name}</td>
         <td style="color:var(--muted)">${d.phone}</td>
         <td><span class="pill ${d.isAvailable ? 'pill-free' : 'pill-busy'}">${d.isAvailable ? 'Free' : 'On Delivery'}</span></td>
-        <td><span style="font-size:11px;color:var(--muted)">${d.pinSetAt ? '✅ Set' : '—'}</span></td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="btn-pin" onclick="togglePinForm('${d.driverId}')">🔑 Set PIN</button>
-          <button class="btn-danger" onclick="deleteDriver('${d.driverId}','${d.name.replace(/'/g,"\\'")}')">🗑</button>
-        </td>
-      </tr>
-      <tr id="pinrow-${d.driverId}" style="display:none">
-        <td colspan="5" style="padding:0">
-          <div class="pin-form show" id="pinform-${d.driverId}">
+        <td style="text-align:right">
+          <div class="pin-inline">
             <input type="password" id="pin-${d.driverId}" maxlength="4" pattern="[0-9]{4}"
               placeholder="••••" inputmode="numeric"
+              title="${d.pinSetAt ? 'PIN set — enter new PIN to change' : 'Enter 4-digit PIN'}"
               onkeydown="if(event.key==='Enter') savePin('${d.driverId}','${d.name.replace(/'/g,"\\'")}')">
-            <button class="btn btn-primary btn-sm" onclick="savePin('${d.driverId}','${d.name.replace(/'/g,"\\'")}')">Save PIN</button>
-            <button class="btn btn-ghost btn-sm" onclick="togglePinForm('${d.driverId}')">Cancel</button>
+            <button class="btn-pin-save" onclick="savePin('${d.driverId}','${d.name.replace(/'/g,"\\'")}')">Set PIN</button>
+            <button class="btn-danger" onclick="deleteDriver('${d.driverId}','${d.name.replace(/'/g,"\\'")}')">🗑</button>
           </div>
         </td>
       </tr>`).join('');
   } catch(e) {}
 }
 
-function togglePinForm(driverId) {
-  const row = document.getElementById('pinrow-' + driverId);
-  const isVisible = row.style.display !== 'none';
-  row.style.display = isVisible ? 'none' : 'table-row';
-  if (!isVisible) document.getElementById('pin-' + driverId)?.focus();
-}
-
 async function savePin(driverId, name) {
   const pinEl = document.getElementById('pin-' + driverId);
   const pin = pinEl?.value?.trim();
   if (!pin || !/^\d{4}$/.test(pin)) {
-    showToast('PIN must be exactly 4 digits', 'error'); return;
+    showToast('PIN must be exactly 4 digits', 'error'); pinEl?.focus(); return;
   }
   try {
     const res = await apiFetch(`/api/admin/drivers/${driverId}/set-pin`, {
@@ -423,8 +409,6 @@ async function savePin(driverId, name) {
     if (data.success) {
       showToast(`PIN set for ${name}`, 'success');
       if (pinEl) pinEl.value = '';
-      togglePinForm(driverId);
-      await fetchDrivers();
     } else {
       showToast(data.message || 'Failed to set PIN', 'error');
     }
