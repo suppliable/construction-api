@@ -254,6 +254,18 @@ async function getDriverById(driverId) {
   return { driverId: doc.id, ...doc.data() };
 }
 
+async function getDriverByPhone(phone) {
+  const snapshot = await db.collection('drivers').where('phone', '==', phone).limit(1).get();
+  if (snapshot.empty) return null;
+  return { driverId: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+}
+
+async function getDriverByToken(token) {
+  const snapshot = await db.collection('drivers').where('currentToken', '==', token).limit(1).get();
+  if (snapshot.empty) return null;
+  return { driverId: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+}
+
 module.exports = {
   db,
   getCustomer,
@@ -287,5 +299,7 @@ module.exports = {
   addDriver,
   updateDriver,
   softDeleteDriver,
-  getDriverById
+  getDriverById,
+  getDriverByPhone,
+  getDriverByToken
 };

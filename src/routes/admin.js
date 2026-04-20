@@ -18,7 +18,8 @@ const {
   removeVehicle,
   listDrivers,
   createDriver,
-  removeDriver
+  removeDriver,
+  setDriverPin
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -67,5 +68,6 @@ router.delete('/vehicles/:vehicleId', removeVehicle);
 router.get('/drivers', listDrivers);
 router.post('/drivers', createDriver);
 router.delete('/drivers/:driverId', removeDriver);
+router.post('/drivers/:driverId/set-pin', setDriverPin);
 
 module.exports = router;

@@ -1,11 +1,56 @@
 const multer = require('multer');
-const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver } = require('../services/firestoreService');
+const bcrypt = require('bcrypt');
+const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone } = require('../services/firestoreService');
 const { getETA } = require('../services/googleMapsService');
 const { uploadImage } = require('../services/cloudinaryService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// POST /api/driver/auth
+const driverAuth = async (req, res) => {
+  try {
+    const { phone, pin } = req.body;
+    if (!phone || !pin) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'phone and pin are required' });
+    }
+
+    const driver = await getDriverByPhone(phone);
+
+    if (!driver) {
+      return res.status(401).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Phone number not registered as a driver' });
+    }
+    if (!driver.isActive) {
+      return res.status(401).json({ success: false, error: 'DRIVER_INACTIVE', message: 'Your account is inactive. Contact admin.' });
+    }
+    if (!driver.pin) {
+      return res.status(401).json({ success: false, error: 'PIN_NOT_SET', message: 'PIN not set. Contact admin.' });
+    }
+
+    const pinMatch = await bcrypt.compare(String(pin), driver.pin);
+    if (!pinMatch) {
+      return res.status(401).json({ success: false, error: 'INVALID_PIN', message: 'Incorrect PIN. Please try again.' });
+    }
+
+    const token = Buffer.from(`${driver.driverId}:${driver.phone}:${Date.now()}`).toString('base64');
+    await updateDriver(driver.driverId, { currentToken: token, lastLoginAt: new Date().toISOString() });
+
+    res.json({
+      success: true,
+      data: {
+        driverId: driver.driverId,
+        name: driver.name,
+        phone: driver.phone,
+        token,
+        isActive: driver.isActive,
+        isAvailable: driver.isAvailable
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
 
 // POST /api/driver/orders/:orderId/loading-complete
 const loadingComplete = async (req, res) => {
@@ -147,4 +192,4 @@ const completeDelivery = [
   }
 ];
 
-module.exports = { loadingComplete, getEta, arrived, codCollected, completeDelivery };
+module.exports = { driverAuth, loadingComplete, getEta, arrived, codCollected, completeDelivery };

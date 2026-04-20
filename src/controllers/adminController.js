@@ -1,9 +1,10 @@
 const axios = require('axios');
+const bcrypt = require('bcrypt');
 const {
   getAllOrders, getOrderById, updateOrder,
   getCustomer, getAddressById,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
-  getDrivers, addDriver, softDeleteDriver, getDriverById
+  getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver
 } = require('../services/firestoreService');
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO } = require('../services/zohoOrderService');
 const { getAccessToken } = require('../services/zohoService');
@@ -445,6 +446,28 @@ const createDriver = async (req, res) => {
   }
 };
 
+// POST /api/admin/drivers/:driverId/set-pin
+const setDriverPin = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { pin } = req.body;
+
+    if (!pin || !/^\d{4}$/.test(String(pin))) {
+      return res.status(400).json({ success: false, error: 'INVALID_PIN', message: 'PIN must be exactly 4 digits' });
+    }
+
+    const driver = await getDriverById(driverId);
+    if (!driver) return res.status(404).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Driver not found' });
+
+    const hashedPin = await bcrypt.hash(String(pin), 10);
+    await updateDriver(driverId, { pin: hashedPin, pinSetAt: new Date().toISOString() });
+
+    res.json({ success: true, message: `PIN set successfully for ${driver.name}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // DELETE /api/admin/drivers/:driverId
 const removeDriver = async (req, res) => {
   try {
@@ -474,5 +497,6 @@ module.exports = {
   removeVehicle,
   listDrivers,
   createDriver,
-  removeDriver
+  removeDriver,
+  setDriverPin
 };
