@@ -117,8 +117,8 @@ const getAllProducts = async (category) => {
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
-      image: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
-      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      image: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
     };
   });
@@ -139,8 +139,8 @@ const getAllProducts = async (category) => {
       available_stock: item.available_stock || 0,
       gst_percentage: extractGST(item),
       hsn: item.hsn_or_sac || '',
-      image: cache.imageMap[item.item_id] || buildImage(item.name),
-      imageUrl: cache.imageMap[item.item_id] || buildImage(item.name),
+      image: cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name),
+      imageUrl: cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name),
       fallbackImage: buildImage(item.name)
     }));
 
@@ -184,8 +184,8 @@ const getProductById = async (id) => {
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
-      image: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
-      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      image: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
+      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
     };
   }

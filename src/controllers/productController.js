@@ -39,8 +39,10 @@ const updateProductImage = async (req, res) => {
     if (err.response?.data?.code === 2006) {
       try {
         const group = await zohoService.getZohoItemGroupById(id);
+        const groupId = group.group_id || id;
+        console.log(`[image] saving for variant group — URL param id: ${id}, group.group_id: ${group.group_id}, using: ${groupId}`);
         await Promise.all(group.items.map(item => zohoService.updateZohoItemImage(item.item_id, image_url)));
-        await setImage(id, image_url);
+        await setImage(groupId, image_url);
         return res.json({ success: true, message: 'Image updated successfully for all variants' });
       } catch (groupErr) {
         return res.status(500).json({ success: false, message: groupErr.message });
