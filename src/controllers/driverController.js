@@ -236,12 +236,12 @@ const getTodayOrders = async (req, res) => {
         },
         items: (o.items || []).map(i => ({ productName: i.productName || i.name, quantity: i.quantity, unit: i.unit || '' })),
         itemCount: (o.items || []).length,
-        grandTotal: o.grandTotal || 0,
-        deliveryCharge: o.deliveryCharge || 0,
+        grandTotal: o.grand_total ?? o.grandTotal ?? 0,
+        deliveryCharge: o.delivery_charge ?? o.deliveryCharge ?? 0,
         paymentType: o.paymentType || '',
         paymentStatus: o.paymentStatus || '',
         codCollected: o.codCollectedByDriver || false,
-        codAmountToCollect: o.paymentType === 'COD' ? (o.grandTotal || 0) : 0,
+        codAmountToCollect: o.paymentType === 'COD' ? (o.grand_total ?? o.grandTotal ?? 0) : 0,
         assignedAt: o.assignedAt || null
       };
     }));
@@ -372,16 +372,16 @@ const getDriverOrderDetail = async (req, res) => {
             quantity: i.quantity,
             unit: i.unit || '',
             unitPrice: i.unitPrice || i.price || 0,
-            itemTotal: i.itemTotal || i.totalPrice || 0
+            itemTotal: i.grandTotal || i.itemTotal || i.totalPrice || 0
           })),
-          grandTotal: order.grandTotal || 0,
-          subtotal: order.subtotal || order.totalWithoutGST || 0,
-          gstTotal: order.gstTotal || order.totalGST || 0,
-          deliveryCharge: order.deliveryCharge || 0,
+          grandTotal: order.grand_total ?? order.grandTotal ?? 0,
+          subtotal: order.subtotal ?? order.totalWithoutGST ?? 0,
+          gstTotal: order.gst_total ?? order.gstTotal ?? order.totalGST ?? 0,
+          deliveryCharge: order.delivery_charge ?? order.deliveryCharge ?? 0,
           paymentType: order.paymentType || '',
           paymentStatus: order.paymentStatus || '',
           codCollected: order.codCollectedByDriver || false,
-          codAmountToCollect: order.paymentType === 'COD' ? (order.grandTotal || 0) : 0,
+          codAmountToCollect: order.paymentType === 'COD' ? (order.grand_total ?? order.grandTotal ?? 0) : 0,
           deliveryOtp: order.status === 'arrived' ? order.deliveryOtp : null,
           assignedAt: order.assignedAt || null,
           acceptedAt: order.acceptedAt || null

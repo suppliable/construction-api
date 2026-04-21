@@ -173,6 +173,8 @@ const createOrder = async (req, res) => {
       subtotal, gst_total, delivery_charge: deliveryCharge,
       grand_total, paymentType, paymentStatus: 'confirmed',
       status: 'warehouse_review',
+      customerName: customer.name || '',
+      customerPhone: customer.phone || '',
       createdAt: new Date().toISOString()
     };
     await saveOrder(order);
