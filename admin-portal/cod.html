@@ -97,6 +97,46 @@
   #toast.show { transform:translateY(0); opacity:1; }
   #toast.success { background:var(--green); }
   #toast.error { background:#ef4444; }
+
+  /* TABS */
+  .tabs-bar { display:flex; gap:4px; margin-bottom:24px; border-bottom:2px solid var(--border); }
+  .tab-btn {
+    padding:10px 20px; border:none; background:none; font-family:'DM Sans',sans-serif;
+    font-size:14px; font-weight:600; color:var(--muted); cursor:pointer;
+    border-bottom:2px solid transparent; margin-bottom:-2px; transition:all 0.15s;
+  }
+  .tab-btn:hover { color:var(--text); }
+  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+
+  /* HISTORY FILTERS */
+  .history-filters {
+    display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end;
+  }
+  .filter-group { display:flex; flex-direction:column; gap:4px; }
+  .filter-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); }
+  .filter-input {
+    padding:8px 12px; border:1.5px solid var(--border); border-radius:7px;
+    font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text);
+    outline:none; transition:border-color 0.2s; min-width:160px;
+  }
+  .filter-input:focus { border-color:var(--blue); }
+  .btn-search {
+    padding:8px 18px; background:var(--blue); color:#fff; border:none;
+    border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600;
+    cursor:pointer; transition:background 0.15s; align-self:flex-end;
+  }
+  .btn-search:hover { background:#0d47a1; }
+  .btn-clear {
+    padding:8px 14px; background:#fff; color:var(--muted); border:1.5px solid var(--border);
+    border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500;
+    cursor:pointer; transition:background 0.15s; align-self:flex-end;
+  }
+  .btn-clear:hover { background:var(--bg); }
+
+  /* HISTORY STATUS BADGES */
+  .badge-reconciled { background:#d1fae5; color:#065f46; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
+  .badge-confirmed  { background:#dbeafe; color:#1e40af; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
+  .badge-pending    { background:#fef3c7; color:#92400e; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
 </style>
 </head>
 <body>
@@ -123,27 +163,69 @@
     <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
   <div class="content">
-    <div class="stats-grid">
-      <div class="stat-card amber">
-        <div class="stat-num mono" id="stat-count">—</div>
-        <div class="stat-label">Pending COD Orders</div>
+    <!-- TAB BAR -->
+    <div class="tabs-bar">
+      <button class="tab-btn active" id="tab-btn-pending" onclick="switchTab('pending')">Pending</button>
+      <button class="tab-btn" id="tab-btn-history" onclick="switchTab('history')">History</button>
+    </div>
+
+    <!-- PENDING TAB -->
+    <div id="tab-pending">
+      <div class="stats-grid">
+        <div class="stat-card amber">
+          <div class="stat-num mono" id="stat-count">—</div>
+          <div class="stat-label">Pending COD Orders</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-num mono" id="stat-total">—</div>
+          <div class="stat-label">Total Pending Amount</div>
+        </div>
       </div>
-      <div class="stat-card orange">
-        <div class="stat-num mono" id="stat-total">—</div>
-        <div class="stat-label">Total Pending Amount</div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th><th>Customer</th><th>Driver</th>
+              <th>Collected</th><th>Order Total</th><th>Date</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="codTableBody"></tbody>
+        </table>
       </div>
     </div>
 
-    <div class="table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>Order ID</th><th>Customer</th><th>Driver</th>
-            <th>Collected</th><th>Order Total</th><th>Date</th><th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="codTableBody"></tbody>
-      </table>
+    <!-- HISTORY TAB -->
+    <div id="tab-history" style="display:none">
+      <div class="history-filters">
+        <div class="filter-group">
+          <span class="filter-label">Order ID</span>
+          <input type="text" class="filter-input" id="h-order-id" placeholder="e.g. ORD123..." style="min-width:180px">
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Date</span>
+          <input type="date" class="filter-input" id="h-date" style="min-width:150px">
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Driver</span>
+          <input type="text" class="filter-input" id="h-driver" placeholder="Driver name or ID..." style="min-width:180px">
+        </div>
+        <button class="btn-search" onclick="fetchHistory()">Search</button>
+        <button class="btn-clear" onclick="clearHistoryFilters()">Clear</button>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th><th>Customer</th><th>Driver</th>
+              <th>Amount</th><th>Status</th><th>Date</th><th>Reconciled By</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <tr><td colspan="7"><div class="empty-state"><span class="icon">🔍</span>Use filters above to search history</div></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -242,6 +324,71 @@ function showToast(msg, type = '') {
 }
 
 fetchCOD();
+
+// ---- TABS ----
+function switchTab(tab) {
+  document.getElementById('tab-pending').style.display = tab === 'pending' ? '' : 'none';
+  document.getElementById('tab-history').style.display = tab === 'history' ? '' : 'none';
+  document.getElementById('tab-btn-pending').classList.toggle('active', tab === 'pending');
+  document.getElementById('tab-btn-history').classList.toggle('active', tab === 'history');
+  if (tab === 'history') fetchHistory();
+}
+
+// ---- HISTORY ----
+async function fetchHistory() {
+  const orderId = document.getElementById('h-order-id').value.trim();
+  const date    = document.getElementById('h-date').value.trim();
+  const driver  = document.getElementById('h-driver').value.trim();
+
+  const params = new URLSearchParams();
+  if (orderId) params.set('orderId', orderId);
+  if (date)    params.set('date', date);
+  if (driver)  params.set('driverId', driver);
+
+  const tbody = document.getElementById('historyTableBody');
+  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading...</td></tr>`;
+
+  try {
+    const res = await apiFetch('/api/admin/cod/history' + (params.toString() ? '?' + params.toString() : ''));
+    const data = await res.json();
+    if (!data.success) { tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">⚠️</span>Failed to load history</div></td></tr>`; return; }
+    renderHistory(data.data?.records || []);
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">⚠️</span>Error: ${e.message}</div></td></tr>`;
+  }
+}
+
+function renderHistory(records) {
+  const tbody = document.getElementById('historyTableBody');
+  if (!records.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">📭</span>No history found</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = records.map(r => {
+    const statusBadge = r.codStatus === 'reconciled'
+      ? `<span class="badge-reconciled">Reconciled</span>`
+      : r.codStatus === 'confirmed'
+      ? `<span class="badge-confirmed">Confirmed</span>`
+      : `<span class="badge-pending">Pending</span>`;
+    const amount = r.codAmountCollected || r.grand_total || r.amount || 0;
+    return `<tr>
+      <td><span class="order-id">${r.orderId || '—'}</span></td>
+      <td>${r.customer?.name || r.customerName || r.userId || '—'}</td>
+      <td>${r.vehicle?.driverName || r.driverName || '—'}</td>
+      <td><span class="amount">₹${amount.toLocaleString('en-IN')}</span></td>
+      <td>${statusBadge}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtDate(r.reconciledAt || r.deliveredAt || r.createdAt)}</td>
+      <td style="font-size:12px;color:var(--muted)">${r.reconciledBy || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function clearHistoryFilters() {
+  document.getElementById('h-order-id').value = '';
+  document.getElementById('h-date').value = '';
+  document.getElementById('h-driver').value = '';
+  fetchHistory();
+}
 </script>
 </body>
 </html>

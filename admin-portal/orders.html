@@ -399,7 +399,7 @@
         <thead>
           <tr>
             <th>Time</th><th>Order ID</th><th>Customer</th><th>Phone</th>
-            <th>Items</th><th>Amount</th><th>Payment</th><th>Status</th><th>Action</th>
+            <th>Items</th><th>Amount</th><th>Payment</th><th>Status</th><th style="text-align:right">Duration</th><th>Action</th>
           </tr>
         </thead>
         <tbody id="ordersTableBody"></tbody>
@@ -551,7 +551,7 @@ function renderTable() {
   const list = getFiltered();
   const tbody = document.getElementById('ordersTableBody');
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><span class="icon">📭</span>No orders found</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><span class="icon">📭</span>No orders found</div></td></tr>`;
     return;
   }
   tbody.innerHTML = list.map(o => {
@@ -567,6 +567,7 @@ function renderTable() {
       <td><span class="amount">${amt}</span></td>
       <td><span class="pill ${o.paymentType==='COD'?'pill-cod':'pill-online'}">${o.paymentType}</span></td>
       <td>${statusPill(o.status)}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)">${o.status === 'delivered' && o.fulfillmentDuration ? `<strong style="color:var(--text)">${o.fulfillmentDuration}</strong>` : '—'}</td>
       <td><button class="action-btn" onclick="event.stopPropagation();openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">👁</button></td>
     </tr>`;
   }).join('');
