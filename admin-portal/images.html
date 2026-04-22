@@ -265,11 +265,15 @@ function renderGrid() {
   grid.innerHTML = list.map(p => buildCard(p)).join('');
 }
 
+function escHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function buildCard(p) {
   const imgUrl = p.imageUrl || p.image || '';
   const hasImg = hasImage(imgUrl);
   const thumbHtml = hasImg
-    ? `<img src="${imgUrl}" alt="${p.name}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    ? `<img src="${escHtml(imgUrl)}" alt="${escHtml(p.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
     : '';
   const placeholderHtml = `
     <div class="thumb-placeholder" style="${hasImg ? 'display:none' : ''}">
@@ -282,21 +286,21 @@ function buildCard(p) {
     </div>`;
 
   return `
-    <div class="product-card" id="card-${p.id}">
+    <div class="product-card" id="card-${p.id}" data-id="${escHtml(p.id)}" data-name="${escHtml(p.name)}">
       <div class="thumb-wrap">
         ${thumbHtml}${placeholderHtml}
-        ${hasImg ? `<button class="thumb-del" title="Remove image" onclick="removeImage(event,'${p.id}','${(p.name||'').replace(/'/g,"\\'")}')">🗑</button>` : ''}
+        ${hasImg ? `<button class="thumb-del" title="Remove image" onclick="removeImage(event,this)">🗑</button>` : ''}
       </div>
       <div class="upload-overlay" id="overlay-${p.id}">
         <div class="spinner"></div>
         <span>Uploading...</span>
       </div>
       <div class="card-body">
-        <div class="product-name">${p.name}</div>
-        <div class="product-cat">${p.category || '—'}</div>
+        <div class="product-name">${escHtml(p.name)}</div>
+        <div class="product-cat">${escHtml(p.category || '—')}</div>
         ${p.hasVariants ? '<span class="badge-variants">Variants</span>' : ''}
         <input type="file" id="file-${p.id}" accept="image/*" style="display:none"
-          onchange="handleUpload('${p.id}','${(p.name||'').replace(/'/g,"\\'")}',this)">
+          onchange="handleUpload(this)">
         <button class="btn-upload-img" id="upbtn-${p.id}"
           onclick="document.getElementById('file-${p.id}').click()">
           ＋ Upload Image
@@ -306,14 +310,16 @@ function buildCard(p) {
 }
 
 // ── UPLOAD ────────────────────────────────────────────────
-async function handleUpload(productId, productName, input) {
+async function handleUpload(input) {
+  const card = input.closest('.product-card');
+  const productId = card.dataset.id;
+  const productName = card.dataset.name;
   const file = input.files[0];
   if (!file) return;
 
   setCardLoading(productId, true);
 
   try {
-    // Step 1: upload file to Firebase Storage
     const formData = new FormData();
     formData.append('image', file);
     const uploadRes = await fetch(`${API_BASE}/api/upload`, {
@@ -324,16 +330,14 @@ async function handleUpload(productId, productName, input) {
     const uploadData = await uploadRes.json();
     if (!uploadData.success) throw new Error('Upload failed: ' + (uploadData.message || ''));
 
-    // Step 2: write URL to Zoho "Image URL" field + Firestore imageMap
     const updateRes = await fetch(`${API_BASE}/api/products/${productId}/image`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ image_url: uploadData.image_url })
     });
     const updateData = await updateRes.json();
     if (!updateData.success) throw new Error('Zoho update failed: ' + (updateData.message || ''));
 
-    // Step 3: update local data + re-render card
     const idx = allProducts.findIndex(p => p.id === productId);
     if (idx !== -1) {
       allProducts[idx] = { ...allProducts[idx], imageUrl: uploadData.image_url, image: uploadData.image_url };
@@ -350,8 +354,11 @@ async function handleUpload(productId, productName, input) {
 }
 
 // ── REMOVE IMAGE ──────────────────────────────────────────
-async function removeImage(evt, productId, productName) {
+async function removeImage(evt, btn) {
   evt.stopPropagation();
+  const card = btn.closest('.product-card');
+  const productId = card.dataset.id;
+  const productName = card.dataset.name;
   if (!confirm(`Remove image for "${productName}"?`)) return;
 
   setCardLoading(productId, true);
