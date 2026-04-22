@@ -60,6 +60,13 @@ async function setImage(itemId, imageUrl) {
   );
 }
 
+async function setFeatured(itemId, featured) {
+  await db.collection('config').doc('imageMap').set(
+    { [`featured_${itemId}`]: featured },
+    { merge: true }
+  );
+}
+
 // ADDRESSES
 async function getAddresses(userId) {
   const snapshot = await db.collection('addresses')
@@ -329,6 +336,7 @@ module.exports = {
   saveCart,
   getImageMap,
   setImage,
+  setFeatured,
   getAddresses,
   addAddress,
   updateAddress,

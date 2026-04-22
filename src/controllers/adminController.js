@@ -16,7 +16,9 @@ function formatDuration(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId } = require('../services/zohoOrderService');
-const { getAccessToken } = require('../services/zohoService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
+const { setFeatured } = require('../services/firestoreService');
+const { clearCache } = require('../services/productService');
 const { formatTimestamps } = require('../utils/formatDoc');
 
 async function markZohoInvoiceAsSent(invoiceId) {
@@ -610,6 +612,32 @@ const confirmHandover = async (req, res) => {
   }
 };
 
+// PUT /api/admin/products/:id/featured
+const toggleFeatured = async (req, res) => {
+  const { id } = req.params;
+  const featured = req.body.featured === true || req.body.featured === 'true';
+  try {
+    await updateZohoItemFeatured(id, featured);
+    await setFeatured(id, featured);
+    clearCache();
+    return res.json({ success: true, featured });
+  } catch (err) {
+    if (err.response?.data?.code === 2006) {
+      try {
+        const group = await getZohoItemGroupById(id);
+        const groupId = group.group_id || id;
+        await Promise.all(group.items.map(item => updateZohoItemFeatured(item.item_id, featured)));
+        await setFeatured(groupId, featured);
+        clearCache();
+        return res.json({ success: true, featured });
+      } catch (groupErr) {
+        return res.status(500).json({ success: false, message: groupErr.message });
+      }
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   listOrders,
   getNewOrderCount,
@@ -632,5 +660,6 @@ module.exports = {
   setDriverPin,
   listHandovers,
   confirmHandover,
-  listCodHistory
+  listCodHistory,
+  toggleFeatured
 };

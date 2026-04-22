@@ -19,6 +19,8 @@ const orderRoutes = require('./src/routes/orders');
 const configRoutes = require('./src/routes/config');
 const adminRoutes = require('./src/routes/admin');
 const driverRoutes = require('./src/routes/driver');
+const searchRoutes = require('./src/routes/search');
+const categoriesRoutes = require('./src/routes/categories');
 
 const app = express();
 
@@ -51,6 +53,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/categories', categoriesRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

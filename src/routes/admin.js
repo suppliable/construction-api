@@ -22,7 +22,8 @@ const {
   listDrivers,
   createDriver,
   removeDriver,
-  setDriverPin
+  setDriverPin,
+  toggleFeatured
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -64,6 +65,9 @@ router.post('/orders/:orderId/assign-vehicle', assignVehicle);
 router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
 router.post('/orders/:orderId/fix-invoice', fixInvoice);
+
+// Product management
+router.put('/products/:id/featured', toggleFeatured);
 
 // Vehicles
 router.get('/vehicles', listVehicles);

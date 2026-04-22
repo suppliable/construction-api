@@ -105,6 +105,7 @@ const getAllProducts = async (category) => {
     const firstVariantItem = itemMap[group.items[0]?.item_id];
     const category = categoryMap[group.category_id] || categoryMap[firstVariantItem?.category_id] || '';
 
+    const groupImageUrl = cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name);
     return {
       id: group.group_id,
       name: group.group_name,
@@ -117,32 +118,38 @@ const getAllProducts = async (category) => {
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
-      image: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
-      imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
-      fallbackImage: buildImage(group.group_name)
+      image: groupImageUrl,
+      imageUrl: groupImageUrl,
+      fallbackImage: buildImage(group.group_name),
+      featured: !!(cache.imageMap[`featured_${group.group_id}`])
     };
   });
 
   // Build plain products — NO extra API calls
   const plainProducts = items
     .filter(item => !groupedItemIds.has(item.item_id))
-    .map(item => ({
-      id: item.item_id,
-      name: item.name,
-      brand: item.manufacturer || item.group_name || '',
-      category: categoryMap[item.category_id] || '',
-      unit: item.unit,
-      description: item.description || '',
-      hasVariants: false,
-      price: item.rate,
-      stock: item.stock_on_hand || 0,
-      available_stock: item.available_stock || 0,
-      gst_percentage: extractGST(item),
-      hsn: item.hsn_or_sac || '',
-      image: cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name),
-      imageUrl: cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name),
-      fallbackImage: buildImage(item.name)
-    }));
+    .map(item => {
+      const itemImageUrl = cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name);
+      const zohoFeatured = item.custom_field_hash?.cf_featured === true || item.custom_field_hash?.cf_featured === 'true';
+      return {
+        id: item.item_id,
+        name: item.name,
+        brand: item.manufacturer || item.group_name || '',
+        category: categoryMap[item.category_id] || '',
+        unit: item.unit,
+        description: item.description || '',
+        hasVariants: false,
+        price: item.rate,
+        stock: item.stock_on_hand || 0,
+        available_stock: item.available_stock || 0,
+        gst_percentage: extractGST(item),
+        hsn: item.hsn_or_sac || '',
+        image: itemImageUrl,
+        imageUrl: itemImageUrl,
+        fallbackImage: buildImage(item.name),
+        featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured)
+      };
+    });
 
   const allProducts = [...groupedProducts, ...plainProducts];
 

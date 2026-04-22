@@ -1,32 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const { getAllProducts } = require('../services/productService');
-const { getZohoCategories } = require('../services/zohoService');
 
-async function buildCategories() {
-  const zohoCategories = await getZohoCategories();
-  return zohoCategories.map((c, index) => ({
-    id: c.category_id,
-    name: c.name,
-    image: `https://placehold.co/200x200?text=${encodeURIComponent(c.name)}`
-  }));
-}
-
-// GET /api/home — full home screen data in one call
+// GET /api/home
 router.get('/', async (req, res) => {
   try {
-    const [categories, products] = await Promise.all([buildCategories(), getAllProducts()]);
-    res.json({ success: true, data: { categories, products } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+    const products = await getAllProducts();
 
-// GET /api/home/categories — just categories
-router.get('/categories', async (req, res) => {
-  try {
-    const categories = await buildCategories();
-    res.json({ success: true, data: categories });
+    const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+
+    const featured = products.filter(p => p.featured).slice(0, 20);
+
+    const preview = {};
+    categories.forEach(cat => {
+      preview[cat] = products.filter(p => p.category === cat).slice(0, 5);
+    });
+
+    res.json({ success: true, data: { categories, featured, preview } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -159,6 +159,17 @@ async function updateZohoItemImage(itemId, imageUrl) {
   return response.data.item;
 }
 
+async function updateZohoItemFeatured(itemId, featured) {
+  const token = await getAccessToken();
+  const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+    custom_fields: [{ label: 'Featured', value: featured }]
+  }, {
+    headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    params: { organization_id: process.env.ZOHO_ORG_ID }
+  });
+  return response.data.item;
+}
+
 async function updateZohoContact(zohoContactId, contactData) {
   console.log('updateZohoContact called with:', { zohoContactId, contactData });
   const token = await getAccessToken();
@@ -216,5 +227,6 @@ module.exports = {
   createZohoContact,
   updateZohoContact,
   updateZohoItemImage,
+  updateZohoItemFeatured,
   searchZohoContactByPhone
 };
