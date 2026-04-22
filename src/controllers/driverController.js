@@ -2,7 +2,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getVehicleById, getOrdersByDriver, createHandover, getHandoversByDriver, getAllHandoversForDriver } = require('../services/firestoreService');
 const { getETA } = require('../services/googleMapsService');
-const { uploadImage } = require('../services/cloudinaryService');
+const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
 
@@ -165,9 +165,7 @@ const completeDelivery = [
       }
 
       if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'photo is required' });
-      const base64 = req.file.buffer.toString('base64');
-      const dataUri = `data:${req.file.mimetype};base64,${base64}`;
-      const deliveryPhotoUrl = await uploadImage(dataUri);
+      const deliveryPhotoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
 
       const updated = await updateOrder(orderId, {
         status: 'delivered',
