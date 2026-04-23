@@ -7,7 +7,7 @@ const calculateDeliveryCharge = async (req, res) => {
     if (!userId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId is required' });
     if (!addressId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'addressId is required' });
 
-    const address = await getAddressById(addressId);
+    const address = await getAddressById(addressId, req.traceContext);
     if (!address || address.userId !== userId) {
       return res.status(404).json({ success: false, error: 'ADDRESS_NOT_FOUND', message: 'Address not found' });
     }
@@ -20,7 +20,8 @@ const calculateDeliveryCharge = async (req, res) => {
       parseFloat(address.latitude),
       parseFloat(address.longitude),
       0,
-      addressString
+      addressString,
+      req.traceContext
     );
 
     if (!result.serviceable) {
@@ -48,7 +49,7 @@ const calculateDeliveryCharge = async (req, res) => {
 
 const getConfig = async (req, res) => {
   try {
-    const config = await getDeliveryConfig();
+    const config = await getDeliveryConfig(req.traceContext);
     res.json({ success: true, data: { config } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -62,7 +63,7 @@ const updateConfig = async (req, res) => {
       freeDeliveryEnabled: freeDeliveryEnabled !== undefined ? freeDeliveryEnabled : false,
       freeDeliveryThreshold: freeDeliveryThreshold || null,
       freeDeliveryPincodes: freeDeliveryPincodes || []
-    });
+    }, req.traceContext);
     res.json({ success: true, message: 'Delivery config updated', data: { config } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });

@@ -23,6 +23,7 @@ const schema = z.object({
 
   ADMIN_PASSWORD: z.string().min(8, 'ADMIN_PASSWORD must be at least 8 characters'),
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
+  JWT_SECRET: z.string().min(6, 'JWT_SECRET must be at least 6 characters'),
 
   // Optional
   GOOGLE_MAPS_API_KEY: z.string().optional(),

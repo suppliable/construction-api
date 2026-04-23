@@ -204,7 +204,7 @@ let allProducts = [];
 // ── LOAD ──────────────────────────────────────────────────
 async function loadProducts() {
   try {
-    const res = await fetch(`${API_BASE}/api/products`);
+    const res = await fetch(`${API_BASE}/api/v1/products`);
     const data = await res.json();
     if (!data.success) throw new Error(data.message);
     allProducts = data.data || [];
@@ -338,7 +338,7 @@ async function toggleFeatured(checkbox) {
   if (wrap) wrap.classList.add('loading');
 
   try {
-    const res = await fetch(`${API_BASE}/api/admin/products/${productId}/featured`, {
+    const res = await fetch(`${API_BASE}/api/v1/admin/products/${productId}/featured`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ featured: newVal })
@@ -373,7 +373,7 @@ async function handleUpload(input) {
   try {
     const formData = new FormData();
     formData.append('image', file);
-    const uploadRes = await fetch(`${API_BASE}/api/upload`, {
+    const uploadRes = await fetch(`${API_BASE}/api/v1/upload`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData
@@ -381,7 +381,7 @@ async function handleUpload(input) {
     const uploadData = await uploadRes.json();
     if (!uploadData.success) throw new Error('Upload failed: ' + (uploadData.message || ''));
 
-    const updateRes = await fetch(`${API_BASE}/api/products/${productId}/image`, {
+    const updateRes = await fetch(`${API_BASE}/api/v1/products/${productId}/image`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ image_url: uploadData.image_url })
@@ -412,7 +412,7 @@ async function removeImage(evt, btn) {
 
   setCardLoading(productId, true);
   try {
-    const res = await fetch(`${API_BASE}/api/products/${productId}/image`, {
+    const res = await fetch(`${API_BASE}/api/v1/products/${productId}/image`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ image_url: '' })

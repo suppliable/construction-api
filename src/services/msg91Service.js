@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { createSpan } = require('../utils/spanTracer');
 
 const BASE = 'https://control.msg91.com/api/v5/otp';
 
@@ -30,23 +31,36 @@ async function sendOtp(normalizedPhone) {
   return res.data;
 }
 
-async function verifyOtp(normalizedPhone, otp) {
-  const res = await axios.get(`${BASE}/verify`, {
-    params: { otp, mobile: normalizedPhone },
-    headers: authHeaders(),
-    timeout: 10000
-  });
-  return res.data;
+async function verifyOtp(normalizedPhone, otp, traceContext = null) {
+  const span = createSpan(traceContext, 'msg91.api.verifyOtp', { endpoint: '/api/v5/otp/verify' });
+  try {
+    const res = await axios.get(`${BASE}/verify`, {
+      params: { otp, mobile: normalizedPhone },
+      headers: authHeaders(),
+      timeout: 10000
+    });
+    span.end({ success: true, type: res.data?.type });
+    return res.data;
+  } catch (error) {
+    span.end({ success: false, error: error.response?.data || error.message });
+    throw error;
+  }
 }
 
-async function resendOtp(normalizedPhone) {
-  const res = await axios.get(`${BASE}/retry`, {
-    params: { retrytype: 'text', mobile: normalizedPhone },
-    headers: authHeaders(),
-    timeout: 10000
-  });
-  assertSuccess(res.data, 'resend');
-  return res.data;
+async function resendOtp(normalizedPhone, traceContext = null) {
+  const span = createSpan(traceContext, 'msg91.api.resendOtp', { endpoint: '/api/v5/otp/retry' });
+  try {
+    const res = await axios.get(`${BASE}/retry`, {
+      params: { retrytype: 'text', mobile: normalizedPhone },
+      headers: authHeaders(),
+      timeout: 10000
+    });
+    span.end({ success: true });
+    return res.data;
+  } catch (error) {
+    span.end({ success: false, error: error.response?.data || error.message });
+    throw error;
+  }
 }
 
 module.exports = { sendOtp, verifyOtp, resendOtp };

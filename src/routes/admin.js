@@ -7,6 +7,8 @@ const {
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  getCustomerByPhoneNumber,
+  getCustomerOrders,
   markPacked,
   assignVehicle,
   getPickingList,
@@ -69,7 +71,7 @@ router.post('/orders/:orderId/fix-invoice', fixInvoice);
 
 // Product management
 router.put('/products/:id/featured', toggleFeatured);
-// Customer lookup by phone
+// Customer lookup by phone (support panel)
 router.get('/customers/phone/:phone', getCustomerByPhoneNumber);
 router.get('/customers/:userId/orders', getCustomerOrders);
 

@@ -15,6 +15,8 @@ const orderRoutes = require('../orders');
 const configRoutes = require('../config');
 const adminRoutes = require('../admin');
 const driverRoutes = require('../driver');
+const searchRoutes = require('../search');
+const categoriesRoutes = require('../categories');
 
 const router = Router();
 
@@ -31,5 +33,7 @@ router.use('/orders', orderRoutes);
 router.use('/config', configRoutes);
 router.use('/admin', adminRoutes);
 router.use('/driver', driverRoutes);
+router.use('/search', searchRoutes);
+router.use('/categories', categoriesRoutes);
 
 module.exports = router;
