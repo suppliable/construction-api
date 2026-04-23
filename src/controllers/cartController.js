@@ -77,7 +77,7 @@ async function validateCart(req, res) {
     const issues = [];
 
     await Promise.all((cart.items || []).map(async (item) => {
-      const product = await getProductById(item.productId);
+      const product = await getProductById(item.productId, req.traceContext);
       if (!product) {
         issues.push({ productId: item.productId, message: 'Product not found' });
         return;

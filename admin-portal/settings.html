@@ -280,7 +280,7 @@ function toggleAddForm(id, btn) {
 // ── WAREHOUSE STATUS ──────────────────────────────────────
 async function fetchWarehouseStatus() {
   try {
-    const res = await apiFetch('/api/config/warehouse-status');
+    const res = await apiFetch('/api/v1/config/warehouse-status');
     const data = await res.json();
     if (data.success) applyWarehouseState(data.data?.isOpen, data.data?.closedMessage);
   } catch(e) {}
@@ -313,7 +313,7 @@ async function saveWarehouseStatus() {
   const btn = document.getElementById('saveWarehouseBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
-    const res = await apiFetch('/api/config/warehouse-status', {
+    const res = await apiFetch('/api/v1/config/warehouse-status', {
       method: 'PUT',
       body: JSON.stringify({ isOpen, closedMessage })
     });
@@ -329,7 +329,7 @@ async function saveWarehouseStatus() {
 // ── VEHICLES ──────────────────────────────────────────────
 async function fetchVehicles() {
   try {
-    const res = await apiFetch('/api/admin/vehicles');
+    const res = await apiFetch('/api/v1/admin/vehicles');
     const data = await res.json();
     const tbody = document.getElementById('vehicleTableBody');
     if (!data.data?.vehicles?.length) {
@@ -348,7 +348,7 @@ async function addVehicle() {
   const name = document.getElementById('vName').value.trim();
   if (!name) { showToast('Vehicle name is required', 'error'); return; }
   try {
-    const res = await apiFetch('/api/admin/vehicles', { method: 'POST', body: JSON.stringify({ name }) });
+    const res = await apiFetch('/api/v1/admin/vehicles', { method: 'POST', body: JSON.stringify({ name }) });
     const data = await res.json();
     if (data.success) {
       document.getElementById('vName').value = '';
@@ -362,7 +362,7 @@ async function addVehicle() {
 async function deleteVehicle(vehicleId, name) {
   if (!confirm(`Delete vehicle "${name}"?`)) return;
   try {
-    const res = await apiFetch(`/api/admin/vehicles/${vehicleId}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/v1/admin/vehicles/${vehicleId}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) { await fetchVehicles(); showToast('Vehicle removed', 'success'); }
     else { showToast(data.message || 'Failed', 'error'); }
@@ -372,7 +372,7 @@ async function deleteVehicle(vehicleId, name) {
 // ── DRIVERS ───────────────────────────────────────────────
 async function fetchDrivers() {
   try {
-    const res = await apiFetch('/api/admin/drivers');
+    const res = await apiFetch('/api/v1/admin/drivers');
     const data = await res.json();
     const tbody = document.getElementById('driverTableBody');
     if (!data.data?.drivers?.length) {
@@ -404,7 +404,7 @@ async function savePin(driverId, name) {
     showToast('PIN must be exactly 4 digits', 'error'); pinEl?.focus(); return;
   }
   try {
-    const res = await apiFetch(`/api/admin/drivers/${driverId}/set-pin`, {
+    const res = await apiFetch(`/api/v1/admin/drivers/${driverId}/set-pin`, {
       method: 'POST', body: JSON.stringify({ pin })
     });
     const data = await res.json();
@@ -422,7 +422,7 @@ async function addDriver() {
   const phone = document.getElementById('dPhone').value.trim();
   if (!name || !phone) { showToast('Name and phone are required', 'error'); return; }
   try {
-    const res = await apiFetch('/api/admin/drivers', { method: 'POST', body: JSON.stringify({ name, phone }) });
+    const res = await apiFetch('/api/v1/admin/drivers', { method: 'POST', body: JSON.stringify({ name, phone }) });
     const data = await res.json();
     if (data.success) {
       document.getElementById('dName').value = '';
@@ -437,7 +437,7 @@ async function addDriver() {
 async function deleteDriver(driverId, name) {
   if (!confirm(`Remove driver "${name}"?`)) return;
   try {
-    const res = await apiFetch(`/api/admin/drivers/${driverId}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/v1/admin/drivers/${driverId}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) { await fetchDrivers(); showToast('Driver removed', 'success'); }
     else { showToast(data.message || 'Failed', 'error'); }
@@ -449,7 +449,7 @@ let currentThreshold = null;
 
 async function fetchThreshold() {
   try {
-    const res = await fetch(`${API_BASE}/api/config/cod-threshold`, { headers: authHeaders() });
+    const res = await fetch(`${API_BASE}/api/v1/config/cod-threshold`, { headers: authHeaders() });
     const data = await res.json();
     if (data.success) {
       currentThreshold = data.data?.cod_threshold;
@@ -475,7 +475,7 @@ async function saveThreshold() {
   const btn = document.getElementById('saveThreshBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
-    const res = await fetch(`${API_BASE}/api/config/cod-threshold`, {
+    const res = await fetch(`${API_BASE}/api/v1/config/cod-threshold`, {
       method: 'PUT', headers: authHeaders(), body: JSON.stringify({ value: val })
     });
     const data = await res.json();

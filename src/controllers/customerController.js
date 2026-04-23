@@ -2,7 +2,7 @@ const { getCustomer, saveCustomer, getCustomerByPhone } = require('../services/f
 const { toCustomerDTO } = require('../models/customerDTO');
 
 async function getCustomerHandler(req, res) {
-  const customer = await getCustomer(req.params.userId);
+  const customer = await getCustomer(req.params.userId, req.traceContext);
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }
@@ -11,20 +11,20 @@ async function getCustomerHandler(req, res) {
 }
 
 async function updateDeliveryAddress(req, res) {
-  const customer = await getCustomer(req.params.userId);
+  const customer = await getCustomer(req.params.userId, req.traceContext);
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }
 
   const { lat, lng, address_line1, address_line2, city, state, pincode, label } = req.body;
   customer.delivery_address = { lat, lng, address_line1, address_line2, city, state, pincode, label };
-  await saveCustomer(customer);
+  await saveCustomer(customer, req.traceContext);
 
   res.json({ success: true, user: customer });
 }
 
 async function updateRegisteredAddress(req, res) {
-  const customer = await getCustomer(req.params.userId);
+  const customer = await getCustomer(req.params.userId, req.traceContext);
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }
@@ -35,7 +35,7 @@ async function updateRegisteredAddress(req, res) {
 
   const { address_line1, address_line2, city, state, state_code, pincode } = req.body;
   customer.registered_address = { address_line1, address_line2, city, state, state_code, pincode };
-  await saveCustomer(customer);
+  await saveCustomer(customer, req.traceContext);
 
   res.json({ success: true, user: customer });
 }
@@ -45,7 +45,7 @@ async function listCustomers(req, res) {
 }
 
 async function getCustomerByPhoneHandler(req, res) {
-  const customer = await getCustomerByPhone(req.params.phone);
+  const customer = await getCustomerByPhone(req.params.phone, req.traceContext);
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }

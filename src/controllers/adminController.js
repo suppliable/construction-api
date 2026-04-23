@@ -37,13 +37,13 @@ async function markZohoInvoiceAsSent(invoiceId) {
 const listOrders = async (req, res) => {
   try {
     const { status, date } = req.query;
-    let orders = await getAllOrders();
+    let orders = await getAllOrders(req.traceContext);
 
     if (status) orders = orders.filter(o => o.status === status);
     if (date) orders = orders.filter(o => o.createdAt && o.createdAt.startsWith(date));
 
     const enriched = await Promise.all(orders.map(async (order) => {
-      const customer = await getCustomer(order.userId).catch(() => null);
+      const customer = await getCustomer(order.userId, req.traceContext).catch(() => null);
       const o = formatTimestamps(order);
       const fulfillmentDuration = (o.acceptedAt && o.deliveredAt)
         ? formatDuration(new Date(o.deliveredAt) - new Date(o.acceptedAt))
@@ -67,7 +67,7 @@ const listOrders = async (req, res) => {
 const getNewOrderCount = async (req, res) => {
   try {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const orders = await getAllOrders();
+    const orders = await getAllOrders(req.traceContext);
     const newOrders = orders.filter(o =>
       o.status === 'warehouse_review' && o.createdAt > fiveMinutesAgo
     );
@@ -81,12 +81,12 @@ const getNewOrderCount = async (req, res) => {
 const getOrderDetail = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
     const [customer, address] = await Promise.all([
-      getCustomer(order.userId).catch(() => null),
-      getAddressById(order.addressId).catch(() => null)
+      getCustomer(order.userId, req.traceContext).catch(() => null),
+      getAddressById(order.addressId, req.traceContext).catch(() => null)
     ]);
 
     const o = formatTimestamps(order);
@@ -113,15 +113,15 @@ const getOrderDetail = async (req, res) => {
 const acceptOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.status !== 'warehouse_review') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order is already ${order.status}` });
     }
 
     const [customer, address] = await Promise.all([
-      getCustomer(order.userId),
-      getAddressById(order.addressId)
+      getCustomer(order.userId, req.traceContext),
+      getAddressById(order.addressId, req.traceContext)
     ]);
 
     if (!customer || !customer.zoho_contact_id) {
@@ -177,7 +177,7 @@ const acceptOrder = async (req, res) => {
       zoho_invoice_number: zohoInvoice?.invoice_number || null,
       deliveryOtp,
       acceptedAt: new Date().toISOString()
-    });
+    }, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -190,7 +190,7 @@ const acceptOrder = async (req, res) => {
 const declineOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.status !== 'warehouse_review') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order is already ${order.status}` });
@@ -199,7 +199,7 @@ const declineOrder = async (req, res) => {
     const updated = await updateOrder(orderId, {
       status: 'declined',
       declinedAt: new Date().toISOString()
-    });
+    }, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -211,7 +211,7 @@ const declineOrder = async (req, res) => {
 const markPacked = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.status !== 'accepted') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be accepted before packing (current: ${order.status})` });
@@ -220,7 +220,7 @@ const markPacked = async (req, res) => {
     const updated = await updateOrder(orderId, {
       status: 'ready_for_dispatch',
       packedAt: new Date().toISOString()
-    });
+    }, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -237,15 +237,15 @@ const assignVehicle = async (req, res) => {
     if (!vehicleId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'vehicleId is required' });
     if (!driverId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'driverId is required' });
 
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.status !== 'ready_for_dispatch') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be ready_for_dispatch (current: ${order.status})` });
     }
 
     const [vehicle, driver] = await Promise.all([
-      getVehicleById(vehicleId),
-      getDriverById(driverId)
+      getVehicleById(vehicleId, req.traceContext),
+      getDriverById(driverId, req.traceContext)
     ]);
     if (!vehicle) return res.status(404).json({ success: false, error: 'VEHICLE_NOT_FOUND', message: 'Vehicle not found' });
     if (!driver) return res.status(404).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Driver not found' });
@@ -262,8 +262,8 @@ const assignVehicle = async (req, res) => {
     const newDriverCount = driverCount + 1;
     const newVehicleCount = vehicleCount + 1;
     await Promise.all([
-      updateVehicle(vehicleId, { isAvailable: newVehicleCount < 2, activeOrderCount: newVehicleCount }),
-      updateDriver(driverId, { isAvailable: newDriverCount < 2, activeOrderCount: newDriverCount })
+      updateVehicle(vehicleId, { isAvailable: newVehicleCount < 2, activeOrderCount: newVehicleCount }, req.traceContext),
+      updateDriver(driverId, { isAvailable: newDriverCount < 2, activeOrderCount: newDriverCount }, req.traceContext)
     ]);
 
     const updated = await updateOrder(orderId, {
@@ -275,7 +275,7 @@ const assignVehicle = async (req, res) => {
       driverPhone: driver.phone,
       vehicle: { vehicleNumber: vehicle.name, driverName: driver.name, driverPhone: driver.phone },
       assignedAt: new Date().toISOString()
-    });
+    }, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -287,12 +287,12 @@ const assignVehicle = async (req, res) => {
 const getPickingList = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
     const [customer, address] = await Promise.all([
-      getCustomer(order.userId).catch(() => null),
-      getAddressById(order.addressId).catch(() => null)
+      getCustomer(order.userId, req.traceContext).catch(() => null),
+      getAddressById(order.addressId, req.traceContext).catch(() => null)
     ]);
 
     const deliveryAddress = address
@@ -330,7 +330,7 @@ const getPickingList = async (req, res) => {
 const getInvoiceUrl = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
     if (!order.zoho_invoice_id) {
@@ -363,7 +363,7 @@ const getInvoiceUrl = async (req, res) => {
 const fixInvoice = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (!order.zoho_invoice_id) {
       return res.status(404).json({ success: false, error: 'INVOICE_NOT_FOUND', message: 'No invoice on this order' });
@@ -380,7 +380,7 @@ const fixInvoice = async (req, res) => {
 // GET /api/admin/cod/pending
 const getPendingCOD = async (req, res) => {
   try {
-    const orders = await getAllOrders();
+    const orders = await getAllOrders(req.traceContext);
     const pending = orders.filter(o =>
       o.paymentType === 'COD' &&
       o.codCollected !== true &&
@@ -402,7 +402,7 @@ const reconcileCOD = async (req, res) => {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'amountReceived is required' });
     }
 
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.paymentType !== 'COD') {
       return res.status(400).json({ success: false, error: 'INVALID_PAYMENT_TYPE', message: 'Order is not a COD order' });
@@ -416,7 +416,7 @@ const reconcileCOD = async (req, res) => {
       codAmount: parseFloat(amountReceived),
       reconciledAt: new Date().toISOString(),
       reconciledBy: reconciledBy || null
-    });
+    }, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -427,7 +427,7 @@ const reconcileCOD = async (req, res) => {
 // GET /api/admin/vehicles
 const listVehicles = async (req, res) => {
   try {
-    const vehicles = await getVehicles();
+    const vehicles = await getVehicles(req.traceContext);
     res.json({ success: true, data: { vehicles: vehicles.map(v => ({ ...v, activeOrderCount: v.activeOrderCount ?? 0 })) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -439,7 +439,7 @@ const createVehicle = async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'name is required' });
-    const vehicle = await addVehicle(name.trim());
+    const vehicle = await addVehicle(name.trim(), req.traceContext);
     res.json({ success: true, data: { vehicle } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -450,7 +450,7 @@ const createVehicle = async (req, res) => {
 const removeVehicle = async (req, res) => {
   try {
     const { vehicleId } = req.params;
-    await deleteVehicle(vehicleId);
+    await deleteVehicle(vehicleId, req.traceContext);
     res.json({ success: true, message: 'Vehicle deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -460,7 +460,7 @@ const removeVehicle = async (req, res) => {
 // GET /api/admin/drivers
 const listDrivers = async (req, res) => {
   try {
-    const drivers = await getDrivers();
+    const drivers = await getDrivers(req.traceContext);
     res.json({ success: true, data: { drivers: drivers.map(d => ({ ...d, activeOrderCount: d.activeOrderCount ?? 0 })) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -473,7 +473,7 @@ const createDriver = async (req, res) => {
     const { name, phone } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'name is required' });
     if (!phone) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'phone is required' });
-    const driver = await addDriver(name.trim(), phone.trim());
+    const driver = await addDriver(name.trim(), phone.trim(), req.traceContext);
     res.json({ success: true, data: { driver } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -490,11 +490,11 @@ const setDriverPin = async (req, res) => {
       return res.status(400).json({ success: false, error: 'INVALID_PIN', message: 'PIN must be exactly 4 digits' });
     }
 
-    const driver = await getDriverById(driverId);
+    const driver = await getDriverById(driverId, req.traceContext);
     if (!driver) return res.status(404).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Driver not found' });
 
     const hashedPin = await bcrypt.hash(String(pin), 10);
-    await updateDriver(driverId, { pin: hashedPin, pinSetAt: new Date().toISOString() });
+    await updateDriver(driverId, { pin: hashedPin, pinSetAt: new Date().toISOString() }, req.traceContext);
 
     res.json({ success: true, message: `PIN set successfully for ${driver.name}` });
   } catch (err) {
@@ -506,7 +506,7 @@ const setDriverPin = async (req, res) => {
 const removeDriver = async (req, res) => {
   try {
     const { driverId } = req.params;
-    await softDeleteDriver(driverId);
+    await softDeleteDriver(driverId, req.traceContext);
     res.json({ success: true, message: 'Driver deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -520,7 +520,7 @@ const listCodHistory = async (req, res) => {
 
     const [allOrders, handovers] = await Promise.all([
       getAllOrders(),
-      getAllHandovers(null)
+      getAllHandovers(null, req.traceContext)
     ]);
 
     // Order-level COD records (delivered COD orders with codCollectedByDriver)
@@ -572,7 +572,7 @@ const listCodHistory = async (req, res) => {
 const listHandovers = async (req, res) => {
   try {
     const { status } = req.query;
-    const handovers = await getAllHandovers(status || null);
+    const handovers = await getAllHandovers(status || null, req.traceContext);
     res.json({ success: true, data: { handovers } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -585,7 +585,7 @@ const confirmHandover = async (req, res) => {
     const { handoverId } = req.params;
     const { amountReceived, notes } = req.body;
 
-    const handover = await getHandoverById(handoverId);
+    const handover = await getHandoverById(handoverId, req.traceContext);
     if (!handover) {
       return res.status(404).json({ error: 'HANDOVER_NOT_FOUND', message: 'Handover not found' });
     }
@@ -598,7 +598,7 @@ const confirmHandover = async (req, res) => {
       amountReceived: amountReceived ?? null,
       confirmedNotes: notes || '',
       confirmedAt: new Date().toISOString()
-    });
+    }, req.traceContext);
 
     res.json({
       success: true,
@@ -617,7 +617,7 @@ const confirmHandover = async (req, res) => {
 const getCustomerByPhoneNumber = async (req, res) => {
   try {
     const { phone } = req.params;
-    const customer = await getCustomerByPhone(phone);
+    const customer = await getCustomerByPhone(phone, req.traceContext);
     if (!customer) return res.status(404).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'No customer found with that phone number' });
     res.json({ success: true, data: { customer } });
   } catch (err) {
@@ -630,7 +630,7 @@ const getCustomerOrders = async (req, res) => {
   try {
     const { userId } = req.params;
     const limit = Math.max(0, parseInt(req.query.limit, 10) || 10);
-    const orders = await getOrdersByUser(userId, limit);
+    const orders = await getOrdersByUser(userId, limit, req.traceContext);
     res.json({ success: true, data: { count: orders.length, orders: orders.map(formatTimestamps) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -643,7 +643,7 @@ const toggleFeatured = async (req, res) => {
   const featured = req.body.featured === true || req.body.featured === 'true';
   try {
     await updateZohoItemFeatured(id, featured);
-    await setFeatured(id, featured);
+    await setFeatured(id, featured, req.traceContext);
     clearCache();
     return res.json({ success: true, featured });
   } catch (err) {
@@ -652,7 +652,7 @@ const toggleFeatured = async (req, res) => {
         const group = await getZohoItemGroupById(id);
         const groupId = group.group_id || id;
         await Promise.all(group.items.map(item => updateZohoItemFeatured(item.item_id, featured)));
-        await setFeatured(groupId, featured);
+        await setFeatured(groupId, featured, req.traceContext);
         clearCache();
         return res.json({ success: true, featured });
       } catch (groupErr) {

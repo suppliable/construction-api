@@ -2,7 +2,7 @@ const { getSettings, updateSettings } = require('../services/firestoreService');
 
 const getCodThreshold = async (req, res) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(req.traceContext);
     res.json({ success: true, data: { cod_threshold: settings.cod_threshold ?? 7500 } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -18,7 +18,7 @@ const updateCodThreshold = async (req, res) => {
     if (isNaN(value) || value < 0) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'value must be a non-negative number' });
     }
-    await updateSettings({ cod_threshold: parseFloat(value) });
+    await updateSettings({ cod_threshold: parseFloat(value) }, req.traceContext);
     res.json({ success: true, data: { cod_threshold: parseFloat(value) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -27,7 +27,7 @@ const updateCodThreshold = async (req, res) => {
 
 const getWarehouseStatus = async (req, res) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(req.traceContext);
     res.json({
       success: true,
       data: {
@@ -48,8 +48,8 @@ const updateWarehouseStatus = async (req, res) => {
     }
     const update = { warehouseOpen: Boolean(isOpen) };
     if (closedMessage !== undefined) update.warehouseClosedMessage = closedMessage;
-    await updateSettings(update);
-    const settings = await getSettings();
+    await updateSettings(update, req.traceContext);
+    const settings = await getSettings(req.traceContext);
     res.json({
       success: true,
       data: {

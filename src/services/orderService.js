@@ -12,7 +12,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
     throw new ValidationError('paymentType must be COD or ONLINE', 'INVALID_PARAM');
   }
 
-  const settings = await getSettings();
+  const settings = await getSettings(traceContext);
   if (settings.warehouseOpen === false) {
     const err = new ValidationError(
       settings.warehouseClosedMessage || 'We are currently closed.',
@@ -27,7 +27,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
     throw new ValidationError('Cart is empty', 'CART_EMPTY');
   }
 
-  const address = await getAddressById(addressId);
+  const address = await getAddressById(addressId, traceContext);
   if (!address || address.userId !== userId) {
     throw new NotFoundError('Address not found', 'ADDRESS_NOT_FOUND');
   }
@@ -94,7 +94,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
       status: 'pending_payment',
       createdAt: new Date().toISOString()
     };
-    await saveOrder(order);
+    await saveOrder(order, traceContext);
     await saveCart(userId, { items: [] });
     return order;
   }
@@ -107,7 +107,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
     );
   }
 
-  const customer = await getCustomer(userId);
+  const customer = await getCustomer(userId, traceContext);
   if (!customer) {
     throw new NotFoundError('Customer not found', 'CUSTOMER_NOT_FOUND');
   }
@@ -122,7 +122,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
     customerPhone: customer.phone || '',
     createdAt: new Date().toISOString()
   };
-  await saveOrder(order);
+  await saveOrder(order, traceContext);
   await saveCart(userId, { items: [] });
 
   return order;

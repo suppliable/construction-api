@@ -65,9 +65,9 @@ function generateUserId() {
   return 'usr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-async function lookupCustomer(normalizedPhone) {
-  let customer = await getCustomerByPhone(normalizedPhone);
-  if (!customer) customer = await getCustomerByPhone('+' + normalizedPhone);
+async function lookupCustomer(normalizedPhone, traceContext) {
+  let customer = await getCustomerByPhone(normalizedPhone, traceContext);
+  if (!customer) customer = await getCustomerByPhone('+' + normalizedPhone, traceContext);
   return customer || null;
 }
 
@@ -143,7 +143,7 @@ async function verifyOtp(req, res) {
   clearVerifyAttempts(normalized);
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp verify success');
 
-  const customer = await lookupCustomer(normalized);
+  const customer = await lookupCustomer(normalized, req.traceContext);
 
   if (customer) {
     req.log.info({ userId: customer.userId }, 'existing customer login');

@@ -37,7 +37,7 @@ const getUserOrders = async (req, res) => {
   try {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId is required' });
-    const orders = await getOrdersByUser(userId);
+    const orders = await getOrdersByUser(userId, 0, req.traceContext);
     res.json({ success: true, data: { orders: orders.map(toOrderDTO) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -47,7 +47,7 @@ const getUserOrders = async (req, res) => {
 const getOrderDetail = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     res.json({ success: true, data: { order: toOrderDTO(order) } });
   } catch (err) {
@@ -61,7 +61,7 @@ const getCustomerInvoice = async (req, res) => {
     if (!orderId || !orderId.startsWith('ORD')) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'Invalid orderId' });
     }
-    const order = await getOrderById(orderId);
+    const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
     if (!order.zoho_invoice_id) {

@@ -54,7 +54,7 @@ async function fetchZohoData(traceContext = null) {
   });
 
   // Merge with Firestore imageMap (Firestore values take precedence)
-  const firestoreImages = await getImageMap();
+  const firestoreImages = await getImageMap(traceContext);
   const mergedImageMap = { ...imageMap, ...firestoreImages };
 
   cache.products = items;

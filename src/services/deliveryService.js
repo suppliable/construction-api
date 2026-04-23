@@ -62,7 +62,7 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
   const distance_km = Math.ceil(distanceKm / 2) * 2;
 
   // Step 3 — Get delivery config from Firestore
-  const config = await getDeliveryConfig();
+  const config = await getDeliveryConfig(traceContext);
 
   // Step 4 — Check free delivery
   let delivery_charge;

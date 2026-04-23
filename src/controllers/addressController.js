@@ -42,7 +42,7 @@ const addAddressHandler = async (req, res) => {
       latitude: latitude ?? null,
       longitude: longitude ?? null,
       isDefault: isDefault || false
-    });
+    }, req.traceContext);
 
     res.json({ success: true, message: 'Address added successfully', data: { addressId: address.addressId } });
   } catch (err) {
@@ -53,7 +53,7 @@ const addAddressHandler = async (req, res) => {
 const getAddressesHandler = async (req, res) => {
   try {
     const { userId } = req.params;
-    const addresses = await getAddresses(userId);
+    const addresses = await getAddresses(userId, req.traceContext);
     res.json({ success: true, data: { addresses: addresses.map(toAddressDTO) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -68,7 +68,7 @@ const updateAddressHandler = async (req, res) => {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'label must be 30 characters or less' });
     }
 
-    const updated = await updateAddress(userId, addressId, addressData);
+    const updated = await updateAddress(userId, addressId, addressData, req.traceContext);
     if (!updated) return res.status(404).json({ success: false, error: 'ADDRESS_NOT_FOUND', message: 'Address not found' });
     res.json({ success: true, message: 'Address updated successfully', data: { address: toAddressDTO(updated) } });
   } catch (err) {
@@ -79,7 +79,7 @@ const updateAddressHandler = async (req, res) => {
 const deleteAddressHandler = async (req, res) => {
   try {
     const { userId, addressId } = req.params;
-    const deleted = await deleteAddress(userId, addressId);
+    const deleted = await deleteAddress(userId, addressId, req.traceContext);
     if (!deleted) return res.status(404).json({ success: false, error: 'ADDRESS_NOT_FOUND', message: 'Address not found' });
     res.json({ success: true, message: 'Address deleted successfully' });
   } catch (err) {
@@ -90,7 +90,7 @@ const deleteAddressHandler = async (req, res) => {
 const setDefaultAddressHandler = async (req, res) => {
   try {
     const { userId, addressId } = req.params;
-    const success = await setDefaultAddress(userId, addressId);
+    const success = await setDefaultAddress(userId, addressId, req.traceContext);
     if (!success) return res.status(404).json({ success: false, error: 'ADDRESS_NOT_FOUND', message: 'Address not found' });
     res.json({ success: true, message: 'Default address updated successfully' });
   } catch (err) {

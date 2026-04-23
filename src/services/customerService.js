@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 
 async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, traceContext = null) {
   logger.debug({ userId, name, is_business }, 'syncCustomer called');
-  const existing = await getCustomer(userId);
+  const existing = await getCustomer(userId, traceContext);
   if (existing) {
     let hasChanges = false;
 
@@ -30,7 +30,7 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
     }
 
     if (hasChanges) {
-      await saveCustomer(existing);
+      await saveCustomer(existing, traceContext);
       if (existing.zoho_contact_id) {
         await updateZohoContact(existing.zoho_contact_id, {
           name,
@@ -57,7 +57,7 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
     zoho_contact_id: zohoContact.contact_id,
     delivery_address: null,
     registered_address: registered_address || null
-  });
+  }, traceContext);
 }
 
 module.exports = { syncCustomer };

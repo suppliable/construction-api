@@ -1,14 +1,9 @@
 'use strict';
 
-const logger = require('./logger');
+const { withSpan } = require('./spanTracer');
 
-async function dbOp(name, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    logger.error({ err: err.message, operation: name }, 'Firestore operation failed');
-    throw err;
-  }
+async function dbOp(name, fn, traceContext = null) {
+  return withSpan(traceContext, `db.${name}`, {}, fn);
 }
 
 module.exports = { dbOp };
