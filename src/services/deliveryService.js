@@ -1,5 +1,6 @@
 const { getDeliveryConfig } = require('./firestoreService');
 const { getRoadDistance } = require('./googleMapsService');
+const remoteConfig = require('./remoteConfigService');
 const logger = require('../utils/logger');
 
 const WAREHOUSE = {
@@ -8,18 +9,7 @@ const WAREHOUSE = {
   pincode: '600119'
 };
 
-const RATE_PER_KM = 50;
-const MIN_DELIVERY_CHARGE = 100;
-
-const serviceablePincodes = [
-  '600119', // Sholinganallur, Semmancheri, Akkarai, Paniyur, Uthandi
-  '600130', // Navalur
-  '603103', // Siruseri, Padur
-  '600097', // Karapakkam, Thoraipakkam
-  '600100', // Perumbakkam, Medavakkam
-  '600126', // Sithalapakkam
-  '600115'  // Injambakkam, Neelankarai
-];
+const DEFAULT_PINCODES = '600119,600130,603103,600097,600100,600126,600115';
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -33,7 +23,14 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, addressString = null) {
+async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, addressString = null, traceContext = null) {
+  const [pincodesStr, ratePerKm, minDeliveryCharge] = await Promise.all([
+    remoteConfig.getString('serviceable_pincodes', DEFAULT_PINCODES),
+    remoteConfig.getNumber('rate_per_km', 50),
+    remoteConfig.getNumber('min_delivery_charge', 100),
+  ]);
+  const serviceablePincodes = pincodesStr.split(',').map(p => p.trim()).filter(Boolean);
+
   // Step 1 — Pincode check
   if (!serviceablePincodes.includes(pincode)) {
     return {
@@ -49,7 +46,7 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
 
   if (addressString && process.env.GOOGLE_MAPS_API_KEY) {
     try {
-      const result = await getRoadDistance(WAREHOUSE.latitude, WAREHOUSE.longitude, addressString);
+      const result = await getRoadDistance(WAREHOUSE.latitude, WAREHOUSE.longitude, addressString, traceContext);
       distanceKm = result.distanceKm;
       distanceText = result.distanceText;
       distanceSource = 'google_maps';
@@ -82,15 +79,15 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
       is_free_delivery = true;
       free_delivery_reason = 'Free delivery in your area';
     } else {
-      const calculated = distance_km * RATE_PER_KM;
-      delivery_charge = Math.max(calculated, MIN_DELIVERY_CHARGE);
+      const calculated = distance_km * ratePerKm;
+      delivery_charge = Math.max(calculated, minDeliveryCharge);
     }
   } else {
-    const calculated = distance_km * RATE_PER_KM;
-    delivery_charge = Math.max(calculated, MIN_DELIVERY_CHARGE);
+    const calculated = distance_km * ratePerKm;
+    delivery_charge = Math.max(calculated, minDeliveryCharge);
   }
 
-  const min_charge_applied = !is_free_delivery && (distance_km * RATE_PER_KM) < MIN_DELIVERY_CHARGE;
+  const min_charge_applied = !is_free_delivery && (distance_km * ratePerKm) < minDeliveryCharge;
 
   return {
     serviceable: true,

@@ -2,8 +2,8 @@ const { getCustomer, saveCustomer, getCustomerByPhone } = require('./firestoreSe
 const { createZohoContact, updateZohoContact } = require('./zohoService');
 const logger = require('../utils/logger');
 
-async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address) {
-  console.log('syncCustomer called with:', { userId, phone, name, is_business, business_name, gstin });
+async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, traceContext = null) {
+  logger.debug({ userId, name, is_business }, 'syncCustomer called');
   const existing = await getCustomer(userId);
   if (existing) {
     let hasChanges = false;

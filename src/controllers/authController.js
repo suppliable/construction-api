@@ -21,7 +21,7 @@ async function syncAuth(req, res) {
     return res.status(400).json({ success: false, message: 'userId and phone are required' });
   }
   try {
-    const customer = await syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address);
+    const customer = await syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, req.traceContext);
     res.json({ success: true, data: { customer }, customer, user: customer });
   } catch (err) {
     req.log.error({ err: err.message }, 'syncAuth failed');
@@ -88,17 +88,16 @@ async function sendOtp(req, res) {
     return res.status(err.status || 429).json({ success: false, message: err.message });
   }
 
-  const maskedPhone = `***${normalized.slice(-4)}`;
-  console.log(`[AUTH] send otp request phone=${maskedPhone}`);
+  req.log.info({ phone: `***${normalized.slice(-4)}` }, 'send otp request');
 
   try {
-    await msg91.sendOtp(normalized);
+    await msg91.sendOtp(normalized, req.traceContext);
     recordOtpSend(normalized);
-    console.log(`[AUTH] otp sent phone=${maskedPhone}`);
+    req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp sent');
     return res.json({ success: true, message: 'OTP sent successfully' });
   } catch (err) {
-    logMsg91Failure('send', err, maskedPhone);
-    return res.status(502).json({ success: false, message: friendlyMsg91Error(err) });
+    req.log.error({ err: err.response?.data || err.message }, 'msg91 send failure');
+    return res.status(500).json({ success: false, message: 'Unable to send OTP' });
   }
 }
 
@@ -123,10 +122,10 @@ async function verifyOtp(req, res) {
 
   let msg91Res;
   try {
-    msg91Res = await msg91.verifyOtp(normalized, otp);
+    msg91Res = await msg91.verifyOtp(normalized, otp, req.traceContext);
   } catch (err) {
     const data = err.response?.data;
-    console.error('[AUTH] msg91 failure (verify):', data || err.message);
+    req.log.error({ err: data || err.message }, 'msg91 verify failure');
     // MSG91 returns 4xx for wrong OTP
     if (err.response?.status === 400 || data?.type === 'error') {
       recordFailedVerify(normalized);
@@ -142,17 +141,17 @@ async function verifyOtp(req, res) {
   }
 
   clearVerifyAttempts(normalized);
-  console.log(`[AUTH] otp verify success phone=***${normalized.slice(-4)}`);
+  req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp verify success');
 
   const customer = await lookupCustomer(normalized);
 
   if (customer) {
-    console.log(`[AUTH] existing customer login userId=${customer.userId}`);
+    req.log.info({ userId: customer.userId }, 'existing customer login');
     const token = signToken({ userId: customer.userId, phone: normalized });
     return res.json({ success: true, isNewUser: false, token, customer });
   }
 
-  console.log(`[AUTH] new customer signup required phone=***${normalized.slice(-4)}`);
+  req.log.info({ phone: `***${normalized.slice(-4)}` }, 'new customer signup required');
   const tempUserId = generateUserId();
   const token = signToken({ userId: tempUserId, phone: normalized, type: 'signup' }, '1h');
   return res.json({ success: true, isNewUser: true, signupToken: token, phone: normalized, tempUserId });
@@ -168,16 +167,15 @@ async function resendOtp(req, res) {
 
   const normalized = normalizePhone(phone);
 
-  const maskedPhone = `***${normalized.slice(-4)}`;
-  console.log(`[AUTH] resend otp request phone=${maskedPhone}`);
+  req.log.info({ phone: `***${normalized.slice(-4)}` }, 'resend otp request');
 
   try {
-    await msg91.resendOtp(normalized);
+    await msg91.resendOtp(normalized, req.traceContext);
     recordOtpSend(normalized);
     return res.json({ success: true, message: 'OTP resent successfully' });
   } catch (err) {
-    logMsg91Failure('resend', err, maskedPhone);
-    return res.status(502).json({ success: false, message: friendlyMsg91Error(err) });
+    req.log.error({ err: err.response?.data || err.message }, 'msg91 resend failure');
+    return res.status(500).json({ success: false, message: 'Unable to resend OTP' });
   }
 }
 
@@ -206,8 +204,8 @@ async function completeSignup(req, res) {
   const { userId, phone } = payload;
 
   try {
-    const customer = await syncCustomer(userId, phone, name.trim(), is_business, business_name, gstin, registered_address);
-    console.log(`[AUTH] new customer signup complete userId=${userId}`);
+    const customer = await syncCustomer(userId, phone, name.trim(), is_business, business_name, gstin, registered_address, req.traceContext);
+    req.log.info({ userId }, 'new customer signup complete');
     const authToken = signToken({ userId, phone });
     return res.json({ success: true, token: authToken, customer });
   } catch (err) {

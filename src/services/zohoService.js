@@ -22,34 +22,49 @@ async function getAccessToken() {
   return accessToken;
 }
 
-async function getZohoProducts() {
+async function getZohoProducts(traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.getProducts', { endpoint: '/inventory/v1/items' });
   const token = await getAccessToken();
   const allItems = [];
   let page = 1;
-  while (true) {
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
-    });
-    const items = response.data.items || [];
-    allItems.push(...items);
-    if (!response.data.page_context?.has_more_page) break;
-    page++;
+  try {
+    while (true) {
+      const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
+      });
+      const items = response.data.items || [];
+      allItems.push(...items);
+      if (!response.data.page_context?.has_more_page) break;
+      page++;
+    }
+    span.end({ success: true, item_count: allItems.length, pages: page });
+    return allItems;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
   }
-  return allItems;
 }
 
-async function getZohoCategories() {
-  const token = await getAccessToken();
-  const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/categories`, {
-    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    params: { organization_id: process.env.ZOHO_ORG_ID }
-  });
-  return (response.data.categories || []).filter(c => c.category_id !== '-1');
+async function getZohoCategories(traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.getCategories', { endpoint: '/inventory/v1/categories' });
+  try {
+    const token = await getAccessToken();
+    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/categories`, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      params: { organization_id: process.env.ZOHO_ORG_ID }
+    });
+    const categories = (response.data.categories || []).filter(c => c.category_id !== '-1');
+    span.end({ success: true, category_count: categories.length });
+    return categories;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
 }
 
 async function getZohoProductById(itemId, traceContext = null) {
-  const span = createSpan({ traceContext }, 'zoho.api.getProductById', { endpoint: '/inventory/v1/items/:id', itemId });
+  const span = createSpan(traceContext, 'zoho.api.getProductById', { endpoint: '/inventory/v1/items/:id', itemId });
   try {
     const token = await getAccessToken();
     const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
@@ -64,25 +79,32 @@ async function getZohoProductById(itemId, traceContext = null) {
   }
 }
 
-async function getZohoItemGroups() {
+async function getZohoItemGroups(traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.getItemGroups', { endpoint: '/inventory/v1/itemgroups' });
   const token = await getAccessToken();
   const allGroups = [];
   let page = 1;
-  while (true) {
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
-    });
-    const groups = response.data.itemgroups || [];
-    allGroups.push(...groups);
-    if (!response.data.page_context?.has_more_page) break;
-    page++;
+  try {
+    while (true) {
+      const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
+      });
+      const groups = response.data.itemgroups || [];
+      allGroups.push(...groups);
+      if (!response.data.page_context?.has_more_page) break;
+      page++;
+    }
+    span.end({ success: true, group_count: allGroups.length, pages: page });
+    return allGroups;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
   }
-  return allGroups;
 }
 
 async function getZohoItemGroupById(groupId, traceContext = null) {
-  const span = createSpan({ traceContext }, 'zoho.api.getItemGroupById', { endpoint: '/inventory/v1/itemgroups/:id', groupId });
+  const span = createSpan(traceContext, 'zoho.api.getItemGroupById', { endpoint: '/inventory/v1/itemgroups/:id', groupId });
   try {
     const token = await getAccessToken();
     const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups/${groupId}`, {
@@ -98,7 +120,7 @@ async function getZohoItemGroupById(groupId, traceContext = null) {
 }
 
 async function createZohoContact(contactData, traceContext = null) {
-  const span = createSpan({ traceContext }, 'zoho.api.createContact', { phone: contactData.phone, endpoint: '/books/v3/contacts' });
+  const span = createSpan(traceContext, 'zoho.api.createContact', { phone: contactData.phone, endpoint: '/books/v3/contacts' });
   const token = await getAccessToken();
   const contactBody = {
     contact_name: contactData.business_name || contactData.name || contactData.phone,
@@ -152,7 +174,7 @@ async function createZohoContact(contactData, traceContext = null) {
 }
 
 async function searchZohoContactByPhone(phone, traceContext = null) {
-  const span = createSpan({ traceContext }, 'zoho.api.searchContactByPhone', { phone, endpoint: '/books/v3/contacts' });
+  const span = createSpan(traceContext, 'zoho.api.searchContactByPhone', { phone, endpoint: '/books/v3/contacts' });
   try {
     const token = await getAccessToken();
     const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/books/v3/contacts`, {
@@ -174,7 +196,7 @@ async function searchZohoContactByPhone(phone, traceContext = null) {
 }
 
 async function updateZohoItemImage(itemId, imageUrl, traceContext = null) {
-  const span = createSpan({ traceContext }, 'zoho.api.updateItemImage', { itemId, endpoint: '/inventory/v1/items/:id' });
+  const span = createSpan(traceContext, 'zoho.api.updateItemImage', { itemId, endpoint: '/inventory/v1/items/:id' });
   try {
     const token = await getAccessToken();
     const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
@@ -191,19 +213,30 @@ async function updateZohoItemImage(itemId, imageUrl, traceContext = null) {
   }
 }
 
-async function updateZohoItemFeatured(itemId, featured) {
-  const token = await getAccessToken();
-  const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
-    custom_fields: [{ label: 'Featured', value: featured }]
-  }, {
-    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    params: { organization_id: process.env.ZOHO_ORG_ID }
-  });
-  return response.data.item;
+async function updateZohoItemFeatured(itemId, featured, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.updateItemFeatured', { itemId, endpoint: '/inventory/v1/items/:id' });
+  try {
+    const token = await getAccessToken();
+    const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+      custom_fields: [{ label: 'Featured', value: featured }]
+    }, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      params: { organization_id: process.env.ZOHO_ORG_ID }
+    });
+    span.end({ success: true, item_id: response.data.item?.item_id });
+    return response.data.item;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
 }
 
-async function updateZohoContact(zohoContactId, contactData) {
-  console.log('updateZohoContact called with:', { zohoContactId, contactData });
+async function updateZohoContact(zohoContactId, contactData, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.updateContact', {
+    contactId: zohoContactId,
+    endpoint: '/books/v3/contacts/:id'
+  });
+  logger.debug({ zohoContactId }, 'updateZohoContact called');
   const token = await getAccessToken();
   const updateBody = {};
 

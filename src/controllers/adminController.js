@@ -139,7 +139,7 @@ const acceptOrder = async (req, res) => {
 
     // Write internal orderId to Zoho SO custom field (non-blocking)
     updateZohoSOOrderId(zohoSO.salesorder_id, orderId).catch(err => {
-      console.warn('Failed to set Suppliable Order ID on Zoho SO:', err.response?.data || err.message);
+      req.log.warn({ err: err.response?.data || err.message }, 'Failed to set Suppliable Order ID on Zoho SO');
     });
 
     try {
@@ -613,6 +613,30 @@ const confirmHandover = async (req, res) => {
   }
 };
 
+// GET /api/admin/customers/phone/:phone
+const getCustomerByPhoneNumber = async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const customer = await getCustomerByPhone(phone);
+    if (!customer) return res.status(404).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'No customer found with that phone number' });
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// GET /api/admin/customers/:userId/orders?limit=10
+const getCustomerOrders = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const limit = Math.max(0, parseInt(req.query.limit, 10) || 10);
+    const orders = await getOrdersByUser(userId, limit);
+    res.json({ success: true, data: { count: orders.length, orders: orders.map(formatTimestamps) } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -646,6 +670,8 @@ module.exports = {
   acceptOrder,
   declineOrder,
   markPacked,
+  getCustomerByPhoneNumber,
+  getCustomerOrders,
   assignVehicle,
   getPickingList,
   getInvoiceUrl,

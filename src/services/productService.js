@@ -4,6 +4,7 @@ const {
   getZohoCategories
 } = require('./zohoService');
 const { getImageMap } = require('./firestoreService');
+const remoteConfig = require('./remoteConfigService');
 
 // Extract GST from Zoho item tax preferences
 const extractGST = (item) => {
@@ -19,28 +20,25 @@ const extractGST = (item) => {
 const buildImage = (name, imageUrl) =>
   imageUrl || 'https://placehold.co/400x300/png';
 
-// In-memory cache
+// In-memory cache. ttlMs is seeded with the default and updated from Remote Config on each miss.
 const cache = {
   products: null,
   groups: null,
   categoryMap: null,
   imageMap: null,
   lastFetched: null,
-  TTL: 10 * 60 * 1000 // 10 minutes
+  ttlMs: 10 * 60 * 1000,
 };
 
-function isCacheValid() {
-  return cache.lastFetched && (Date.now() - cache.lastFetched) < cache.TTL;
-}
-
 async function fetchZohoData(traceContext = null) {
-  if (isCacheValid()) {
+  if (cache.lastFetched && (Date.now() - cache.lastFetched) < cache.ttlMs) {
     return { items: cache.products, groups: cache.groups, categoryMap: cache.categoryMap };
   }
-  const [items, groups, zohoCategories] = await Promise.all([
+  const [items, groups, zohoCategories, ttlMinutes] = await Promise.all([
     getZohoProducts(traceContext),
     getZohoItemGroups(traceContext),
-    getZohoCategories(traceContext)
+    getZohoCategories(traceContext),
+    remoteConfig.getNumber('product_cache_ttl_minutes', 10),
   ]);
 
   // Build category id → name map
@@ -63,6 +61,7 @@ async function fetchZohoData(traceContext = null) {
   cache.groups = groups;
   cache.categoryMap = categoryMap;
   cache.imageMap = mergedImageMap;
+  cache.ttlMs = ttlMinutes * 60 * 1000;
   cache.lastFetched = Date.now();
   return { items, groups, categoryMap };
 }

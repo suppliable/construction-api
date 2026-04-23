@@ -5,7 +5,7 @@ const { getAllProducts } = require('../services/productService');
 // GET /api/home
 router.get('/', async (req, res) => {
   try {
-    const products = await getAllProducts();
+    const products = await getAllProducts(null, req.traceContext);
 
     const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
 

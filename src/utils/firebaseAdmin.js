@@ -13,11 +13,15 @@ if (!admin.apps.length) {
   } else {
     // JSON string (used in Docker / Render)
     serviceAccount = JSON.parse(val);
+    // Fix double-escaped newlines in private_key that occur when the JSON
+    // is stored as an env var string (\\n → \n)
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    }
   }
-
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
-}
 
-module.exports = admin;
+}
+module.exports = admin

@@ -20,7 +20,8 @@ const calculateDeliveryCharge = async (req, res) => {
       parseFloat(address.latitude),
       parseFloat(address.longitude),
       0,
-      addressString
+      addressString,
+      req.traceContext
     );
 
     if (!result.serviceable) {
