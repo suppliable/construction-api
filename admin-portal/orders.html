@@ -499,7 +499,7 @@ let lastNewCount = 0;
 // ---- FETCH ORDERS ----
 async function fetchOrders() {
   try {
-    const res = await apiFetch('/api/admin/orders');
+    const res = await apiFetch('/api/v1/admin/orders');
     const data = await res.json();
     if (data.success) {
       ordersData = data.data?.orders || [];
@@ -585,7 +585,7 @@ async function openPanel(order) {
   document.getElementById('overlay').classList.add('show');
   // Fetch full detail to get deliveryAddress and complete data
   try {
-    const res = await apiFetch(`/api/admin/orders/${order.orderId}`);
+    const res = await apiFetch(`/api/v1/admin/orders/${order.orderId}`);
     const data = await res.json();
     if (data.success && data.data?.order) {
       currentOrder = data.data.order;
@@ -756,7 +756,7 @@ async function acceptOrder(orderId) {
   const btn = event.target;
   btn.disabled = true; btn.textContent = 'Processing...';
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/accept`, { method: 'POST' });
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/accept`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast('Order accepted! SO created.', 'success');
@@ -776,7 +776,7 @@ async function declineOrder(orderId) {
   const btn = event.target;
   btn.disabled = true; btn.textContent = 'Declining...';
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/decline`, { method: 'POST' });
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/decline`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast('Order declined.', 'error');
@@ -793,7 +793,7 @@ async function markPacked(orderId) {
   const btn = event.target;
   btn.disabled = true; btn.textContent = 'Updating...';
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/packed`, { method: 'POST' });
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/packed`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast('Marked as packed!', 'success');
@@ -810,8 +810,8 @@ async function markPacked(orderId) {
 async function loadVehiclesAndDrivers() {
   try {
     const [vRes, dRes] = await Promise.all([
-      apiFetch('/api/admin/vehicles'),
-      apiFetch('/api/admin/drivers')
+      apiFetch('/api/v1/admin/vehicles'),
+      apiFetch('/api/v1/admin/drivers')
     ]);
     const [vData, dData] = await Promise.all([vRes.json(), dRes.json()]);
     const vSel = document.getElementById('vSelect');
@@ -835,7 +835,7 @@ async function assignVehicle(orderId) {
   const btn = event.target;
   btn.disabled = true; btn.textContent = 'Assigning...';
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/assign-vehicle`, {
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/assign-vehicle`, {
       method: 'POST',
       body: JSON.stringify({ vehicleId, driverId })
     });
@@ -879,7 +879,7 @@ document.getElementById('soundToggle').textContent =
 
 async function pollNewOrders() {
   try {
-    const res = await apiFetch('/api/admin/orders/new-count');
+    const res = await apiFetch('/api/v1/admin/orders/new-count');
     const data = await res.json();
     if (data.success) {
       const count = data.data?.count || 0;
@@ -946,7 +946,7 @@ function showToast(msg, type = '') {
 // ---- INVOICE DOWNLOAD ----
 async function downloadInvoice(orderId) {
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/invoice-url`);
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/invoice-url`);
     const data = await res.json();
     if (data.success) {
       window.open(data.data.invoiceUrl, '_blank');
@@ -967,7 +967,7 @@ async function viewPickingList(orderId) {
   document.getElementById('plModal').classList.add('show');
 
   try {
-    const res = await apiFetch(`/api/admin/orders/${orderId}/picking-list`);
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/picking-list`);
     const data = await res.json();
     if (!data.success) { showToast('Failed to load picking list', 'error'); closePLModal(); return; }
 

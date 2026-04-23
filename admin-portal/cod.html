@@ -255,7 +255,7 @@ let pendingOrders = [];
 
 async function fetchCOD() {
   try {
-    const res = await apiFetch('/api/admin/cod/pending');
+    const res = await apiFetch('/api/v1/admin/cod/pending');
     const data = await res.json();
     if (data.success) {
       pendingOrders = data.data?.orders || [];
@@ -294,7 +294,7 @@ async function reconcile(orderId, amount) {
   const btn = document.getElementById('btn-' + orderId);
   btn.disabled = true; btn.textContent = 'Processing...';
   try {
-    const res = await apiFetch(`/api/admin/cod/${orderId}/reconcile`, {
+    const res = await apiFetch(`/api/v1/admin/cod/${orderId}/reconcile`, {
       method: 'POST',
       body: JSON.stringify({ amountReceived: amount })
     });
@@ -351,7 +351,7 @@ async function fetchHistory() {
   tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading...</td></tr>`;
 
   try {
-    const res = await apiFetch('/api/admin/cod/history' + (params.toString() ? '?' + params.toString() : ''));
+    const res = await apiFetch('/api/v1/admin/cod/history' + (params.toString() ? '?' + params.toString() : ''));
     const data = await res.json();
     if (!data.success) { tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">⚠️</span>Failed to load history</div></td></tr>`; return; }
     renderHistory(data.data?.records || []);
