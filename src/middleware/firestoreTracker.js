@@ -1,6 +1,7 @@
 'use strict';
 
 const { AsyncLocalStorage } = require('async_hooks');
+const onHeaders = require('on-headers');
 
 // ── Per-request storage ───────────────────────────────────────────────────────
 const storage = new AsyncLocalStorage();
@@ -83,24 +84,27 @@ function recordDelete(collection) {
 
 // ── Express middleware ─────────────────────────────────────────────────────────
 function requestMiddleware(req, res, next) {
+  if (req.method === 'HEAD') return next();
+
   const store = { reads: 0, writes: 0, deletes: 0, ops: [] };
   storage.run(store, () => {
+    // on-headers fires just before headers are written — safe to set headers here
+    onHeaders(res, function () {
+      this.setHeader('X-Firestore-Reads', store.reads);
+      this.setHeader('X-Firestore-Writes', store.writes);
+    });
+
     res.on('finish', () => {
       const endpoint = `${req.method} ${req.route?.path || req.path}`;
       const { reads, writes, deletes } = store;
 
-      // Attach to response headers
-      res.setHeader('X-Firestore-Reads', reads);
-      res.setHeader('X-Firestore-Writes', writes);
-
-      // Console log
       if (reads > 0 || writes > 0 || deletes > 0) {
         console.log(`[FIRESTORE] ${req.method} ${req.path} → reads: ${reads}, writes: ${writes}, deletes: ${deletes}`);
       }
 
-      // Record to global stats
       recordGlobal(endpoint, reads, writes, deletes);
     });
+
     next();
   });
 }
