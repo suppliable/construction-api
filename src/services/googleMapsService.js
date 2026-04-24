@@ -52,4 +52,58 @@ async function getETA(destinationAddress, traceContext = null) {
   };
 }
 
-module.exports = { getRoadDistance, getETA };
+async function geocodeAddress(addressString, traceContext = null) {
+  const span = createSpan(traceContext, 'google_maps.api.geocode', { endpoint: '/maps/api/geocode/json' });
+  try {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+      params: { address: addressString, key: process.env.GOOGLE_MAPS_API_KEY },
+      timeout: 8000
+    });
+    if (response.data.status !== 'OK' || !response.data.results?.length) {
+      throw new Error(`Geocode failed: ${response.data.status}`);
+    }
+    const { lat, lng } = response.data.results[0].geometry.location;
+    span.end({ success: true, lat, lng });
+    return { latitude: lat, longitude: lng };
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
+async function getDirectionsETA(originLat, originLng, destLat, destLng, traceContext = null) {
+  const span = createSpan(traceContext, 'google_maps.api.directions', { endpoint: '/maps/api/directions/json' });
+  try {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
+      params: {
+        origin: `${originLat},${originLng}`,
+        destination: `${destLat},${destLng}`,
+        key: process.env.GOOGLE_MAPS_API_KEY,
+        departure_time: 'now',
+        traffic_model: 'best_guess',
+      },
+      timeout: 8000
+    });
+    const data = response.data;
+    if (data.status !== 'OK' || !data.routes?.length) {
+      throw new Error(`Directions API error: ${data.status}`);
+    }
+    const leg = data.routes[0].legs[0];
+    const seconds = (leg.duration_in_traffic ?? leg.duration).value;
+    span.end({ success: true, seconds });
+    return { seconds, distanceText: leg.distance.text };
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
+function formatEtaString(seconds) {
+  if (seconds < 60) return 'Arriving now';
+  if (seconds < 3600) return `Arriving in ${Math.ceil(seconds / 60)} minutes`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.ceil((seconds % 3600) / 60);
+  return m > 0 ? `Arriving in ${h}h ${m}m` : `Arriving in ${h}h`;
+}
+
+module.exports = { getRoadDistance, getETA, geocodeAddress, getDirectionsETA, formatEtaString };

@@ -41,6 +41,11 @@ function toOrderDTO(doc) {
     driverPhone: o.driverPhone || o.vehicle?.driverPhone || null,
     deliveryOtp: o.status === 'arrived' ? o.deliveryOtp : undefined,
     estimatedDelivery: o.estimatedDelivery || null,
+    // Live ETA — populated by driver location updates, only meaningful when out_for_delivery
+    eta: o.status === 'out_for_delivery' ? (o.eta || null) : null,
+    etaMinutes: o.status === 'out_for_delivery' ? (o.etaMinutes ?? null) : null,
+    etaUpdatedAt: o.status === 'out_for_delivery' ? (o.etaUpdatedAt || null) : null,
+    driverLocation: o.status === 'out_for_delivery' ? (o.driverLocation || null) : null,
     createdAt: o.createdAt || null,
     acceptedAt: o.acceptedAt || null,
     declinedAt: o.declinedAt || null,

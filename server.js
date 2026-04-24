@@ -66,4 +66,12 @@ app.use((err, req, res, next) => {
 
 app.listen(env.PORT, '0.0.0.0', () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, 'Server started');
+  // Google Maps cost reminder — Directions API calls from driver location updates
+  // 9 calls/order (every 5 min, ~45 min delivery) × 30 orders/day = 270 calls/day
+  // 270 × $0.005 = $1.35/day ≈ ₹3,400/month at current usage
+  if (process.env.GOOGLE_MAPS_API_KEY) {
+    logger.info('Google Maps Directions API active — est. cost: 270 calls/day × $0.005 = ~$1.35/day (~₹3,400/mo) at 30 orders/day');
+  } else {
+    logger.warn('GOOGLE_MAPS_API_KEY not set — dynamic ETA will be skipped');
+  }
 });

@@ -1,7 +1,7 @@
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getVehicleById, getOrdersByDriver, createHandover, getHandoversByDriver, getAllHandoversForDriver } = require('../services/firestoreService');
-const { getETA } = require('../services/googleMapsService');
+const { getETA, geocodeAddress, getDirectionsETA, formatEtaString } = require('../services/googleMapsService');
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
@@ -71,7 +71,99 @@ const loadingComplete = async (req, res) => {
   }
 };
 
+// POST /api/driver/orders/:orderId/location
+const updateDriverLocation = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { latitude, longitude } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'latitude and longitude are required' });
+    }
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.driverId !== req.driver.driverId) {
+      return res.status(403).json({ success: false, error: 'FORBIDDEN', message: 'This order is not assigned to you' });
+    }
+
+    // Always persist driver location
+    const locationUpdate = { driverLocation: { latitude, longitude } };
+
+    // Only compute ETA when order is out_for_delivery
+    if (order.status !== 'out_for_delivery') {
+      await updateOrder(orderId, locationUpdate, req.traceContext);
+      return res.json({ success: true });
+    }
+
+    // Resolve delivery coordinates
+    let destLat = order.deliveryCoordinates?.latitude;
+    let destLng = order.deliveryCoordinates?.longitude;
+
+    if (!destLat || !destLng) {
+      const address = order.addressId
+        ? await getAddressById(order.addressId, req.traceContext).catch(() => null)
+        : null;
+
+      destLat = address?.latitude;
+      destLng = address?.longitude;
+
+      // Geocode if address has no coordinates
+      if (!destLat || !destLng) {
+        if (!process.env.GOOGLE_MAPS_API_KEY) {
+          await updateOrder(orderId, locationUpdate, req.traceContext);
+          return res.json({ success: true });
+        }
+        try {
+          const parts = [address?.flatNo, address?.buildingName, address?.streetAddress, address?.city, address?.state, address?.pincode].filter(Boolean);
+          const coords = await geocodeAddress(parts.join(', '), req.traceContext);
+          destLat = coords.latitude;
+          destLng = coords.longitude;
+          // Cache so we never geocode again
+          locationUpdate.deliveryCoordinates = { latitude: destLat, longitude: destLng };
+        } catch (geoErr) {
+          req.log?.warn({ err: geoErr.message }, 'Geocode failed — skipping ETA');
+          await updateOrder(orderId, locationUpdate, req.traceContext);
+          return res.json({ success: true });
+        }
+      } else {
+        locationUpdate.deliveryCoordinates = { latitude: destLat, longitude: destLng };
+      }
+    }
+
+    // Call Directions API for live ETA
+    let etaString = null;
+    let etaMinutes = null;
+
+    if (process.env.GOOGLE_MAPS_API_KEY) {
+      try {
+        const { seconds } = await getDirectionsETA(latitude, longitude, destLat, destLng, req.traceContext);
+        etaString = formatEtaString(seconds);
+        etaMinutes = Math.ceil(seconds / 60);
+        locationUpdate.eta = etaString;
+        locationUpdate.etaMinutes = etaMinutes;
+        locationUpdate.etaUpdatedAt = new Date().toISOString();
+      } catch (mapsErr) {
+        req.log?.warn({ err: mapsErr.message }, 'Directions API failed — skipping ETA update');
+      }
+    }
+
+    await updateOrder(orderId, locationUpdate, req.traceContext);
+
+    return res.json({
+      success: true,
+      eta: etaString,
+      etaMinutes,
+      etaUpdatedAt: locationUpdate.etaUpdatedAt || null,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // GET /api/driver/orders/:orderId/eta
+// DEPRECATED — replaced by POST .../location
+// Keep alive until all driver app versions are updated. Do not remove yet.
 const getEta = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -536,4 +628,4 @@ const submitHandover = async (req, res) => {
   }
 };
 
-module.exports = { driverAuth, loadingComplete, getEta, arrived, codCollected, completeDelivery, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };
+module.exports = { driverAuth, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };
