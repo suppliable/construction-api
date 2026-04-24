@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
+const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
 const {
   listOrders,
   getNewOrderCount,
@@ -95,5 +96,15 @@ router.get('/drivers', listDrivers);
 router.post('/drivers', createDriver);
 router.delete('/drivers/:driverId', removeDriver);
 router.post('/drivers/:driverId/set-pin', setDriverPin);
+
+// Firestore usage profiling
+router.get('/firestore-usage', (req, res) => {
+  res.json({ success: true, data: getGlobalReport() });
+});
+
+router.post('/firestore-usage/reset', (req, res) => {
+  resetGlobal();
+  res.json({ success: true, message: 'Firestore usage counters reset' });
+});
 
 module.exports = router;

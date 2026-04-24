@@ -1,9 +1,9 @@
 'use strict';
 
-const admin = require('../utils/firebaseAdmin');
 const { dbOp } = require('../utils/dbOp');
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 
-const db = admin.firestore();
+const db = getTrackedDb();
 
 async function getDrivers(traceContext = null) {
   return dbOp('getDrivers', async () => {

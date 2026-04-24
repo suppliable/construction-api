@@ -1,9 +1,9 @@
 'use strict';
 
-const admin = require('../utils/firebaseAdmin');
 const { dbOp } = require('../utils/dbOp');
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 
-const db = admin.firestore();
+const db = getTrackedDb();
 
 async function getCart(userId, traceContext = null) {
   return dbOp('getCart', async () => {

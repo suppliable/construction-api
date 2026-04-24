@@ -15,6 +15,7 @@ const logger = require('./src/utils/logger');
 const tracing = require('./src/middleware/tracing');
 const versionGate = require('./src/middleware/versionGate');
 const maintenanceMode = require('./src/middleware/maintenanceMode');
+const { requestMiddleware: firestoreTracking } = require('./src/middleware/firestoreTracker');
 
 // v1 versioned router
 const v1Router = require('./src/routes/v1');
@@ -41,6 +42,7 @@ app.use(pinoHttp({
 app.use(compression()); // Enable gzip compression for all responses
 app.use(cors());
 app.use(express.json());
+app.use(firestoreTracking);
 
 // Health check — unversioned, no middleware chain
 app.get('/', (req, res) => {
