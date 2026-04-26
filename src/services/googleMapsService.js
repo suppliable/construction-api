@@ -74,6 +74,8 @@ async function geocodeAddress(addressString, traceContext = null) {
 async function getDirectionsETA(originLat, originLng, destLat, destLng, traceContext = null) {
   const span = createSpan(traceContext, 'google_maps.api.directions', { endpoint: '/maps/api/directions/json' });
   try {
+    console.log('[Maps Debug] Origin:', originLat, originLng);
+    console.log('[Maps Debug] Destination coords:', destLat, destLng);
     const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {
         origin: `${originLat},${originLng}`,
@@ -85,6 +87,8 @@ async function getDirectionsETA(originLat, originLng, destLat, destLng, traceCon
       timeout: 8000
     });
     const data = response.data;
+    console.log('[Maps Debug] Response status:', data.status);
+    console.log('[Maps Debug] Error message:', data.error_message || 'none');
     if (data.status !== 'OK' || !data.routes?.length) {
       throw new Error(`Directions API error: ${data.status}`);
     }
