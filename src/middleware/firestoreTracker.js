@@ -168,7 +168,7 @@ class TrackedCollection {
   }
 
   doc(id) {
-    return new TrackedDoc(this._ref.doc(id), this._col);
+    return new TrackedDoc(id !== undefined ? this._ref.doc(id) : this._ref.doc(), this._col);
   }
 
   where(...args) { return new TrackedQuery(this._ref.where(...args), this._col); }
