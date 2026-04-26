@@ -194,7 +194,7 @@
 
 <script>
 const BASE = '/api/v1';
-const token = localStorage.getItem('admin_token');
+const token = sessionStorage.getItem('adminToken');
 if (!token) window.location.href = 'login.html';
 
 async function api(method, path, body) {
@@ -394,7 +394,7 @@ async function savePricing() {
 }
 
 function logout() {
-  localStorage.removeItem('admin_token');
+  sessionStorage.removeItem('adminToken');
   window.location.href = 'login.html';
 }
 
