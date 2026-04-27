@@ -51,9 +51,6 @@ async function fetchZohoData(traceContext = null) {
     if (item.custom_field_hash?.cf_image_url) {
       imageMap[item.item_id] = item.custom_field_hash.cf_image_url;
     }
-    if (item.name?.toLowerCase().includes('putty') || item.name?.toLowerCase().includes('paint')) {
-      console.log('[Debug] custom_field_hash for', item.name, ':', JSON.stringify(item.custom_field_hash));
-    }
   });
 
   // Merge with Firestore imageMap (Firestore values take precedence)

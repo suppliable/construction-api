@@ -329,7 +329,7 @@ let selectedProduct = null;
 
 async function loadProducts() {
   const data = await api('GET', '/products');
-  allProducts = (data.products || []).filter(p => p.shadeBrand === 'asian-paints');
+  allProducts = (data.data || []).filter(p => p.shadeBrand === 'asian-paints');
 }
 
 function filterProducts() {
