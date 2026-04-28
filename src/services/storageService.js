@@ -1,11 +1,17 @@
 const admin = require('firebase-admin');
 
 async function uploadToFirebase(fileBuffer, mimeType, folder) {
-  console.log('[Storage] FIREBASE_STORAGE_BUCKET env:', process.env.FIREBASE_STORAGE_BUCKET);
-  const bucket = admin.storage().bucket();
-  console.log('[Storage] Bucket name from SDK:', bucket.name);
-  const ext = (mimeType.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET
+    || 'suppliable-app.firebasestorage.app';
+
+  console.log('[Storage] Using bucket:', bucketName);
+
+  const bucket = admin.storage().bucket(bucketName);
+
+  const ext = (mimeType.split('/')[1] || 'jpg')
+    .replace('jpeg', 'jpg');
+  const filename = `${folder}/${Date.now()}-${Math.random()
+    .toString(36).slice(2)}.${ext}`;
   const file = bucket.file(filename);
 
   await file.save(fileBuffer, {
@@ -14,7 +20,7 @@ async function uploadToFirebase(fileBuffer, mimeType, folder) {
     resumable: false
   });
 
-  return `https://storage.googleapis.com/${bucket.name}/${filename}`;
+  return `https://storage.googleapis.com/${bucketName}/${filename}`;
 }
 
 module.exports = { uploadToFirebase };
