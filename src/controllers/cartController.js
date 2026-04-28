@@ -43,8 +43,8 @@ async function addToCart(req, res) {
 
 async function updateCart(req, res) {
   try {
-    const { userId, productId, quantity } = req.body;
-    const result = await cartService.updateCartItem(userId, productId, parseInt(quantity));
+    const { userId, productId, quantity, cartItemId } = req.body;
+    const result = await cartService.updateCartItem(userId, productId, parseInt(quantity), cartItemId || null);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, error: 'BAD_REQUEST', message: err.message });
@@ -53,8 +53,8 @@ async function updateCart(req, res) {
 
 async function removeFromCart(req, res) {
   try {
-    const { userId, productId } = req.body;
-    const result = await cartService.removeFromCart(userId, productId);
+    const { userId, productId, cartItemId } = req.body;
+    const result = await cartService.removeFromCart(userId, productId, cartItemId || null);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, error: 'BAD_REQUEST', message: err.message });

@@ -27,6 +27,7 @@ const schema = z.object({
 
   // Optional
   FIREBASE_DATABASE_URL: z.string().url().optional(),
+  FIREBASE_STORAGE_BUCKET: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   WAREHOUSE_LAT: z.coerce.number().optional(),
   WAREHOUSE_LNG: z.coerce.number().optional(),

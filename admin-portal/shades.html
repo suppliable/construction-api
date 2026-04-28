@@ -158,14 +158,21 @@
     <div class="section">
       <div class="section-title">Product Tier Pricing</div>
 
-      <div class="form-group product-search">
-        <label>Search paint product</label>
-        <input type="text" id="product-search" placeholder="Type product name…" oninput="filterProducts()" style="width:320px;">
+      <div style="position:relative; display:inline-block;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Search paint product</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="product-search" placeholder="Type product name…"
+              oninput="filterProducts()" onkeydown="if(event.key==='Enter')filterProducts()"
+              style="width:320px;" autocomplete="off">
+            <button class="btn btn-primary" onclick="filterProducts()">Search</button>
+          </div>
+        </div>
+        <div id="product-list" class="product-list" style="display:none;position:absolute;width:320px;z-index:100;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.10);max-height:280px;overflow-y:auto;margin-top:4px;"></div>
       </div>
+      <div id="product-load-status" style="font-size:13px;color:var(--muted);margin-top:8px;"></div>
 
-      <div id="product-list" class="product-list" style="display:none"></div>
-
-      <div id="pricing-area" style="display:none">
+      <div id="pricing-area" style="display:none;margin-top:20px;">
         <div style="margin-bottom:12px; font-weight:600; font-size:15px;" id="selected-product-name"></div>
         <table class="pricing-grid">
           <thead>
@@ -324,12 +331,24 @@ function editShade(id, code, name, tier) {
 }
 
 // ── Product Pricing ──────────────────────────────────────────────
-let allProducts = [];
+let paintProducts = [];
 let selectedProduct = null;
 
 async function loadProducts() {
-  const data = await api('GET', '/products');
-  allProducts = (data.data || []).filter(p => p.shadeBrand === 'asian-paints');
+  const status = document.getElementById('product-load-status');
+  status.textContent = 'Loading products…';
+  try {
+    const data = await api('GET', '/products');
+    const all = data.data || [];
+    paintProducts = all.filter(p => p.shadeBrand === 'asian-paints');
+    if (paintProducts.length === 0) {
+      status.textContent = `No products have shadeBrand set (${all.length} total products loaded). Set cf_shade_brand = "asian-paints" in Zoho to enable pricing.`;
+    } else {
+      status.textContent = `${paintProducts.length} paint product${paintProducts.length !== 1 ? 's' : ''} available`;
+    }
+  } catch (e) {
+    status.textContent = 'Failed to load products.';
+  }
 }
 
 function filterProducts() {
@@ -337,16 +356,29 @@ function filterProducts() {
   const list = document.getElementById('product-list');
   if (!q) { list.style.display = 'none'; return; }
 
-  const matches = allProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
-  if (!matches.length) { list.style.display = 'none'; return; }
+  const pool = paintProducts.length > 0 ? paintProducts : [];
+  const matches = pool.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
+
+  if (!matches.length) {
+    list.style.display = 'block';
+    list.innerHTML = `<div class="product-item" style="color:var(--muted);cursor:default;">No results for "${q}"</div>`;
+    return;
+  }
 
   list.style.display = 'block';
   list.innerHTML = matches.map(p =>
-    `<div class="product-item" onclick="selectProduct('${p.id}','${p.name.replace(/'/g,"\\'")}')">
+    `<div class="product-item" onclick="selectProduct('${p.id}','${p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
       ${p.name}
     </div>`
   ).join('');
 }
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#product-search') && !e.target.closest('#product-list')) {
+    document.getElementById('product-list').style.display = 'none';
+  }
+});
 
 async function selectProduct(id, name) {
   selectedProduct = { id, name };
@@ -355,16 +387,22 @@ async function selectProduct(id, name) {
   document.getElementById('selected-product-name').textContent = name;
   document.getElementById('pricing-area').style.display = 'block';
 
-  // Pre-fill existing pricing
-  const res = await fetch(`${BASE}/paint-pricing/${id}`, {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }).then(r => r.json());
-
+  // Clear inputs while loading
   const tiers = ['light','mid','dark'];
   const sizes = ['1L','4L','10L','20L'];
   tiers.forEach(t => sizes.forEach(s => {
     const el = document.getElementById(`p-${t}-${s}`);
-    if (el) el.value = res.tiers?.[t]?.[s] ?? '';
+    if (el) el.value = '';
+  }));
+
+  // Pre-fill existing pricing if saved
+  const res = await fetch(`${BASE}/paint-pricing/${id}`, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(r => r.json());
+
+  tiers.forEach(t => sizes.forEach(s => {
+    const el = document.getElementById(`p-${t}-${s}`);
+    if (el && res.tiers?.[t]?.[s] !== undefined) el.value = res.tiers[t][s];
   }));
 }
 

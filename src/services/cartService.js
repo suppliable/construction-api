@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 
@@ -31,7 +32,7 @@ async function addToCart(userId, productId, quantity, shadeInfo = null) {
     existingItem.quantity += quantity;
     if (shadeInfo?.price != null) existingItem.price = shadeInfo.price;
   } else {
-    const newItem = { productId, quantity };
+    const newItem = { cartItemId: randomUUID(), productId, quantity };
     if (shadeInfo) {
       if (shadeInfo.shadeCode) newItem.shadeCode = shadeInfo.shadeCode;
       if (shadeInfo.shadeName) newItem.shadeName = shadeInfo.shadeName;
@@ -45,8 +46,12 @@ async function addToCart(userId, productId, quantity, shadeInfo = null) {
   return await buildCartResponse(userId);
 }
 
-async function updateCartItem(userId, productId, quantity) {
+async function updateCartItem(userId, productId, quantity, cartItemId = null) {
   const cart = await getCart(userId);
+
+  const findItem = (items) => cartItemId
+    ? items.find(i => i.cartItemId === cartItemId)
+    : items.find(i => i.productId === productId);
 
   if (quantity > 0) {
     const product = await getProductById(productId);
@@ -54,7 +59,7 @@ async function updateCartItem(userId, productId, quantity) {
 
     if (product.available_stock !== undefined && product.available_stock !== null) {
       if (quantity > product.available_stock) {
-        const existingItem = cart.items.find(i => i.productId === productId);
+        const existingItem = findItem(cart.items);
         const existingQty = existingItem ? existingItem.quantity : 0;
         const availableToAdd = product.available_stock - existingQty;
         throw new Error(
@@ -67,13 +72,13 @@ async function updateCartItem(userId, productId, quantity) {
   }
 
   if (quantity <= 0) {
-    cart.items = cart.items.filter(i => i.productId !== productId);
+    cart.items = cart.items.filter(i => cartItemId ? i.cartItemId !== cartItemId : i.productId !== productId);
   } else {
-    const item = cart.items.find(i => i.productId === productId);
+    const item = findItem(cart.items);
     if (item) {
       item.quantity = quantity;
     } else {
-      cart.items.push({ productId, quantity });
+      cart.items.push({ cartItemId: randomUUID(), productId, quantity });
     }
   }
 
@@ -81,9 +86,9 @@ async function updateCartItem(userId, productId, quantity) {
   return await buildCartResponse(userId);
 }
 
-async function removeFromCart(userId, productId) {
+async function removeFromCart(userId, productId, cartItemId = null) {
   const cart = await getCart(userId);
-  cart.items = cart.items.filter(i => i.productId !== productId);
+  cart.items = cart.items.filter(i => cartItemId ? i.cartItemId !== cartItemId : i.productId !== productId);
   await saveCart(userId, cart);
   return await buildCartResponse(userId);
 }
@@ -116,6 +121,7 @@ async function buildCartResponse(userId) {
     gstTotalRaw += gstAmount;
 
     const cartItem = {
+      cartItemId: item.cartItemId || null,
       productId: item.productId,
       name: product.name,
       productName: product.name,
