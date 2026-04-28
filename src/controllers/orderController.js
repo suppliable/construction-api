@@ -57,7 +57,17 @@ const getOrderDetail = async (req, res) => {
     const { orderId } = req.params;
     const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
-    res.json({ success: true, data: { order: toOrderDTO(order) } });
+
+    const dto = toOrderDTO(order);
+
+    // Provide Realtime DB path when order is actively being delivered
+    const liveStatuses = ['out_for_delivery', 'arrived'];
+    if (liveStatuses.includes(order.status) && process.env.FIREBASE_DATABASE_URL) {
+      dto.liveTrackingPath = `liveOrders/${orderId}`;
+      dto.realtimeDbUrl = process.env.FIREBASE_DATABASE_URL.trim();
+    }
+
+    res.json({ success: true, data: { order: dto } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

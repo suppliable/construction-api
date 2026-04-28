@@ -1,10 +1,10 @@
 'use strict';
 
-const admin = require('../utils/firebaseAdmin');
 const { dbOp } = require('../utils/dbOp');
-
-const db = admin.firestore();
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { DEFAULT_ORDER_QUERY_LIMIT } = require('../constants');
+
+const db = getTrackedDb();
 
 function getDayBounds(date) {
   const start = new Date(`${date}T00:00:00.000Z`);

@@ -5,8 +5,4 @@ services:
       - "3000:3000"
     env_file:
       - .env.local
-    environment:
-      OTEL_SERVICE_NAME: construction-api
-    volumes:
-      - /Users/murali/.config/suppliable/dev/firebase/suppliable-app-firebase-sa.json:/run/secrets/firebase-sa.json:ro
     restart: unless-stopped

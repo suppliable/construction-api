@@ -1,10 +1,10 @@
 'use strict';
 
-const admin = require('../utils/firebaseAdmin');
 const { dbOp } = require('../utils/dbOp');
-
-const db = admin.firestore();
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { DEFAULT_HANDOVER_QUERY_LIMIT } = require('../constants');
+
+const db = getTrackedDb();
 
 async function getDrivers(traceContext = null) {
   return dbOp('getDrivers', async () => {
@@ -71,8 +71,7 @@ async function getAllHandoversForDriverFiltered(driverId, traceContext = null, o
     q = q.orderBy('createdAt', 'desc');
     if (limit > 0) q = q.limit(limit);
     const snap = await q.get();
-    const docs = snap.docs.map(d => d.data());
-    return docs;
+    return snap.docs.map(d => d.data());
   }, traceContext);
 }
 
@@ -130,7 +129,7 @@ async function updateHandover(handoverId, updates, traceContext = null) {
 module.exports = {
   getDrivers, addDriver, updateDriver, softDeleteDriver,
   getDriverById, getDriverByPhone, getDriverByToken,
-  getAllHandoversForDriver,
-  getAllHandoversForDriverFiltered,
-  createHandover, getHandoversByDriver, getAllHandovers, getAllHandoversFiltered, getHandoverById, updateHandover,
+  getAllHandoversForDriver, getAllHandoversForDriverFiltered,
+  createHandover, getHandoversByDriver, getAllHandovers, getAllHandoversFiltered,
+  getHandoverById, updateHandover,
 };

@@ -7,6 +7,17 @@ const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
 const { withSpan } = require('../utils/spanTracer');
 
+function detectShadeBrand(brand) {
+  if (!brand) return null;
+  const b = brand.toLowerCase().trim();
+  if (b.includes('asian paints') || b.includes('asian paint')) return 'asian-paints';
+  if (b.includes('berger'))  return 'berger';
+  if (b.includes('dulux'))   return 'dulux';
+  if (b.includes('nerolac')) return 'nerolac';
+  if (b.includes('jsw'))     return 'jsw';
+  return null;
+}
+
 // Extract GST from Zoho item tax preferences
 const extractGST = (item) => {
   if (item.item_tax_preferences && item.item_tax_preferences.length > 0) {
@@ -26,6 +37,7 @@ const toNumberOrNull = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+
 
 // In-memory cache. ttlMs is seeded with the default and updated from Remote Config on each miss.
 const cache = {
@@ -50,9 +62,11 @@ async function fetchZohoData(traceContext = null) {
       remoteConfig.getNumber('product_cache_ttl_minutes', 10),
     ]);
 
+    // Build category id → name map
     const categoryMap = {};
     zohoCategories.forEach(c => { categoryMap[c.category_id] = c.name; });
 
+    // Build imageMap from Zoho items (custom_field_hash if available)
     const imageMap = {};
     items.forEach(item => {
       if (item.custom_field_hash?.cf_image_url) {
@@ -60,6 +74,7 @@ async function fetchZohoData(traceContext = null) {
       }
     });
 
+    // Merge with Firestore imageMap (Firestore values take precedence)
     const firestoreImages = await getImageMap(traceContext);
     const mergedImageMap = { ...imageMap, ...firestoreImages };
 
@@ -150,7 +165,8 @@ async function getAllProducts(category = null, traceContext = null) {
       image: groupImageUrl,
       imageUrl: groupImageUrl,
       fallbackImage: buildImage(group.group_name),
-      featured: !!(cache.imageMap[`featured_${group.group_id}`])
+      featured: !!(cache.imageMap[`featured_${group.group_id}`]),
+      shadeBrand: detectShadeBrand(group.brand || group.group_name),
     };
   });
 
@@ -176,7 +192,8 @@ async function getAllProducts(category = null, traceContext = null) {
         image: itemImageUrl,
         imageUrl: itemImageUrl,
         fallbackImage: buildImage(item.name),
-        featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured)
+        featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
+        shadeBrand: detectShadeBrand(item.manufacturer || item.group_name || ''),
       };
     });
 

@@ -11,13 +11,30 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
   });
   try {
     const token = await getAccessToken();
+    const zohoLineItems = lineItems.map(item => {
+      const gstRate = item.gstRate || 18;
+      const baseRate = item.shadeTier
+        ? Math.round((item.unitPrice / (1 + gstRate / 100)) * 100) / 100
+        : item.unitPrice;
+      return {
+        item_id: item.zohoItemId || item.productId,
+        name: [
+          item.name,
+          item.variantId || null,
+          item.shadeCode ? `(${item.shadeCode} - ${item.shadeName})` : null,
+        ].filter(Boolean).join(' '),
+        description: item.shadeCode
+          ? `Shade: ${item.shadeCode} - ${item.shadeName || ''} (${item.shadeTier || ''} shade)`
+          : '',
+        quantity: item.quantity,
+        rate: baseRate,
+        unit: item.unit,
+      };
+    });
+    console.log('[Zoho SO] Line items being sent:', JSON.stringify(zohoLineItems, null, 2));
     const body = {
       customer_id: zohoContactId,
-      line_items: lineItems.map(item => ({
-        item_id: item.productId,
-        quantity: item.quantity,
-        rate: item.unitPrice
-      })),
+      line_items: zohoLineItems,
       shipping_charge: deliveryCharge || 0,
       shipping_address: {
         address: [

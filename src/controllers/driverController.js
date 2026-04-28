@@ -1,7 +1,8 @@
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getVehicleById, getOrdersByDriver, createHandover, getHandoversByDriver, getAllHandoversForDriver } = require('../services/firestoreService');
-const { getETA } = require('../services/googleMapsService');
+const { getETA, geocodeAddress, getDirectionsETA, formatEtaString } = require('../services/googleMapsService');
+const { writeLiveOrder, updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
@@ -82,13 +83,105 @@ const loadingComplete = async (req, res) => {
       status: 'out_for_delivery',
       loadingCompleteAt: new Date().toISOString()
     }, req.traceContext);
+
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null })
+      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
+
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 };
 
+// POST /api/driver/orders/:orderId/location
+const updateDriverLocation = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { latitude, longitude } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'latitude and longitude are required' });
+    }
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.driverId !== req.driver.driverId) {
+      return res.status(403).json({ success: false, error: 'FORBIDDEN', message: 'This order is not assigned to you' });
+    }
+
+    // Firestore only keeps driverLocation as a permanent record
+    const firestoreUpdate = { driverLocation: { latitude, longitude } };
+
+    // Only compute ETA when order is out_for_delivery
+    if (order.status !== 'out_for_delivery') {
+      await updateOrder(orderId, firestoreUpdate, req.traceContext);
+      return res.json({ success: true });
+    }
+
+    // Resolve delivery coordinates for ETA computation
+    let destLat = order.deliveryCoordinates?.latitude;
+    let destLng = order.deliveryCoordinates?.longitude;
+    let etaString = null;
+    let etaMinutes = null;
+
+    if (!destLat || !destLng) {
+      const address = order.addressId
+        ? await getAddressById(order.addressId, req.traceContext).catch(() => null)
+        : null;
+
+      destLat = address?.latitude;
+      destLng = address?.longitude;
+
+      if (!destLat || !destLng) {
+        if (process.env.GOOGLE_MAPS_API_KEY) {
+          try {
+            const parts = [address?.flatNo, address?.buildingName, address?.streetAddress, address?.city, address?.state, address?.pincode].filter(Boolean);
+            if (parts.length) {
+              const coords = await geocodeAddress(parts.join(', '), req.traceContext);
+              destLat = coords.latitude;
+              destLng = coords.longitude;
+              firestoreUpdate.deliveryCoordinates = { latitude: destLat, longitude: destLng };
+            }
+          } catch (geoErr) {
+            req.log?.warn({ err: geoErr.message }, 'Geocode failed — ETA skipped');
+          }
+        }
+      } else {
+        firestoreUpdate.deliveryCoordinates = { latitude: destLat, longitude: destLng };
+      }
+    }
+
+    // Call Directions API if we have both origin and destination
+    if (destLat && destLng && process.env.GOOGLE_MAPS_API_KEY) {
+      try {
+        const { seconds } = await getDirectionsETA(latitude, longitude, destLat, destLng, req.traceContext);
+        etaString = formatEtaString(seconds);
+        etaMinutes = Math.ceil(seconds / 60);
+      } catch (mapsErr) {
+        req.log?.warn({ err: mapsErr.message }, 'Directions API failed — ETA skipped');
+      }
+    }
+
+    // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude })
+      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
+
+    // Write only driverLocation (and cached coords) to Firestore — permanent record
+    await updateOrder(orderId, firestoreUpdate, req.traceContext);
+
+    return res.json({
+      success: true,
+      eta: etaString,
+      etaMinutes,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // GET /api/driver/orders/:orderId/eta
+// DEPRECATED — replaced by POST .../location
+// Keep alive until all driver app versions are updated. Do not remove yet.
 const getEta = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -125,6 +218,10 @@ const arrived = async (req, res) => {
       status: 'arrived',
       arrivedAt: new Date().toISOString()
     }, req.traceContext);
+
+    updateLiveOrderStatus(orderId, 'arrived')
+      .catch(err => req.log?.warn({ err: err.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)'));
+
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -182,7 +279,15 @@ const completeDelivery = [
       }
 
       if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'photo is required' });
-      const deliveryPhotoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
+      let deliveryPhotoUrl;
+      try {
+        deliveryPhotoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
+      } catch (uploadError) {
+        console.error('[Storage Error] Full error:', uploadError);
+        console.error('[Storage Error] Message:', uploadError.message);
+        console.error('[Storage Error] Code:', uploadError.code);
+        throw uploadError;
+      }
 
       const updated = await updateOrder(orderId, {
         status: 'delivered',
@@ -190,6 +295,10 @@ const completeDelivery = [
         deliveryPhotoUrl,
         otpVerified: true
       }, req.traceContext);
+
+      updateLiveOrderStatus(orderId, 'delivered')
+        .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
+        .catch(err => req.log?.warn({ err: err.message }, 'RTDB delivered update failed (non-fatal)'));
 
       if (order.zoho_so_id) {
         updateZohoShipment(order.zoho_so_id, req.traceContext).catch(err => {
@@ -554,4 +663,4 @@ const submitHandover = async (req, res) => {
   }
 };
 
-module.exports = { driverAuth, loadingComplete, getEta, arrived, codCollected, completeDelivery, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };
+module.exports = { driverAuth, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };

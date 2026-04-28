@@ -348,6 +348,7 @@
     <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
@@ -467,6 +468,10 @@
 
 <script>
 const API_BASE = 'https://construction-api-2.onrender.com';
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // Auth guard
 const token = sessionStorage.getItem('adminToken');
@@ -615,7 +620,11 @@ function buildPanelBody(o) {
   // Items table
   const itemRows = (o.items || []).map((it, i) => `
     <tr>
-      <td>${it.name || it.productName}</td>
+      <td>
+        <div style="font-weight:500;font-size:14px">${escHtml(it.name || it.productName)}</div>
+        ${it.variantId ? `<div style="font-size:12px;color:#6b7280;margin-top:2px">Size: ${escHtml(it.variantId)}</div>` : ''}
+        ${it.shadeCode ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px">Shade: ${escHtml(it.shadeCode)} — ${escHtml(it.shadeName || '')}</div>` : ''}
+      </td>
       <td style="color:var(--muted);font-size:12px">${it.rackNumber || 'N/A'}</td>
       <td class="mono">${it.quantity}</td>
       <td style="color:var(--muted)">${it.unit || ''}</td>

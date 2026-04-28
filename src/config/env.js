@@ -29,7 +29,8 @@ const schema = z.object({
   GRAFANA_USER: z.string().optional(),
   GRAFANA_API_KEY: z.string().optional(),
   OTLP_ENDPOINT: z.string().url().optional(),
-
+  FIREBASE_DATABASE_URL: z.string().url().optional(),
+  FIREBASE_STORAGE_BUCKET: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   WAREHOUSE_LAT: z.coerce.number().optional(),
   WAREHOUSE_LNG: z.coerce.number().optional(),

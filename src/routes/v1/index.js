@@ -17,6 +17,8 @@ const adminRoutes = require('../admin');
 const driverRoutes = require('../driver');
 const searchRoutes = require('../search');
 const categoriesRoutes = require('../categories');
+const shadesRoutes = require('../shades');
+const paintPricingRoutes = require('../paintPricing');
 
 const router = Router();
 
@@ -35,5 +37,7 @@ router.use('/admin', adminRoutes);
 router.use('/driver', driverRoutes);
 router.use('/search', searchRoutes);
 router.use('/categories', categoriesRoutes);
+router.use('/shades', shadesRoutes);
+router.use('/paint-pricing', paintPricingRoutes);
 
 module.exports = router;
