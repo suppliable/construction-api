@@ -28,11 +28,11 @@ async function setDeliveryCharge(req, res) {
 
 async function addToCart(req, res) {
   try {
-    const { userId, productId, quantity, shadeCode, shadeName, shadeTier, price } = req.body;
+    const { userId, productId, quantity, shadeCode, shadeName, shadeTier, price, variantId } = req.body;
     if (!userId || !productId || !quantity) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId, productId, and quantity are required' });
     }
-    const shadeInfo = shadeCode ? { shadeCode, shadeName: shadeName || null, shadeTier: shadeTier || null, price: price != null ? Number(price) : undefined } : null;
+    const shadeInfo = shadeCode ? { shadeCode, shadeName: shadeName || null, shadeTier: shadeTier || null, price: price != null ? Number(price) : undefined, variantId: variantId || null } : null;
     const result = await cartService.addToCart(userId, productId, parseInt(quantity), shadeInfo);
     res.json({ success: true, data: result });
   } catch (err) {

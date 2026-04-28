@@ -38,6 +38,12 @@ async function addToCart(userId, productId, quantity, shadeInfo = null) {
       if (shadeInfo.shadeName) newItem.shadeName = shadeInfo.shadeName;
       if (shadeInfo.shadeTier) newItem.shadeTier = shadeInfo.shadeTier;
       if (shadeInfo.price != null) newItem.price = shadeInfo.price;
+      if (shadeInfo.variantId) {
+        newItem.variantId = shadeInfo.variantId;
+        // Resolve the specific Zoho item_id for this variant size
+        const variant = product.variants?.find(v => v.name === shadeInfo.variantId);
+        if (variant) newItem.zohoItemId = variant.id;
+      }
     }
     cart.items.push(newItem);
   }
@@ -123,6 +129,8 @@ async function buildCartResponse(userId) {
     const cartItem = {
       cartItemId: item.cartItemId || null,
       productId: item.productId,
+      zohoItemId: item.zohoItemId || null,
+      variantId: item.variantId || null,
       name: product.name,
       productName: product.name,
       unit: product.unit || '',

@@ -76,7 +76,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
 
     const lineItem = {
       productId: cartItem.productId,
-      zohoItemId: cartItem.zohoItemId || cartItem.productId,
+      zohoItemId: cartItem.zohoItemId || cartItem.variantId || cartItem.productId,
       variantId: cartItem.variantId || null,
       name: product.name,
       quantity: qty,
