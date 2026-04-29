@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getAllProducts } = require('../services/productService');
+const { cacheFor } = require('../cache/middleware');
+const { CACHE_TTL_CATALOGUE_S } = require('../constants');
 
 // GET /api/home
-router.get('/', async (req, res) => {
+router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, res) => {
   try {
     const products = await getAllProducts(null, req.traceContext);
 

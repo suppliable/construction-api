@@ -27,6 +27,7 @@
     "@opentelemetry/sdk-metrics": "^2.7.0",
     "@opentelemetry/sdk-node": "^0.215.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
+    "@upstash/redis": "^1.37.0",
     "axios": "^1.15.0",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.9.0",

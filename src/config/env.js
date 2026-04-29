@@ -26,6 +26,8 @@ const schema = z.object({
   JWT_SECRET: z.string().min(6, 'JWT_SECRET must be at least 6 characters'),
 
   // Optional
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   GRAFANA_USER: z.string().optional(),
   GRAFANA_API_KEY: z.string().optional(),
   OTLP_ENDPOINT: z.string().url().optional(),

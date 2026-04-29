@@ -17,7 +17,15 @@ const VERIFY_MAX_ATTEMPTS = 5;
 const VERIFY_LOCKOUT_MS = 15 * 60 * 1000;     // 15 min lockout
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
-const CACHE_TTL_MS = 5 * 60 * 1000;           // 5 min remote config cache
+const CACHE_TTL_MS = 5 * 60 * 1000;           // 5 min remote config cache (ms)
+
+// Redis TTLs (seconds) — used with cacheFor()
+const CACHE_TTL_CATALOGUE_S      = 600;   // 10 min — products, categories, home, search
+const CACHE_TTL_CONFIG_S         = 300;   //  5 min — cod-threshold, warehouse-status, delivery config
+const CACHE_TTL_ORDER_S          = 300;   //  5 min — order detail
+const CACHE_TTL_INVOICE_S        = 3600;  // 60 min — invoice PDF URL (rarely changes)
+const CACHE_TTL_DRIVER_PROFILE_S = 600;   // 10 min — driver profile
+const CACHE_TTL_DRIVER_ORDERS_S  = 60;    //  1 min — today's orders (short for freshness)
 
 // ── Business rules ────────────────────────────────────────────────────────────
 const MAX_ACTIVE_ORDERS_PER_ASSIGNMENT = 2;    // max concurrent orders per driver/vehicle
@@ -75,6 +83,12 @@ module.exports = {
   VERIFY_MAX_ATTEMPTS,
   VERIFY_LOCKOUT_MS,
   CACHE_TTL_MS,
+  CACHE_TTL_CATALOGUE_S,
+  CACHE_TTL_CONFIG_S,
+  CACHE_TTL_ORDER_S,
+  CACHE_TTL_INVOICE_S,
+  CACHE_TTL_DRIVER_PROFILE_S,
+  CACHE_TTL_DRIVER_ORDERS_S,
   MAX_ACTIVE_ORDERS_PER_ASSIGNMENT,
   NEW_ORDER_THRESHOLD_MS,
   ACTIVE_DRIVER_ORDER_STATUSES,

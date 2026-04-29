@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
+const { invalidateProducts, invalidateOrder } = require('../cache/invalidate');
 const {
   getPaintPricing, setPaintPricing, listAllPaintPricing,
   getShadesByBrand, addShade, updateShade, getShadeByCode, VALID_TIERS, VALID_SIZES,
@@ -65,17 +66,25 @@ router.get('/cod/history', listCodHistory);
 router.get('/orders', listOrders);
 router.get('/orders/:orderId', getOrderDetail);
 
-// Order actions
-router.post('/orders/:orderId/accept', acceptOrder);
-router.post('/orders/:orderId/decline', declineOrder);
-router.post('/orders/:orderId/packed', markPacked);
-router.post('/orders/:orderId/assign-vehicle', assignVehicle);
+// Order actions — invalidate cached order detail after each state change
+const invalidateOrderMiddleware = async (req, res, next) => {
+  await invalidateOrder(req.params.orderId).catch(() => {});
+  next();
+};
+
+router.post('/orders/:orderId/accept', invalidateOrderMiddleware, acceptOrder);
+router.post('/orders/:orderId/decline', invalidateOrderMiddleware, declineOrder);
+router.post('/orders/:orderId/packed', invalidateOrderMiddleware, markPacked);
+router.post('/orders/:orderId/assign-vehicle', invalidateOrderMiddleware, assignVehicle);
 router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
-router.post('/orders/:orderId/fix-invoice', fixInvoice);
+router.post('/orders/:orderId/fix-invoice', invalidateOrderMiddleware, fixInvoice);
 
-// Product management
-router.put('/products/:id/featured', toggleFeatured);
+// Product management — invalidate all product/home/search/category caches on featured toggle
+router.put('/products/:id/featured', async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, toggleFeatured);
 // Customer lookup by phone (support panel)
 router.get('/customers/phone/:phone', getCustomerByPhoneNumber);
 router.get('/customers/:userId/orders', getCustomerOrders);

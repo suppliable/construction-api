@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getAllProducts } = require('../services/productService');
+const { cacheFor } = require('../cache/middleware');
+const { CACHE_TTL_CATALOGUE_S } = require('../constants');
 
 // GET /api/categories/:category?page=1&limit=20
-router.get('/:category', async (req, res) => {
+router.get('/:category', cacheFor(CACHE_TTL_CATALOGUE_S, req => `categories:${req.params.category}`), async (req, res) => {
   try {
     const { category } = req.params;
     const page = Math.max(1, parseInt(req.query.page) || 1);

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const driverAuth = require('../middleware/driverAuth');
 const { driverAuth: driverLogin, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, getDriverProfile, updateDriverStatus, getTodayOrders, getDriverOrderDetail, getCodSummary, submitHandover, getDriverCodHistory } = require('../controllers/driverController');
+const { cacheFor } = require('../cache/middleware');
+const { CACHE_TTL_DRIVER_PROFILE_S, CACHE_TTL_DRIVER_ORDERS_S } = require('../constants');
 
 // Public — no auth
 router.post('/auth', driverLogin);
@@ -9,10 +11,11 @@ router.post('/auth', driverLogin);
 // All routes below require driver token
 router.use(driverAuth);
 
-router.get('/profile', getDriverProfile);
+router.get('/profile', cacheFor(CACHE_TTL_DRIVER_PROFILE_S, req => `driver:profile:${req.driver.driverId}`), getDriverProfile);
 router.patch('/status', updateDriverStatus);
 
-router.get('/orders/today', getTodayOrders);
+const todayDate = () => new Date().toISOString().slice(0, 10);
+router.get('/orders/today', cacheFor(CACHE_TTL_DRIVER_ORDERS_S, req => `driver:orders:today:${req.driver.driverId}:${todayDate()}`), getTodayOrders);
 router.get('/orders/:orderId', getDriverOrderDetail);
 
 router.get('/cod/summary', getCodSummary);

@@ -11,6 +11,10 @@ const {
 const tracer = trace.getTracer('construction-api.controllers');
 
 function controllerSpan(req, res, next) {
+  // Multiple middleware (pino-http, compression, firestoreTracker, controllerSpan) each add
+  // finish/close listeners — raise the limit so Node doesn't warn on normal traffic.
+  res.setMaxListeners(20);
+
   // Use the raw path at span start — route pattern not yet known.
   const rawPath = `${req.baseUrl || ''}${req.path || ''}`;
   const spanName = `${req.method} ${rawPath}`;

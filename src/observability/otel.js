@@ -28,6 +28,7 @@ const headers = (process.env.GRAFANA_USER && process.env.GRAFANA_API_KEY)
   : {};
 
 const serviceName = process.env.OTEL_SERVICE_NAME || 'construction-api';
+const deployEnv = process.env.NODE_ENV || 'development';
 
 const sdk = new NodeSDK({
   textMapPropagator: new CompositePropagator({
@@ -38,7 +39,7 @@ const sdk = new NodeSDK({
     [SemanticResourceAttributes.SERVICE_NAMESPACE]: process.env.OTEL_SERVICE_NAMESPACE || 'suppliable',
     [SemanticResourceAttributes.SERVICE_VERSION]: process.env.npm_package_version || '0.0.0',
     [SemanticResourceAttributes.SERVICE_INSTANCE_ID]: `${os.hostname()}-${process.pid}`,
-    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: deployEnv,
   }),
   traceExporter: new OTLPTraceExporter({ url: `${baseUrl}/v1/traces`, headers }),
   metricReaders: [
