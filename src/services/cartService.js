@@ -2,17 +2,28 @@ const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 
-async function addToCart(userId, productId, quantity, shadeInfo = null) {
-  const cart = await getCart(userId);
+async function addToCart(userId, productId, quantity, price, shadeInfo = null, variantId = null) {
+  if (!price || price <= 0) throw new Error('price is required and must be greater than 0');
 
+  const cart = await getCart(userId);
   const product = await getProductById(productId);
   if (!product) throw new Error('Product not found');
+
+  // Resolve variant fields for ALL products (shade or not)
+  let resolvedZohoItemId = productId;
+  let resolvedVariantId = variantId || null;
+  if (variantId && product.variants) {
+    const variant = product.variants.find(v => v.name === variantId || v.id === variantId);
+    if (variant) {
+      resolvedZohoItemId = variant.id;
+      resolvedVariantId = variant.name;
+    }
+  }
 
   if (product.available_stock !== undefined && product.available_stock !== null) {
     const existingItem = cart.items.find(i => i.productId === productId && i.shadeCode === (shadeInfo?.shadeCode));
     const existingQty = existingItem ? existingItem.quantity : 0;
     const totalRequestedQty = existingQty + quantity;
-
     if (totalRequestedQty > product.available_stock) {
       const availableToAdd = product.available_stock - existingQty;
       throw new Error(
@@ -23,27 +34,30 @@ async function addToCart(userId, productId, quantity, shadeInfo = null) {
     }
   }
 
-  // For shaded items, use shadeCode as part of the item key to allow multiple shades of same product
-  const existingItem = cart.items.find(i =>
-    i.productId === productId && i.shadeCode === (shadeInfo?.shadeCode || undefined)
-  );
+  // Match existing item on productId + shadeCode (paint) or productId + variantId (variant), or just productId
+  const existingItem = cart.items.find(i => {
+    if (i.productId !== productId) return false;
+    if (shadeInfo?.shadeCode) return i.shadeCode === shadeInfo.shadeCode;
+    if (variantId) return i.variantId === variantId;
+    return !i.shadeCode && !i.variantId;
+  });
 
   if (existingItem) {
     existingItem.quantity += quantity;
-    if (shadeInfo?.price != null) existingItem.price = shadeInfo.price;
+    existingItem.price = price;
   } else {
-    const newItem = { cartItemId: randomUUID(), productId, quantity };
+    const newItem = {
+      cartItemId: randomUUID(),
+      productId,
+      zohoItemId: resolvedZohoItemId,
+      variantId: resolvedVariantId,
+      price,
+      quantity,
+    };
     if (shadeInfo) {
       if (shadeInfo.shadeCode) newItem.shadeCode = shadeInfo.shadeCode;
       if (shadeInfo.shadeName) newItem.shadeName = shadeInfo.shadeName;
       if (shadeInfo.shadeTier) newItem.shadeTier = shadeInfo.shadeTier;
-      if (shadeInfo.price != null) newItem.price = shadeInfo.price;
-      if (shadeInfo.variantId) {
-        newItem.variantId = shadeInfo.variantId;
-        // Resolve the specific Zoho item_id for this variant size
-        const variant = product.variants?.find(v => v.name === shadeInfo.variantId);
-        if (variant) newItem.zohoItemId = variant.id;
-      }
     }
     cart.items.push(newItem);
   }
@@ -117,11 +131,25 @@ async function buildCartResponse(userId) {
     const product = await getProductById(item.productId);
     if (!product) return null;
 
-    // Use shade price if set (tier-based pricing), otherwise fall back to Zoho product price
-    const unitPrice = item.price != null ? item.price : product.price;
-    const totalWithoutGST = parseFloat((unitPrice * item.quantity).toFixed(2));
-    const gstAmount = parseFloat((totalWithoutGST * product.gst_percentage / 100).toFixed(2));
-    const itemTotal = parseFloat((totalWithoutGST + gstAmount).toFixed(2));
+    const price = item.price;
+    const gstRate = product.gst_percentage || 18;
+    const qty = item.quantity;
+
+    let basePrice, gstAmount, itemTotal, totalWithoutGST;
+    if (item.shadeTier) {
+      // Paint: tier price is GST-inclusive — back-calculate base price
+      const divisor = 1 + (gstRate / 100);
+      basePrice = Math.round((price / divisor) * 100) / 100;
+      totalWithoutGST = Math.round(basePrice * qty * 100) / 100;
+      gstAmount = Math.round((price * qty - totalWithoutGST) * 100) / 100;
+      itemTotal = Math.round(price * qty * 100) / 100;
+    } else {
+      // Non-paint: price is base excl GST
+      basePrice = price;
+      totalWithoutGST = Math.round(price * qty * 100) / 100;
+      gstAmount = Math.round(price * (gstRate / 100) * qty * 100) / 100;
+      itemTotal = Math.round((price + price * (gstRate / 100)) * qty * 100) / 100;
+    }
 
     subtotalRaw += totalWithoutGST;
     gstTotalRaw += gstAmount;
@@ -134,9 +162,11 @@ async function buildCartResponse(userId) {
       name: product.name,
       productName: product.name,
       unit: product.unit || '',
-      quantity: item.quantity,
-      unitPrice: Number(unitPrice),
-      gstRate: Number(product.gst_percentage),
+      quantity: qty,
+      price,
+      unitPrice: price,
+      basePrice,
+      gstRate,
       totalWithoutGST,
       gstAmount,
       itemTotal,
@@ -153,10 +183,10 @@ async function buildCartResponse(userId) {
   }));
 
   const validItems = items.filter(Boolean);
-  const subtotal = parseFloat(subtotalRaw.toFixed(2));
-  const gstTotal = parseFloat(gstTotalRaw.toFixed(2));
+  const subtotal = Math.round(subtotalRaw * 100) / 100;
+  const gstTotal = Math.round(gstTotalRaw * 100) / 100;
   const deliveryCharge = Number(cart.deliveryCharge || 0);
-  const grandTotal = parseFloat((subtotal + gstTotal + deliveryCharge).toFixed(2));
+  const grandTotal = Math.round((subtotal + gstTotal + deliveryCharge) * 100) / 100;
 
   return {
     cart: {

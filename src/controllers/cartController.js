@@ -32,8 +32,11 @@ async function addToCart(req, res) {
     if (!userId || !productId || !quantity) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId, productId, and quantity are required' });
     }
-    const shadeInfo = shadeCode ? { shadeCode, shadeName: shadeName || null, shadeTier: shadeTier || null, price: price != null ? Number(price) : undefined, variantId: variantId || null } : null;
-    const result = await cartService.addToCart(userId, productId, parseInt(quantity), shadeInfo);
+    if (!price || Number(price) <= 0) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'price is required and must be greater than 0' });
+    }
+    const shadeInfo = shadeCode ? { shadeCode, shadeName: shadeName || null, shadeTier: shadeTier || null } : null;
+    const result = await cartService.addToCart(userId, productId, parseInt(quantity), Number(price), shadeInfo, variantId || null);
     res.json({ success: true, data: result });
   } catch (err) {
     const isStockError = /out of stock|units available/i.test(err.message);
