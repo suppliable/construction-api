@@ -21,7 +21,11 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
   }
 
   if (product.available_stock !== undefined && product.available_stock !== null) {
-    const existingItem = cart.items.find(i => i.productId === productId && i.shadeCode === (shadeInfo?.shadeCode));
+    const existingItem = cart.items.find(i =>
+      i.productId === productId &&
+      (i.variantId || null) === (resolvedVariantId || null) &&
+      (i.shadeCode || null) === (shadeInfo?.shadeCode || null)
+    );
     const existingQty = existingItem ? existingItem.quantity : 0;
     const totalRequestedQty = existingQty + quantity;
     if (totalRequestedQty > product.available_stock) {
@@ -34,13 +38,12 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
     }
   }
 
-  // Match existing item on productId + shadeCode (paint) or productId + variantId (variant), or just productId
-  const existingItem = cart.items.find(i => {
-    if (i.productId !== productId) return false;
-    if (shadeInfo?.shadeCode) return i.shadeCode === shadeInfo.shadeCode;
-    if (variantId) return i.variantId === variantId;
-    return !i.shadeCode && !i.variantId;
-  });
+  // Match on productId + variantId + shadeCode — all three must agree so different sizes of the same shade are separate items
+  const existingItem = cart.items.find(item =>
+    item.productId === productId &&
+    (item.variantId || null) === (resolvedVariantId || null) &&
+    (item.shadeCode || null) === (shadeInfo?.shadeCode || null)
+  );
 
   if (existingItem) {
     existingItem.quantity += quantity;
