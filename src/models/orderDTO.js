@@ -4,6 +4,15 @@ const { formatTimestamps } = require('../utils/formatDoc');
 
 const { ORDER_STATUS_LABELS: STATUS_LABELS } = require('../constants');
 
+function normalizeAddress(addr) {
+  if (!addr) return null;
+  const lat = addr.lat ?? addr.latitude ?? addr.coordinates?.lat ?? addr.coordinates?.latitude ?? null;
+  const lng = addr.lng ?? addr.longitude ?? addr.coordinates?.lng ?? addr.coordinates?.longitude ?? null;
+  const fullAddress = addr.fullAddress || addr.address || addr.street ||
+    [addr.line1, addr.line2, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') || null;
+  return { ...addr, lat, lng, fullAddress };
+}
+
 /**
  * Maps a raw Firestore order document to a typed customer-facing shape.
  * Normalises snake_case DB fields to camelCase.
@@ -25,6 +34,7 @@ function toOrderDTO(doc) {
     gstTotal: Number(o.gst_total ?? 0),
     deliveryCharge: Number(o.delivery_charge ?? o.deliveryCharge ?? 0),
     grandTotal: Number(o.grand_total ?? o.grandTotal ?? 0),
+    deliveryAddress: normalizeAddress(o.deliveryAddress),
     driverName: o.driverName || o.vehicle?.driverName || null,
     driverPhone: o.driverPhone || o.vehicle?.driverPhone || null,
     deliveryOtp: o.status === 'arrived' ? o.deliveryOtp : undefined,

@@ -85,11 +85,12 @@ const loadingComplete = async (req, res) => {
       loadingCompleteAt: new Date().toISOString()
     }, req.traceContext);
 
-    try {
-      await writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null });
-    } catch (rtdbErr) {
-      req.log.warn({ err: rtdbErr.message }, 'RTDB writeLiveOrder failed (non-fatal)');
-    }
+    const _addr = order.deliveryAddress || {};
+    const _destLat = _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
+    const _destLng = _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
+    if (!_destLat || !_destLng) req.log?.warn({ orderId }, '[LiveOrder] No dest coords');
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null, destLat: _destLat, destLng: _destLng })
+      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     if (order.userId) {
       fcm.notifyOutForDelivery(order.userId, orderId)
@@ -175,11 +176,8 @@ const updateDriverLocation = async (req, res) => {
     await updateOrder(orderId, firestoreUpdate, req.traceContext);
 
     // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
-    try {
-      await writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude });
-    } catch (rtdbErr) {
-      req.log.warn({ err: rtdbErr.message }, 'RTDB writeLiveOrder failed (non-fatal)');
-    }
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude, destLat: destLat || null, destLng: destLng || null })
+      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     return res.json({
       success: true,

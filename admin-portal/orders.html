@@ -733,6 +733,7 @@ async function openPanel(order) {
   document.getElementById('panelOrderId').textContent = 'Order #' + order.orderId;
   document.getElementById('panelStatusBadge').innerHTML = statusPill(order.status);
   document.getElementById('panelBody').innerHTML = buildPanelBody(order);
+  renderWhatsAppButtons(order);
   document.getElementById('sidePanel').classList.add('open');
   document.getElementById('overlay').classList.add('show');
   // Fetch full detail to get deliveryAddress and complete data
@@ -742,6 +743,7 @@ async function openPanel(order) {
     if (data.success && data.data?.order) {
       currentOrder = data.data.order;
       document.getElementById('panelBody').innerHTML = buildPanelBody(data.data.order);
+      renderWhatsAppButtons(data.data.order);
       // Reload vehicle/driver dropdowns if still on ready_for_dispatch
       if (data.data.order.status === 'ready_for_dispatch') loadVehiclesAndDrivers();
     }
@@ -826,6 +828,11 @@ function buildPanelBody(o) {
     <div class="p-section">
       <div class="p-section-title">Actions</div>
       <div class="action-panel" id="actionPanel">${actions}</div>
+    </div>
+
+    <div class="p-section">
+      <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:0.05em;margin-bottom:8px">📱 WHATSAPP UPDATES</div>
+      <div id="whatsapp-buttons"></div>
     </div>
 
     <div class="p-section">
@@ -1217,12 +1224,113 @@ async function downloadInvoice(orderId) {
     const res = await apiFetch(`/api/v1/admin/orders/${orderId}/invoice-url`);
     const data = await res.json();
     if (data.success) {
-      window.open(data.data.invoiceUrl, '_blank');
+      window.open(data.invoiceUrl, '_blank');
     } else {
       showToast('Invoice not available yet', 'error');
     }
   } catch(e) {
     showToast('Failed to get invoice URL', 'error');
+  }
+}
+
+// ---- WHATSAPP ----
+const _waMsg = {};
+
+function sendWhatsApp(phone, text) {
+  const clean = phone.replace(/[^0-9]/g, '');
+  const number = clean.startsWith('91') ? clean : '91' + clean;
+  const encoded = encodeURIComponent(text);
+  window.open(`https://wa.me/${number}?text=${encoded}`, '_blank');
+}
+
+function renderWhatsAppButtons(order) {
+  const container = document.getElementById('whatsapp-buttons');
+  if (!container) return;
+
+  const phone = (order.customerPhone || order.phone || order.customer?.phone || '').replace(/[^0-9]/g, '');
+  const name = escHtml(order.customerName || order.customer?.name || 'there');
+  const orderId = order.orderId || order.id;
+  const status = order.status;
+
+  if (!phone) {
+    container.innerHTML = `<p style="font-size:12px;color:#9ca3af;margin:0">No phone number on file</p>`;
+    return;
+  }
+
+  const rawName = order.customerName || order.customer?.name || 'there';
+  const msgs = {
+    warehouse_review: { label: '📋 Order Received', text: `Hi ${rawName}! 👋 We've received your Suppliable order *#${orderId}*. Our team is reviewing it and will confirm shortly. Thank you for choosing us! 🙏` },
+    accepted: { label: '✅ Order Confirmed', text: `Hi ${rawName}! ✅ Your Suppliable order *#${orderId}* has been *confirmed*. Our warehouse team is preparing it for dispatch. We'll keep you updated! 📦` },
+    packed: { label: '📦 Order Packed', text: `Hi ${rawName}! 📦 Your Suppliable order *#${orderId}* is packed and ready. Our driver will pick it up soon! 🚛` },
+    ready_for_dispatch: { label: '🚛 Ready for Dispatch', text: `Hi ${rawName}! 🚛 Your Suppliable order *#${orderId}* is ready and will be dispatched shortly. Stay tuned! ✅` },
+    loading: { label: '🔄 Loading onto Vehicle', text: `Hi ${rawName}! 🔄 Your Suppliable order *#${orderId}* is being loaded onto the delivery vehicle. Out for delivery soon! 🚚` },
+    out_for_delivery: { label: '🚚 Out for Delivery', text: `Hi ${rawName}! 🚚 Your Suppliable order *#${orderId}* is *out for delivery*! Our driver is on the way. Please keep your phone handy. 📲` },
+    arrived: { label: '🏠 Driver Has Arrived', text: `Hi ${rawName}! 🏠 Our driver has *arrived* at your location with order *#${orderId}*. Please share the OTP to complete delivery. 🔐` },
+    delivered: { label: '⭐ Delivered — Thank You!', text: `Hi ${rawName}! 🎉 Your Suppliable order *#${orderId}* has been *delivered successfully*. Thank you for choosing us! ⭐` },
+    cancelled: { label: '❌ Order Cancelled', text: `Hi ${rawName}, we're sorry to inform you that your Suppliable order *#${orderId}* has been *cancelled*. Please contact us for any queries.` }
+  };
+
+  const msgKey = `${orderId}_status`;
+  const invoiceKey = `${orderId}_invoice`;
+  const msg = msgs[status];
+  let html = '';
+
+  if (msg) {
+    _waMsg[msgKey] = msg.text;
+    html += `<button onclick="sendWhatsApp('${phone}', _waMsg['${msgKey}'])"
+      style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#25D366;
+        color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;
+        font-weight:500;text-align:left">${msg.label}</button>`;
+  }
+
+  if (status === 'delivered') {
+    if (order.zohoInvoiceUrl) {
+      _waMsg[invoiceKey] = `Hi ${rawName}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${order.zohoInvoiceUrl}\n\nThank you for choosing Suppliable! 🙏`;
+      html += `<button onclick="sendWhatsApp('${phone}', _waMsg['${invoiceKey}'])"
+        style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#1a73e8;
+          color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;
+          font-weight:500;text-align:left">🧾 Send Invoice (${escHtml(order.zohoInvoiceNumber || 'View')})</button>`;
+    } else {
+      html += `<button onclick="fetchAndSendInvoice('${orderId}', '${phone}', '${rawName.replace(/'/g,"\\'")}')"
+        id="invoice-btn-${orderId}"
+        style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#1a73e8;
+          color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;
+          font-weight:500;text-align:left">🧾 Fetch &amp; Send Invoice</button>`;
+    }
+  }
+
+  html += `<button onclick="sendWhatsApp('${phone}', '')"
+    style="display:block;width:100%;padding:8px 12px;background:white;color:#128C7E;
+      border:1px solid #25D366;border-radius:6px;cursor:pointer;font-size:12px;
+      text-align:left">💬 Open Chat</button>`;
+
+  container.innerHTML = html;
+}
+
+async function fetchAndSendInvoice(orderId, phone, name) {
+  const btn = document.getElementById(`invoice-btn-${orderId}`);
+  if (btn) { btn.textContent = '⏳ Fetching invoice...'; btn.disabled = true; }
+  try {
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/invoice-url`);
+    const data = await res.json();
+    if (!res.ok || !data.invoiceUrl) throw new Error(data.message || 'Invoice not found');
+
+    const invoiceKey = `${orderId}_invoice`;
+    const totalStr = data.total ? `\nAmount: ₹${data.total}` : '';
+    const statusStr = data.status ? `\nStatus: ${data.status}` : '';
+    _waMsg[invoiceKey] = `Hi ${name}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${data.invoiceUrl}${totalStr}${statusStr}\n\nThank you for choosing Suppliable! 🙏`;
+
+    if (btn) {
+      btn.textContent = `🧾 Send Invoice (${data.invoiceNumber || 'View'})`;
+      btn.disabled = false;
+      btn.style.background = '#0f9d58';
+      btn.onclick = () => sendWhatsApp(phone, _waMsg[invoiceKey]);
+    }
+    sendWhatsApp(phone, _waMsg[invoiceKey]);
+  } catch (err) {
+    console.error('Invoice fetch failed:', err);
+    if (btn) { btn.textContent = '❌ Invoice not found'; btn.disabled = false; btn.style.background = '#dc2626'; }
+    showToast('Could not fetch invoice: ' + err.message, 'error');
   }
 }
 

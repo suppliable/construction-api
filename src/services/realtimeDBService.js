@@ -4,14 +4,17 @@ const { getDatabase } = require('firebase-admin/database');
 
 async function writeLiveOrder(orderId, data) {
   const db = getDatabase();
-  await db.ref(`liveOrders/${orderId}`).set({
+  const payload = {
     status: data.status,
     eta: data.eta || null,
     etaMinutes: data.etaMinutes || null,
     latitude: data.latitude || null,
     longitude: data.longitude || null,
-    updatedAt: new Date().toISOString(),
-  });
+    updatedAt: data.updatedAt || new Date().toISOString(),
+  };
+  if (data.destLat != null) payload.destLat = data.destLat;
+  if (data.destLng != null) payload.destLng = data.destLng;
+  await db.ref(`liveOrders/${orderId}`).set(payload);
 }
 
 async function updateLiveOrderStatus(orderId, status) {

@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { getOrdersByUser, getOrderById } = require('../services/firestoreService');
+const { getOrdersByUser, getOrderById, getAddressById } = require('../services/firestoreService');
 const { getAccessToken } = require('../services/zohoService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { createOrder: createOrderService } = require('../services/orderService');
@@ -47,7 +47,12 @@ const getUserOrders = async (req, res) => {
     if (!userId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId is required' });
     const limit = parsePositiveInt(req.query.limit, DEFAULT_USER_ORDER_LIMIT);
     const orders = await getOrdersByUser(userId, limit, req.traceContext);
-    res.json({ success: true, data: { orders: orders.map(toOrderDTO) } });
+    const enriched = await Promise.all(orders.map(async (o) => {
+      if (!o.addressId || o.deliveryAddress) return o;
+      const addr = await getAddressById(o.addressId, req.traceContext).catch(() => null);
+      return addr ? { ...o, deliveryAddress: addr } : o;
+    }));
+    res.json({ success: true, data: { orders: enriched.map(toOrderDTO) } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -59,7 +64,10 @@ const getOrderDetail = async (req, res) => {
     const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
-    const dto = toOrderDTO(order);
+    const address = (!order.deliveryAddress && order.addressId)
+      ? await getAddressById(order.addressId, req.traceContext).catch(() => null)
+      : null;
+    const dto = toOrderDTO(address ? { ...order, deliveryAddress: address } : order);
 
     // Provide Realtime DB path when order is actively being delivered
     const liveStatuses = ['out_for_delivery', 'arrived'];
