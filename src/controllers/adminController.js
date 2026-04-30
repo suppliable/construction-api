@@ -419,6 +419,7 @@ const getInvoiceUrl = async (req, res) => {
           }
         );
         invoice = resp.data.invoice || null;
+        if (invoice) console.log('[Invoice] Raw Zoho fields:', JSON.stringify(Object.keys(invoice)), '\n[Invoice] URLs:', JSON.stringify({ invoice_url: invoice.invoice_url, client_view_url: invoice.client_view_url, portal_url: invoice.portal_url, invoice_pdf_url: invoice.invoice_pdf_url, payment_url: invoice.payment_url, share_url: invoice.share_url }));
       } catch (e) { /* fall through to search by SO number */ }
     }
 
