@@ -11,6 +11,10 @@ const { randomBytes } = require('crypto');
  * Echoes traceparent on the response so clients can correlate logs.
  */
 function tracing(req, res, next) {
+  // Multiple middleware layers (pino-http, compression, firestoreTracker, controllerSpan)
+  // each legitimately attach finish/close listeners. Raise the limit to silence the
+  // false-positive MaxListenersExceededWarning without masking real leaks elsewhere.
+  res.setMaxListeners(20);
   let traceId;
   let parentSpanId = null;
   let traceFlags = '01';
