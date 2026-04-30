@@ -20,6 +20,7 @@ const schema = z.object({
   ZOHO_ORG_ID: z.string().min(1, 'ZOHO_ORG_ID is required'),
 
   FIREBASE_SERVICE_ACCOUNT: z.string().min(1, 'FIREBASE_SERVICE_ACCOUNT is required'),
+  EXPECTED_PROJECT_ID: z.string().optional(),
 
   ADMIN_PASSWORD: z.string().min(8, 'ADMIN_PASSWORD must be at least 8 characters'),
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
@@ -52,4 +53,42 @@ if (!result.success) {
   process.exit(1);
 }
 
-module.exports = result.data;
+let firebaseProjectId;
+try {
+  const val = result.data.FIREBASE_SERVICE_ACCOUNT.trim();
+  const sa = val.startsWith('/') || val.startsWith('.')
+    ? require(require('path').resolve(val))
+    : JSON.parse(val);
+  firebaseProjectId = sa.project_id;
+} catch (err) {
+  // eslint-disable-next-line no-console -- logger is not yet initialised at this point
+  console.error('[Config] FATAL: Could not read FIREBASE_SERVICE_ACCOUNT — must be a valid JSON string or file path.');
+  process.exit(1);
+}
+
+if (!firebaseProjectId) {
+  // eslint-disable-next-line no-console
+  console.error('[Config] FATAL: FIREBASE_SERVICE_ACCOUNT is missing project_id.');
+  process.exit(1);
+}
+
+if (result.data.EXPECTED_PROJECT_ID && firebaseProjectId !== result.data.EXPECTED_PROJECT_ID) {
+  // eslint-disable-next-line no-console
+  console.error(
+    `[Config] FATAL: Firebase service account mismatch. ` +
+      `Expected project_id=${result.data.EXPECTED_PROJECT_ID}, got ${firebaseProjectId}. ` +
+      `Refusing to start.`
+  );
+  process.exit(1);
+}
+
+const appEnv = firebaseProjectId.startsWith('suppliable-prod')
+  ? 'prod'
+  : firebaseProjectId.startsWith('suppliable-qa')
+    ? 'qa'
+    : 'dev';
+
+// eslint-disable-next-line no-console -- intentional boot-time signal so it's obvious which env this container is talking to
+console.log(`[Config] Booting in app_env=${appEnv} (firebase project_id=${firebaseProjectId})`);
+
+module.exports = { ...result.data, appEnv, firebaseProjectId };
