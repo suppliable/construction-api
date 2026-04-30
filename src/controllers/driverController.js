@@ -6,6 +6,7 @@ const { writeLiveOrder, updateLiveOrderStatus, deleteLiveOrder } = require('../s
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
+const fcm = require('../services/fcmService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -69,6 +70,11 @@ const loadingComplete = async (req, res) => {
 
     writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
+
+    if (order.userId) {
+      fcm.notifyOutForDelivery(order.userId, orderId)
+        .catch(e => req.log?.warn({ err: e.message }, '[FCM] notifyOutForDelivery failed (non-fatal)'));
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -282,6 +288,11 @@ const completeDelivery = [
       updateLiveOrderStatus(orderId, 'delivered')
         .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
         .catch(err => req.log?.warn({ err: err.message }, 'RTDB delivered update failed (non-fatal)'));
+
+      if (order.userId) {
+        fcm.notifyDelivered(order.userId, orderId)
+          .catch(e => req.log?.warn({ err: e.message }, '[FCM] notifyDelivered failed (non-fatal)'));
+      }
 
       if (order.zoho_so_id) {
         updateZohoShipment(order.zoho_so_id, req.traceContext).catch(err => {

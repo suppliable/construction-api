@@ -8,6 +8,7 @@ const {
   getAllHandovers, getHandoverById, updateHandover
 } = require('../services/firestoreService');
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
+const fcm = require('../services/fcmService');
 
 function formatDuration(ms) {
   const totalMins = Math.floor(ms / 60000);
@@ -216,6 +217,11 @@ const acceptOrder = async (req, res) => {
       deliveryOtp,
       acceptedAt: new Date().toISOString()
     }, req.traceContext);
+
+    if (order.userId) {
+      fcm.notifyOrderAccepted(order.userId, orderId)
+        .catch(e => req.log.warn({ err: e.message }, '[FCM] notifyOrderAccepted failed (non-fatal)'));
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -729,6 +735,11 @@ const forceCompleteOrder = async (req, res) => {
       .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
       .catch(() => {});
 
+    if (order.userId) {
+      fcm.notifyDelivered(order.userId, orderId)
+        .catch(e => console.warn('[FCM] notifyDelivered (force) failed:', e.message));
+    }
+
     res.json({ success: true, data: { order: { orderId, status: 'delivered', forcedComplete: true } } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -781,6 +792,11 @@ const cancelOrder = async (req, res) => {
         const count = Math.max(0, (vehicle.activeOrderCount ?? 1) - 1);
         await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
+    }
+
+    if (order.userId) {
+      fcm.notifyOrderCancelled(order.userId, orderId)
+        .catch(e => console.warn('[FCM] notifyOrderCancelled failed:', e.message));
     }
 
     res.json({
