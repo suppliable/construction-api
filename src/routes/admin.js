@@ -8,10 +8,13 @@ const {
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
 const {
   listOrders,
+  getOrderStats,
   getNewOrderCount,
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  forceCompleteOrder,
+  cancelOrder,
   getCustomerByPhoneNumber,
   getCustomerOrders,
   markPacked,
@@ -55,6 +58,7 @@ router.use((req, res, next) => {
 
 // Static routes first — must come before /:orderId to avoid conflicts
 router.get('/orders/new-count', getNewOrderCount);
+router.get('/orders/stats', getOrderStats);
 router.get('/cod/pending', getPendingCOD);
 router.post('/cod/:orderId/reconcile', reconcileCOD);
 router.get('/cod/handovers', listHandovers);
@@ -70,6 +74,8 @@ router.post('/orders/:orderId/accept', acceptOrder);
 router.post('/orders/:orderId/decline', declineOrder);
 router.post('/orders/:orderId/packed', markPacked);
 router.post('/orders/:orderId/assign-vehicle', assignVehicle);
+router.post('/orders/:orderId/force-complete', forceCompleteOrder);
+router.post('/orders/:orderId/cancel', cancelOrder);
 router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
 router.post('/orders/:orderId/fix-invoice', fixInvoice);

@@ -57,4 +57,19 @@ async function getOrdersByDriver(driverId, startISO, endISO, traceContext = null
   }, traceContext);
 }
 
-module.exports = { saveOrder, getOrdersByUser, getOrderById, getAllOrders, updateOrder, getOrdersByDriver };
+async function getOrdersPage(limit = 10, startAfterOrderId = null, traceContext = null) {
+  return dbOp('getOrdersPage', async () => {
+    let q = db.collection('orders').orderBy('createdAt', 'desc').limit(limit + 1);
+    if (startAfterOrderId) {
+      const cursorDoc = await db.collection('orders').doc(startAfterOrderId).get();
+      if (cursorDoc.exists) q = q.startAfter(cursorDoc);
+    }
+    const snapshot = await q.get();
+    const docs = snapshot.docs;
+    const hasMore = docs.length > limit;
+    const orders = (hasMore ? docs.slice(0, limit) : docs).map(doc => doc.data());
+    return { orders, hasMore, lastOrderId: orders.length ? orders[orders.length - 1].orderId : null };
+  }, traceContext);
+}
+
+module.exports = { saveOrder, getOrdersByUser, getOrderById, getAllOrders, updateOrder, getOrdersByDriver, getOrdersPage };
