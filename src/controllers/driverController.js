@@ -68,7 +68,11 @@ const loadingComplete = async (req, res) => {
       loadingCompleteAt: new Date().toISOString()
     }, req.traceContext);
 
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null })
+    const _addr = order.deliveryAddress || {};
+    const _destLat = _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
+    const _destLng = _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
+    if (!_destLat || !_destLng) console.warn('[LiveOrder] No dest coords for:', orderId);
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null, destLat: _destLat, destLng: _destLng })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     if (order.userId) {
@@ -152,7 +156,7 @@ const updateDriverLocation = async (req, res) => {
     }
 
     // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude })
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude, destLat: destLat || null, destLng: destLng || null })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     // Write only driverLocation (and cached coords) to Firestore — permanent record
