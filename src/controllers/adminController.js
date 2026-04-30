@@ -381,27 +381,97 @@ const getInvoiceUrl = async (req, res) => {
     const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
-    if (!order.zoho_invoice_id) {
-      return res.status(404).json({ success: false, error: 'INVOICE_NOT_FOUND', message: 'Invoice not created yet' });
+    const soNumber = order.zoho_so_number;
+    if (!soNumber && !order.zoho_invoice_id) {
+      return res.status(404).json({ success: false, error: 'NO_ZOHO_SO', message: 'No Zoho SO number on this order' });
     }
 
-    try {
-      const token = await getAccessToken();
-      const response = await axios.get(
-        `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}`,
-        {
-          headers: { Authorization: `Zoho-oauthtoken ${token}` },
-          params: { organization_id: process.env.ZOHO_ORG_ID }
-        }
-      );
-      const invoice = response.data.invoice || {};
-      const invoiceUrl = invoice.invoice_pdf_url || invoice.pdf_url || invoice.invoice_url
-        || `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}/pdf?organization_id=${process.env.ZOHO_ORG_ID}`;
-      return res.json({ success: true, data: { invoiceUrl } });
-    } catch (zohoErr) {
-      const invoiceUrl = `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}/pdf?organization_id=${process.env.ZOHO_ORG_ID}`;
-      return res.json({ success: true, data: { invoiceUrl } });
+    // Return cached result if already fetched
+    if (order.zohoInvoiceUrl) {
+      return res.json({
+        success: true,
+        invoiceUrl: order.zohoInvoiceUrl,
+        invoiceNumber: order.zohoInvoiceNumber || order.zoho_invoice_number || null,
+        total: null,
+        balance: null,
+        status: null
+      });
     }
+
+    let token;
+    try {
+      token = await getAccessToken();
+    } catch (authErr) {
+      return res.status(500).json({ success: false, error: 'ZOHO_AUTH_ERROR', message: 'Failed to get Zoho access token' });
+    }
+
+    const BOOKS_ORG = process.env.ZOHO_ORG_ID;
+    let invoice = null;
+
+    // Try direct fetch using stored Books invoice ID
+    if (order.zoho_invoice_id) {
+      try {
+        const resp = await axios.get(
+          `https://www.zohoapis.in/books/v3/invoices/${order.zoho_invoice_id}`,
+          {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            params: { organization_id: BOOKS_ORG }
+          }
+        );
+        invoice = resp.data.invoice || null;
+      } catch (e) { /* fall through to search by SO number */ }
+    }
+
+    // Fallback: search Books by SO number
+    if (!invoice && soNumber) {
+      try {
+        const searchResp = await axios.get(
+          'https://www.zohoapis.in/books/v3/invoices',
+          {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            params: { organization_id: BOOKS_ORG, salesorder_number: soNumber }
+          }
+        );
+        const invoices = searchResp.data.invoices || [];
+        if (invoices.length) {
+          const detailResp = await axios.get(
+            `https://www.zohoapis.in/books/v3/invoices/${invoices[0].invoice_id}`,
+            {
+              headers: { Authorization: `Zoho-oauthtoken ${token}` },
+              params: { organization_id: BOOKS_ORG }
+            }
+          );
+          invoice = detailResp.data.invoice || null;
+        }
+      } catch (e) {
+        return res.status(502).json({ success: false, error: 'ZOHO_API_ERROR', message: e.response?.data?.message || e.message });
+      }
+    }
+
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No invoice found for this order in Zoho Books' });
+    }
+
+    const invoiceUrl = invoice.invoice_url || invoice.invoice_pdf_url || null;
+    if (!invoiceUrl) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE_URL', message: 'Invoice URL not available from Zoho' });
+    }
+
+    // Cache in Firestore (non-blocking)
+    updateOrder(orderId, {
+      zohoInvoiceUrl: invoiceUrl,
+      zohoInvoiceNumber: invoice.invoice_number || null,
+      zohoInvoiceUpdatedAt: new Date().toISOString()
+    }, req.traceContext).catch(() => {});
+
+    return res.json({
+      success: true,
+      invoiceUrl,
+      invoiceNumber: invoice.invoice_number || null,
+      total: invoice.total || null,
+      balance: invoice.balance || null,
+      status: invoice.status || null
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
