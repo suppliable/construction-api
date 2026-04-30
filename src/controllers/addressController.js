@@ -1,12 +1,15 @@
 const axios = require('axios');
 const { getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } = require('../services/firestoreService');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const { toAddressDTO } = require('../models/addressDTO');
 
 async function geocodeFromPincode(pincode) {
   if (!process.env.GOOGLE_MAPS_API_KEY) return { latitude: null, longitude: null };
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(pincode + ',India')}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    const res = await axios.get(url);
+    const res = await withRetry('google_maps.api.geocodePincode', () =>
+      axios.get(url, { timeout: DEFAULT_TIMEOUT_MS })
+    );
     const result = res.data.results?.[0];
     if (!result) return { latitude: null, longitude: null };
     const { lat, lng } = result.geometry.location;

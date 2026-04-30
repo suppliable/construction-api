@@ -1,6 +1,7 @@
 const cartService = require('../services/cartService');
 const { getCart: getRawCart } = require('../data/cart');
 const { getProductById } = require('../services/productService');
+const { AppError } = require('../utils/errors');
 
 async function clearCart(req, res) {
   try {
@@ -39,8 +40,12 @@ async function addToCart(req, res) {
     const result = await cartService.addToCart(userId, productId, parseInt(quantity), Number(price), shadeInfo, variantId || null);
     res.json({ success: true, data: result });
   } catch (err) {
-    const isStockError = /out of stock|units available/i.test(err.message);
-    res.status(400).json({ success: false, error: isStockError ? 'STOCK_ISSUE' : 'BAD_REQUEST', message: err.message });
+    if (err instanceof AppError) {
+      const body = { success: false, error: err.code, message: err.message };
+      if (err.issues) body.issues = err.issues;
+      return res.status(err.statusCode).json(body);
+    }
+    res.status(400).json({ success: false, error: 'BAD_REQUEST', message: err.message });
   }
 }
 

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { createSpan } = require('../utils/spanTracer');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
 const { MSG91_BASE_URL: BASE } = require('../constants');
 
@@ -77,7 +78,9 @@ async function verifyOtp(normalizedPhone, otp, traceContext = null) {
   logRequest('verify', 'GET', url, params, headers, null);
 
   try {
-    const res = await axios.get(url, { params, headers, timeout: 10000 });
+    const res = await withRetry('msg91.api.verifyOtp', () =>
+      axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
+    );
     logResponse('verify', res.status, res.data);
     span.end({ success: true, type: res.data?.type });
     return res.data;
@@ -98,7 +101,9 @@ async function resendOtp(normalizedPhone, traceContext = null) {
   logRequest('resend', 'GET', url, params, headers, null);
 
   try {
-    const res = await axios.get(url, { params, headers, timeout: 10000 });
+    const res = await withRetry('msg91.api.resendOtp', () =>
+      axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
+    );
     logResponse('resend', res.status, res.data);
     span.end({ success: true });
     assertSuccess(res.data, 'resend');

@@ -1,13 +1,14 @@
 const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
+const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 
 async function addToCart(userId, productId, quantity, price, shadeInfo = null, variantId = null) {
-  if (!price || price <= 0) throw new Error('price is required and must be greater than 0');
+  if (!price || price <= 0) throw new ValidationError('price is required and must be greater than 0', 'INVALID_PARAM');
 
   const cart = await getCart(userId);
   const product = await getProductById(productId);
-  if (!product) throw new Error('Product not found');
+  if (!product) throw new NotFoundError('Product not found', 'PRODUCT_NOT_FOUND');
 
   // Resolve variant fields for ALL products (shade or not)
   let resolvedZohoItemId = productId;
@@ -30,7 +31,7 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
     const totalRequestedQty = existingQty + quantity;
     if (totalRequestedQty > product.available_stock) {
       const availableToAdd = product.available_stock - existingQty;
-      throw new Error(
+      throw new StockError(
         availableToAdd <= 0
           ? `Sorry, ${product.name} is out of stock`
           : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
@@ -78,14 +79,14 @@ async function updateCartItem(userId, productId, quantity, cartItemId = null) {
 
   if (quantity > 0) {
     const product = await getProductById(productId);
-    if (!product) throw new Error('Product not found');
+    if (!product) throw new NotFoundError('Product not found', 'PRODUCT_NOT_FOUND');
 
     if (product.available_stock !== undefined && product.available_stock !== null) {
       if (quantity > product.available_stock) {
         const existingItem = findItem(cart.items);
         const existingQty = existingItem ? existingItem.quantity : 0;
         const availableToAdd = product.available_stock - existingQty;
-        throw new Error(
+        throw new StockError(
           availableToAdd <= 0
             ? `Sorry, ${product.name} is out of stock`
             : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`

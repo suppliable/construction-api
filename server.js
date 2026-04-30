@@ -81,7 +81,10 @@ function createApp() {
     } else {
       log.warn({ code: err.code, message: err.message, path: req.path }, 'Client error');
     }
-    res.status(statusCode).json({ success: false, code: err.code || 'SERVER_ERROR', message: err.message });
+    const body = { success: false, error: err.code || 'SERVER_ERROR', message: err.message };
+    if (err.issues) body.issues = err.issues;
+    if (err.canAddToCart) body.canAddToCart = true;
+    res.status(statusCode).json(body);
   });
 
   return app;
@@ -104,6 +107,10 @@ async function startServer() {
 
   const gracefulShutdown = async signal => {
     logger.info({ signal }, 'Shutting down server');
+    setTimeout(() => {
+      logger.error({ signal }, 'Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10_000).unref();
     server.close(async () => {
       await shutdownTelemetry();
       process.exit(0);
@@ -116,6 +123,19 @@ async function startServer() {
 
   process.on('SIGTERM', () => {
     void gracefulShutdown('SIGTERM');
+  });
+
+  process.on('unhandledRejection', reason => {
+    const err = reason instanceof Error
+      ? { message: reason.message, stack: reason.stack }
+      : { value: reason };
+    logger.fatal({ err }, 'Unhandled promise rejection');
+    void gracefulShutdown('unhandledRejection');
+  });
+
+  process.on('uncaughtException', err => {
+    logger.fatal({ err: { message: err.message, stack: err.stack } }, 'Uncaught exception');
+    void gracefulShutdown('uncaughtException');
   });
 }
 

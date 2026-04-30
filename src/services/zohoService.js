@@ -1,6 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { createSpan } = require('../utils/spanTracer');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
 let accessToken = null;
 let tokenExpiry = null;
@@ -14,8 +15,9 @@ async function getAccessToken() {
       grant_type: 'refresh_token',
       client_id: process.env.ZOHO_CLIENT_ID,
       client_secret: process.env.ZOHO_CLIENT_SECRET,
-      refresh_token: process.env.ZOHO_REFRESH_TOKEN
-    }
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
+    },
+    timeout: DEFAULT_TIMEOUT_MS,
   });
   accessToken = response.data.access_token;
   tokenExpiry = Date.now() + (55 * 60 * 1000);
@@ -29,10 +31,13 @@ async function getZohoProducts(traceContext = null) {
   let page = 1;
   try {
     while (true) {
-      const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items`, {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
-      });
+      const response = await withRetry('zoho.api.getProducts', () =>
+        axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items`, {
+          headers: { Authorization: `Zoho-oauthtoken ${token}` },
+          params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page },
+          timeout: DEFAULT_TIMEOUT_MS,
+        })
+      );
       const items = response.data.items || [];
       allItems.push(...items);
       if (!response.data.page_context?.has_more_page) break;
@@ -50,10 +55,13 @@ async function getZohoCategories(traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.getCategories', { 'peer.service': 'zoho', endpoint: '/inventory/v1/categories' });
   try {
     const token = await getAccessToken();
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/categories`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    });
+    const response = await withRetry('zoho.api.getCategories', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/categories`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     const categories = (response.data.categories || []).filter(c => c.category_id !== '-1');
     span.end({ success: true, category_count: categories.length });
     return categories;
@@ -67,10 +75,13 @@ async function getZohoProductById(itemId, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.getProductById', { 'peer.service': 'zoho', endpoint: '/inventory/v1/items/:id', itemId });
   try {
     const token = await getAccessToken();
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    });
+    const response = await withRetry('zoho.api.getProductById', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     span.end({ success: true, item_id: response.data.item?.item_id });
     return response.data.item;
   } catch (error) {
@@ -86,10 +97,13 @@ async function getZohoItemGroups(traceContext = null) {
   let page = 1;
   try {
     while (true) {
-      const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups`, {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page }
-      });
+      const response = await withRetry('zoho.api.getItemGroups', () =>
+        axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups`, {
+          headers: { Authorization: `Zoho-oauthtoken ${token}` },
+          params: { organization_id: process.env.ZOHO_ORG_ID, per_page: 200, page },
+          timeout: DEFAULT_TIMEOUT_MS,
+        })
+      );
       const groups = response.data.itemgroups || [];
       allGroups.push(...groups);
       if (!response.data.page_context?.has_more_page) break;
@@ -107,10 +121,13 @@ async function getZohoItemGroupById(groupId, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.getItemGroupById', { 'peer.service': 'zoho', endpoint: '/inventory/v1/itemgroups/:id', groupId });
   try {
     const token = await getAccessToken();
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups/${groupId}`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    });
+    const response = await withRetry('zoho.api.getItemGroupById', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/itemgroups/${groupId}`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     span.end({ success: true, group_id: response.data.item_group?.group_id });
     return response.data.item_group;
   } catch (error) {
@@ -177,14 +194,17 @@ async function searchZohoContactByPhone(phone, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.searchContactByPhone', { 'peer.service': 'zoho', phone, endpoint: '/books/v3/contacts' });
   try {
     const token = await getAccessToken();
-    const response = await axios.get(`${process.env.ZOHO_API_DOMAIN}/books/v3/contacts`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: {
-        organization_id: process.env.ZOHO_ORG_ID,
-        search_text: phone,
-        contact_type: 'customer'
-      }
-    });
+    const response = await withRetry('zoho.api.searchContactByPhone', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/books/v3/contacts`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: {
+          organization_id: process.env.ZOHO_ORG_ID,
+          search_text: phone,
+          contact_type: 'customer',
+        },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     const contacts = response.data.contacts;
     const found = contacts && contacts.length > 0;
     span.end({ success: true, found, contactCount: contacts?.length || 0 });

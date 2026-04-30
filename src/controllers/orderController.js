@@ -3,6 +3,7 @@ const { getOrdersByUser, getOrderById } = require('../services/firestoreService'
 const { getAccessToken } = require('../services/zohoService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { createOrder: createOrderService } = require('../services/orderService');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
 const { DEFAULT_USER_ORDER_LIMIT } = require('../constants');
 
@@ -88,12 +89,15 @@ const getCustomerInvoice = async (req, res) => {
 
     try {
       const token = await getAccessToken();
-      const response = await axios.get(
-        `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}`,
-        {
-          headers: { Authorization: `Zoho-oauthtoken ${token}` },
-          params: { organization_id: process.env.ZOHO_ORG_ID }
-        }
+      const response = await withRetry('zoho.api.getInvoice', () =>
+        axios.get(
+          `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}`,
+          {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            params: { organization_id: process.env.ZOHO_ORG_ID },
+            timeout: DEFAULT_TIMEOUT_MS,
+          }
+        ), { log: req.log }
       );
       const invoice = response.data.invoice || {};
       const invoiceUrl = invoice.invoice_pdf_url || invoice.pdf_url || invoice.invoice_url

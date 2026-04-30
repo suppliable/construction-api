@@ -1,5 +1,7 @@
 const axios = require('axios');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
   findOrders, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
@@ -170,7 +172,7 @@ const acceptOrder = async (req, res) => {
       }
     }
 
-    const deliveryOtp = String(Math.floor(1000 + Math.random() * 9000));
+    const deliveryOtp = String(crypto.randomInt(1000, 10000));
 
     const updated = await updateOrder(orderId, {
       status: 'accepted',
@@ -342,12 +344,15 @@ const getInvoiceUrl = async (req, res) => {
 
     try {
       const token = await getAccessToken();
-      const response = await axios.get(
-        `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}`,
-        {
-          headers: { Authorization: `Zoho-oauthtoken ${token}` },
-          params: { organization_id: process.env.ZOHO_ORG_ID }
-        }
+      const response = await withRetry('zoho.api.getInvoice', () =>
+        axios.get(
+          `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${order.zoho_invoice_id}`,
+          {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            params: { organization_id: process.env.ZOHO_ORG_ID },
+            timeout: DEFAULT_TIMEOUT_MS,
+          }
+        ), { log: req.log }
       );
       const invoice = response.data.invoice || {};
       const invoiceUrl = invoice.invoice_pdf_url || invoice.pdf_url || invoice.invoice_url

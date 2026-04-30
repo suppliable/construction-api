@@ -2,7 +2,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getVehicleById, getOrdersByDriver, createHandover, getHandoversByDriver, getAllHandoversForDriver } = require('../services/firestoreService');
 const { getETA, geocodeAddress, getDirectionsETA, formatEtaString } = require('../services/googleMapsService');
-const { writeLiveOrder, updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
+const { writeLiveOrder, updateLiveOrderStatus } = require('../services/realtimeDBService');
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
@@ -84,8 +84,11 @@ const loadingComplete = async (req, res) => {
       loadingCompleteAt: new Date().toISOString()
     }, req.traceContext);
 
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null })
-      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
+    try {
+      await writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null });
+    } catch (rtdbErr) {
+      req.log.warn({ err: rtdbErr.message }, 'RTDB writeLiveOrder failed (non-fatal)');
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -162,12 +165,15 @@ const updateDriverLocation = async (req, res) => {
       }
     }
 
-    // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude })
-      .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
-
     // Write only driverLocation (and cached coords) to Firestore — permanent record
     await updateOrder(orderId, firestoreUpdate, req.traceContext);
+
+    // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
+    try {
+      await writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude });
+    } catch (rtdbErr) {
+      req.log.warn({ err: rtdbErr.message }, 'RTDB writeLiveOrder failed (non-fatal)');
+    }
 
     return res.json({
       success: true,
@@ -219,8 +225,11 @@ const arrived = async (req, res) => {
       arrivedAt: new Date().toISOString()
     }, req.traceContext);
 
-    updateLiveOrderStatus(orderId, 'arrived')
-      .catch(err => req.log?.warn({ err: err.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)'));
+    try {
+      await updateLiveOrderStatus(orderId, 'arrived');
+    } catch (rtdbErr) {
+      req.log.warn({ err: rtdbErr.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)');
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -296,33 +305,37 @@ const completeDelivery = [
         otpVerified: true
       }, req.traceContext);
 
-      updateLiveOrderStatus(orderId, 'delivered')
-        .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
-        .catch(err => req.log?.warn({ err: err.message }, 'RTDB delivered update failed (non-fatal)'));
+      try {
+        await updateLiveOrderStatus(orderId, 'delivered');
+      } catch (rtdbErr) {
+        req.log.warn({ err: rtdbErr.message }, 'RTDB delivered update failed (non-fatal)');
+      }
 
       if (order.zoho_so_id) {
-        updateZohoShipment(order.zoho_so_id, req.traceContext).catch(err => {
-          req.log.warn({ err: err.response?.data || err.message }, 'Zoho shipment update failed (non-fatal)');
-        });
+        try {
+          await updateZohoShipment(order.zoho_so_id, req.traceContext);
+        } catch (zohoErr) {
+          req.log.warn({ err: zohoErr.response?.data || zohoErr.message }, 'Zoho shipment update failed (non-fatal)');
+        }
       }
 
       if (order.vehicleId) {
-        (async () => {
-          try {
-            const v = await getVehicleById(order.vehicleId, req.traceContext);
-            const newCount = Math.max(0, (v?.activeOrderCount ?? 1) - 1);
-            await updateVehicle(order.vehicleId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
-          } catch (e) { req.log.warn({ err: e.message }, 'Vehicle count decrement failed'); }
-        })();
+        try {
+          const v = await getVehicleById(order.vehicleId, req.traceContext);
+          const newCount = Math.max(0, (v?.activeOrderCount ?? 1) - 1);
+          await updateVehicle(order.vehicleId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
+        } catch (e) {
+          req.log.warn({ err: e.message }, 'Vehicle count decrement failed');
+        }
       }
       if (order.driverId) {
-        (async () => {
-          try {
-            const d = await getDriverById(order.driverId, req.traceContext);
-            const newCount = Math.max(0, (d?.activeOrderCount ?? 1) - 1);
-            await updateDriver(order.driverId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
-          } catch (e) { req.log.warn({ err: e.message }, 'Driver count decrement failed'); }
-        })();
+        try {
+          const d = await getDriverById(order.driverId, req.traceContext);
+          const newCount = Math.max(0, (d?.activeOrderCount ?? 1) - 1);
+          await updateDriver(order.driverId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
+        } catch (e) {
+          req.log.warn({ err: e.message }, 'Driver count decrement failed');
+        }
       }
 
       res.json({ success: true, data: { order: formatTimestamps(updated) } });

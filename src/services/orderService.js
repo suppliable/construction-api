@@ -3,7 +3,7 @@
 const { getCustomer, getAddressById, saveOrder, getSettings } = require('./firestoreService');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 
 async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
@@ -14,12 +14,11 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
 
   const settings = await getSettings(traceContext);
   if (settings.warehouseOpen === false) {
-    const err = new ValidationError(
+    throw new StockError(
       settings.warehouseClosedMessage || 'We are currently closed.',
-      'WAREHOUSE_CLOSED'
+      [],
+      true
     );
-    err.canAddToCart = true;
-    throw err;
   }
 
   const cart = await getCart(userId);
@@ -99,9 +98,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   }));
 
   if (stockIssues.length > 0) {
-    const err = new ValidationError('Stock validation failed', 'STOCK_ISSUE');
-    err.issues = stockIssues;
-    throw err;
+    throw new StockError('Stock validation failed', stockIssues);
   }
 
   const subtotal = parseFloat(lineItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));

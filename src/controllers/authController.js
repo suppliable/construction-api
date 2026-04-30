@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { syncCustomer } = require('../services/customerService');
 const { getCustomerByPhone } = require('../services/firestoreService');
@@ -36,7 +37,7 @@ function signToken(payload, expiresIn = '7d') {
 
 
 function generateUserId() {
-  return 'usr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  return 'usr_' + crypto.randomUUID().replace(/-/g, '');
 }
 
 async function lookupCustomer(normalizedPhone, traceContext) {
