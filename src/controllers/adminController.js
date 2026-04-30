@@ -3,12 +3,14 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
-  findOrders, getOrderById, updateOrder,
+  findOrders, getAllOrders, getOrdersPage, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
   getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver, updateVehicle,
   getAllHandovers, getHandoverById, updateHandover
 } = require('../services/firestoreService');
+const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
+const fcm = require('../services/fcmService');
 
 const { DEFAULT_ADMIN_LIST_LIMIT, MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, NEW_ORDER_THRESHOLD_MS } = require('../constants');
 const { normalizePhone } = require('../utils/phone');
@@ -46,9 +48,28 @@ async function markZohoInvoiceAsSent(invoiceId) {
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
   try {
-    const { status, date, limit: limitParam } = req.query;
-    const limit = parsePositiveInt(limitParam, DEFAULT_ADMIN_LIST_LIMIT);
-    const orders = await findOrders({ status, date, limit }, req.traceContext);
+    const { status, date, startAfter } = req.query;
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+
+    let orders, hasMore = false, lastOrderId = null;
+
+    if (status || date) {
+      let all = await getAllOrders(req.traceContext);
+      if (status) all = all.filter(o => o.status === status);
+      if (date) all = all.filter(o => o.createdAt && o.createdAt.startsWith(date));
+      if (startAfter) {
+        const idx = all.findIndex(o => o.orderId === startAfter);
+        if (idx >= 0) all = all.slice(idx + 1);
+      }
+      hasMore = all.length > limit;
+      orders = all.slice(0, limit);
+      lastOrderId = orders.length ? orders[orders.length - 1].orderId : null;
+    } else {
+      const page = await getOrdersPage(limit, startAfter || null, req.traceContext);
+      orders = page.orders;
+      hasMore = page.hasMore;
+      lastOrderId = page.lastOrderId;
+    }
 
     const enriched = await Promise.all(orders.map(async (order) => {
       const customer = await getCustomer(order.userId, req.traceContext).catch(() => null);
@@ -65,7 +86,26 @@ const listOrders = async (req, res) => {
       };
     }));
 
-    res.json({ success: true, data: { count: enriched.length, orders: enriched } });
+    res.json({ success: true, data: { count: enriched.length, orders: enriched, hasMore, lastOrderId } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// GET /api/admin/orders/stats
+const getOrderStats = async (req, res) => {
+  try {
+    const orders = await getAllOrders(req.traceContext);
+    const today = new Date().toISOString().slice(0, 10);
+    res.json({
+      success: true,
+      data: {
+        today: orders.filter(o => o.createdAt?.startsWith(today)).length,
+        warehouse_review: orders.filter(o => o.status === 'warehouse_review').length,
+        out_for_delivery: orders.filter(o => ['out_for_delivery', 'loading', 'arrived'].includes(o.status)).length,
+        delivered_today: orders.filter(o => o.status === 'delivered' && o.createdAt?.startsWith(today)).length,
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -183,6 +223,11 @@ const acceptOrder = async (req, res) => {
       deliveryOtp,
       acceptedAt: new Date().toISOString()
     }, req.traceContext);
+
+    if (order.userId) {
+      fcm.notifyOrderAccepted(order.userId, orderId)
+        .catch(e => req.log.warn({ err: e.message }, '[FCM] notifyOrderAccepted failed (non-fatal)'));
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -307,6 +352,10 @@ const getPickingList = async (req, res) => {
 
     const items = order.items.map(item => ({
       productName: item.name,
+      variantId: item.variantId || null,
+      shadeCode: item.shadeCode || null,
+      shadeName: item.shadeName || null,
+      shadeTier: item.shadeTier || null,
       sku: item.sku || '',
       qty: item.quantity,
       unit: item.unit,
@@ -653,6 +702,132 @@ const getCustomerOrders = async (req, res) => {
   }
 };
 
+// POST /api/admin/orders/:orderId/force-complete
+const forceCompleteOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { reason, note } = req.body;
+
+    const VALID_REASONS = ['driver_app_issue', 'phone_issue', 'technical_error', 'other'];
+    if (!reason || !VALID_REASONS.includes(reason)) {
+      return res.status(400).json({ success: false, error: 'INVALID_REASON', message: `reason must be one of: ${VALID_REASONS.join(', ')}` });
+    }
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+
+    if (!['out_for_delivery', 'arrived'].includes(order.status)) {
+      return res.status(400).json({ success: false, error: 'ORDER_NOT_IN_DELIVERY', message: `Cannot force complete order in ${order.status} status` });
+    }
+
+    const now = new Date().toISOString();
+    await updateOrder(orderId, {
+      status: 'delivered',
+      deliveredAt: now,
+      deliveryPhotoUrl: null,
+      otpVerified: false,
+      forcedComplete: true,
+      forcedBy: 'admin',
+      forceReason: reason,
+      forceNote: note || null,
+      forcedAt: now
+    }, req.traceContext);
+
+    if (order.driverId) {
+      const driver = await getDriverById(order.driverId, req.traceContext).catch(() => null);
+      if (driver) {
+        const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
+        await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
+      }
+    }
+    if (order.vehicleId) {
+      const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
+      if (vehicle) {
+        const count = Math.max(0, (vehicle.activeOrderCount ?? 1) - 1);
+        await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
+      }
+    }
+
+    updateLiveOrderStatus(orderId, 'delivered')
+      .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
+      .catch(() => {});
+
+    if (order.userId) {
+      fcm.notifyDelivered(order.userId, orderId)
+        .catch(e => console.warn('[FCM] notifyDelivered (force) failed:', e.message));
+    }
+
+    res.json({ success: true, data: { order: { orderId, status: 'delivered', forcedComplete: true } } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/orders/:orderId/cancel
+const cancelOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { reason, note } = req.body;
+
+    const VALID_REASONS = ['customer_request', 'out_of_stock', 'address_issue', 'payment_issue', 'other'];
+    if (!reason || !VALID_REASONS.includes(reason)) {
+      return res.status(400).json({ success: false, error: 'INVALID_REASON', message: `reason must be one of: ${VALID_REASONS.join(', ')}` });
+    }
+
+    const CANCELLABLE = ['warehouse_review', 'accepted', 'ready_for_dispatch', 'loading'];
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+
+    if (!CANCELLABLE.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'ORDER_NOT_CANCELLABLE',
+        message: `Cannot cancel order in ${order.status} status`
+      });
+    }
+
+    await updateOrder(orderId, {
+      status: 'cancelled',
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: 'admin',
+      cancellationReason: reason,
+      cancellationNote: note || null,
+      zohoVoidRequired: true
+    }, req.traceContext);
+
+    if (order.driverId) {
+      const driver = await getDriverById(order.driverId, req.traceContext).catch(() => null);
+      if (driver) {
+        const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
+        await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
+      }
+    }
+    if (order.vehicleId) {
+      const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
+      if (vehicle) {
+        const count = Math.max(0, (vehicle.activeOrderCount ?? 1) - 1);
+        await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
+      }
+    }
+
+    if (order.userId) {
+      fcm.notifyOrderCancelled(order.userId, orderId)
+        .catch(e => console.warn('[FCM] notifyOrderCancelled failed:', e.message));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        order: { orderId, status: 'cancelled' },
+        zohoNote: `Zoho SO must be manually voided in Zoho Inventory for order ${orderId}`
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -681,11 +856,14 @@ const toggleFeatured = async (req, res) => {
 
 module.exports = {
   listOrders,
+  getOrderStats,
   getNewOrderCount,
   getOrderDetail,
   acceptOrder,
   declineOrder,
   markPacked,
+  forceCompleteOrder,
+  cancelOrder,
   getCustomerByPhoneNumber,
   getCustomerOrders,
   assignVehicle,

@@ -19,6 +19,7 @@ const searchRoutes = require('../search');
 const categoriesRoutes = require('../categories');
 const shadesRoutes = require('../shades');
 const paintPricingRoutes = require('../paintPricing');
+const userRoutes = require('../users');
 
 const router = Router();
 
@@ -39,5 +40,6 @@ router.use('/search', searchRoutes);
 router.use('/categories', categoriesRoutes);
 router.use('/shades', shadesRoutes);
 router.use('/paint-pricing', paintPricingRoutes);
+router.use('/users', userRoutes);
 
 module.exports = router;

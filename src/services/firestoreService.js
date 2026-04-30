@@ -3,7 +3,7 @@
 const admin = require('../utils/firebaseAdmin');
 const { getCustomer, saveCustomer, getCustomerByPhone } = require('../repositories/customerRepository');
 const { getCart, saveCart } = require('../repositories/cartRepository');
-const { saveOrder, getOrdersByUser, getOrderById, getAllOrders, findOrders, updateOrder, getOrdersByDriver, getOrdersByDriverFiltered } = require('../repositories/orderRepository');
+const { saveOrder, getOrdersByUser, getOrderById, getAllOrders, findOrders, updateOrder, getOrdersByDriver, getOrdersByDriverFiltered, getOrdersPage } = require('../repositories/orderRepository');
 const { getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, getAddressById } = require('../repositories/addressRepository');
 const { getSettings, updateSettings, getDeliveryConfig, updateDeliveryConfig, getImageMap, setImage, setFeatured } = require('../repositories/configRepository');
 const {
@@ -21,7 +21,7 @@ module.exports = {
   // cart
   getCart, saveCart,
   // orders
-  saveOrder, getOrdersByUser, getOrderById, getAllOrders, findOrders, updateOrder, getOrdersByDriver, getOrdersByDriverFiltered,
+  saveOrder, getOrdersByUser, getOrderById, getAllOrders, findOrders, updateOrder, getOrdersByDriver, getOrdersByDriverFiltered, getOrdersPage,
   // addresses
   getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, getAddressById,
   // config

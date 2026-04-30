@@ -6,6 +6,7 @@ const { writeLiveOrder, updateLiveOrderStatus } = require('../services/realtimeD
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
+const fcm = require('../services/fcmService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 const { ACTIVE_DRIVER_ORDER_STATUSES, DEFAULT_DRIVER_HISTORY_LIMIT, DRIVER_STATUS_LABELS } = require('../constants');
@@ -88,6 +89,11 @@ const loadingComplete = async (req, res) => {
       await writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null });
     } catch (rtdbErr) {
       req.log.warn({ err: rtdbErr.message }, 'RTDB writeLiveOrder failed (non-fatal)');
+    }
+
+    if (order.userId) {
+      fcm.notifyOutForDelivery(order.userId, orderId)
+        .catch(e => req.log?.warn({ err: e.message }, '[FCM] notifyOutForDelivery failed (non-fatal)'));
     }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
@@ -309,6 +315,11 @@ const completeDelivery = [
         await updateLiveOrderStatus(orderId, 'delivered');
       } catch (rtdbErr) {
         req.log.warn({ err: rtdbErr.message }, 'RTDB delivered update failed (non-fatal)');
+      }
+
+      if (order.userId) {
+        fcm.notifyDelivered(order.userId, orderId)
+          .catch(e => req.log?.warn({ err: e.message }, '[FCM] notifyDelivered failed (non-fatal)'));
       }
 
       if (order.zoho_so_id) {

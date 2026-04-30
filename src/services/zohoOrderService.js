@@ -13,9 +13,7 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
     const token = await getAccessToken();
     const zohoLineItems = lineItems.map(item => {
       const gstRate = item.gstRate || 18;
-      const baseRate = item.shadeTier
-        ? Math.round((item.unitPrice / (1 + gstRate / 100)) * 100) / 100
-        : item.unitPrice;
+      const baseRate = Math.round((item.unitPrice / (1 + gstRate / 100)) * 100) / 100;
       return {
         item_id: item.zohoItemId || item.productId,
         name: [

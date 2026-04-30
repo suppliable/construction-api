@@ -139,21 +139,12 @@ async function buildCartResponse(userId) {
     const gstRate = product.gst_percentage || 18;
     const qty = item.quantity;
 
-    let basePrice, gstAmount, itemTotal, totalWithoutGST;
-    if (item.shadeTier) {
-      // Paint: tier price is GST-inclusive — back-calculate base price
-      const divisor = 1 + (gstRate / 100);
-      basePrice = Math.round((price / divisor) * 100) / 100;
-      totalWithoutGST = Math.round(basePrice * qty * 100) / 100;
-      gstAmount = Math.round((price * qty - totalWithoutGST) * 100) / 100;
-      itemTotal = Math.round(price * qty * 100) / 100;
-    } else {
-      // Non-paint: price is base excl GST
-      basePrice = price;
-      totalWithoutGST = Math.round(price * qty * 100) / 100;
-      gstAmount = Math.round(price * (gstRate / 100) * qty * 100) / 100;
-      itemTotal = Math.round((price + price * (gstRate / 100)) * qty * 100) / 100;
-    }
+    // All prices are GST-inclusive — back-calculate base price
+    const divisor = 1 + (gstRate / 100);
+    const basePrice = Math.round((price / divisor) * 100) / 100;
+    const totalWithoutGST = Math.round(basePrice * qty * 100) / 100;
+    const gstAmount = Math.round((price * qty - totalWithoutGST) * 100) / 100;
+    const itemTotal = Math.round(price * qty * 100) / 100;
 
     subtotalRaw += totalWithoutGST;
     gstTotalRaw += gstAmount;
