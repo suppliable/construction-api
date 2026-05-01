@@ -21,6 +21,7 @@ const {
   assignVehicle,
   getPickingList,
   getInvoiceUrl,
+  getInvoicePdf,
   fixInvoice,
   getPendingCOD,
   reconcileCOD,
@@ -78,6 +79,7 @@ router.post('/orders/:orderId/force-complete', forceCompleteOrder);
 router.post('/orders/:orderId/cancel', cancelOrder);
 router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
+router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
 router.post('/orders/:orderId/fix-invoice', fixInvoice);
 
 // Product management
