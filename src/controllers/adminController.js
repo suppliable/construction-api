@@ -454,22 +454,14 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No invoice found for this order in Zoho Books' });
     }
 
-    // Construct direct portal URL (no customer login required) from org alias + invoice_id.
-    // invoice_url from Zoho is the payment gateway (zohosecurepay.in) which prompts signup.
-    // Extract org alias from the payment URL since Zoho doesn't return a separate portal URL.
-    const orgAliasMatch = (invoice.invoice_url || '').match(/\/books\/([^\/\?]+)\//);
-    const orgAlias = orgAliasMatch?.[1] || null;
-    const invoiceUrl =
-      invoice.client_view_url ||
-      (orgAlias && invoice.invoice_id
-        ? `https://books.zoho.in/portal/${orgAlias}/invoices/${invoice.invoice_id}`
-        : null) ||
-      invoice.invoice_url ||
-      null;
-
-    if (!invoiceUrl) {
-      return res.status(404).json({ success: false, error: 'NO_INVOICE_URL', message: 'Invoice URL not available from Zoho' });
+    // Construct direct portal URL using known org alias + invoice_id.
+    // client_view_url opens homepage; invoice_url is zohosecurepay.in (payment gateway).
+    // Neither works without login. The direct portal URL works without customer login.
+    const orgAlias = process.env.ZOHO_ORG_ALIAS || 'speedlahtechpvtltd1';
+    if (!invoice.invoice_id) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE_URL', message: 'Invoice ID not available from Zoho' });
     }
+    const invoiceUrl = `https://books.zoho.in/portal/${orgAlias}/invoices/${invoice.invoice_id}`;
 
     // Cache in Firestore (non-blocking)
     updateOrder(orderId, {
