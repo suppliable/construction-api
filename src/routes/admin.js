@@ -59,11 +59,26 @@ router.use((req, res, next) => {
   next();
 });
 
+// Invalidate order detail cache only after a successful mutation response.
+// Doing this pre-handler can allow a race where stale data is re-cached
+// before the write commits.
+const invalidateOrderAfterMutation = (req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    const statusCode = res.statusCode || 200;
+    if (statusCode < 500 && req.params.orderId) {
+      invalidateOrder(req.params.orderId).catch(() => {});
+    }
+    return originalJson(body);
+  };
+  next();
+};
+
 // Static routes first — must come before /:orderId to avoid conflicts
 router.get('/orders/new-count', getNewOrderCount);
 router.get('/orders/stats', getOrderStats);
 router.get('/cod/pending', getPendingCOD);
-router.post('/cod/:orderId/reconcile', reconcileCOD);
+router.post('/cod/:orderId/reconcile', invalidateOrderAfterMutation, reconcileCOD);
 router.get('/cod/handovers', listHandovers);
 router.post('/cod/confirm-handover/:handoverId', confirmHandover);
 router.get('/cod/history', listCodHistory);
@@ -73,21 +88,16 @@ router.get('/orders', listOrders);
 router.get('/orders/:orderId', getOrderDetail);
 
 // Order actions — invalidate cached order detail after each state change
-const invalidateOrderMiddleware = async (req, res, next) => {
-  await invalidateOrder(req.params.orderId).catch(() => {});
-  next();
-};
-
-router.post('/orders/:orderId/accept', invalidateOrderMiddleware, acceptOrder);
-router.post('/orders/:orderId/decline', invalidateOrderMiddleware, declineOrder);
-router.post('/orders/:orderId/packed', invalidateOrderMiddleware, markPacked);
-router.post('/orders/:orderId/assign-vehicle', invalidateOrderMiddleware, assignVehicle);
-router.post('/orders/:orderId/force-complete', invalidateOrderMiddleware, forceCompleteOrder);
-router.post('/orders/:orderId/cancel', invalidateOrderMiddleware, cancelOrder);
+router.post('/orders/:orderId/accept', invalidateOrderAfterMutation, acceptOrder);
+router.post('/orders/:orderId/decline', invalidateOrderAfterMutation, declineOrder);
+router.post('/orders/:orderId/packed', invalidateOrderAfterMutation, markPacked);
+router.post('/orders/:orderId/assign-vehicle', invalidateOrderAfterMutation, assignVehicle);
+router.post('/orders/:orderId/force-complete', invalidateOrderAfterMutation, forceCompleteOrder);
+router.post('/orders/:orderId/cancel', invalidateOrderAfterMutation, cancelOrder);
 router.get('/orders/:orderId/picking-list', getPickingList);
-router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
+router.get('/orders/:orderId/invoice-url', invalidateOrderAfterMutation, getInvoiceUrl);
 router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
-router.post('/orders/:orderId/fix-invoice', invalidateOrderMiddleware, fixInvoice);
+router.post('/orders/:orderId/fix-invoice', invalidateOrderAfterMutation, fixInvoice);
 
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);
@@ -237,6 +247,27 @@ router.get('/firestore-usage', (req, res) => {
 router.post('/firestore-usage/reset', (req, res) => {
   resetGlobal();
   res.json({ success: true, message: 'Firestore usage counters reset' });
+});
+
+// Debug: resolved environment config (secrets omitted)
+router.get('/debug/config', (req, res) => {
+  const env = require('../config/env');
+  const admin = require('../utils/firebaseAdmin');
+  res.json({
+    success: true,
+    data: {
+      app_env: env.appEnv,
+      firebase_project_id: env.firebaseProjectId,
+      storage_bucket: env.FIREBASE_STORAGE_BUCKET || '(not set)',
+      database_url: env.FIREBASE_DATABASE_URL || '(not set)',
+      warehouse: { lat: env.WAREHOUSE_LAT, lng: env.WAREHOUSE_LNG },
+      redis: env.UPSTASH_REDIS_REST_URL ? 'configured' : 'not set',
+      zoho_domain: env.ZOHO_API_DOMAIN,
+      node_env: env.NODE_ENV,
+      port: env.PORT,
+      firebase_apps_initialized: admin.apps.length,
+    },
+  });
 });
 
 module.exports = router;

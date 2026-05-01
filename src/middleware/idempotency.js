@@ -12,6 +12,34 @@ const KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const TTL_HOURS = 24;
 
 /**
+ * Firestore rejects undefined values. Sanitize payloads before cache writes.
+ * - Object fields with undefined are removed.
+ * - Array entries with undefined become null to preserve array shape.
+ */
+function sanitizeForFirestore(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const sanitized = sanitizeForFirestore(item);
+      return sanitized === undefined ? null : sanitized;
+    });
+  }
+
+  if (typeof value === 'object') {
+    const output = {};
+    for (const [key, nested] of Object.entries(value)) {
+      const sanitized = sanitizeForFirestore(nested);
+      if (sanitized !== undefined) output[key] = sanitized;
+    }
+    return output;
+  }
+
+  return value;
+}
+
+/**
  * Idempotency middleware. Opt-in: only activates when the client sends an
  * `X-Idempotency-Key` header. Without the header, the request flows through
  * untouched — preserving existing client behavior.
@@ -114,19 +142,23 @@ function idempotency() {
     res.json = payload => {
       const statusCode = res.statusCode || 200;
       if (statusCode < 500) {
-        ref
-          .set(
-            {
-              status: 'completed',
-              statusCode,
-              body: payload,
-              completedAt: admin.firestore.FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          )
-          .catch(err => {
-            req.log && req.log.warn({ err: err.message }, 'idempotency.cache_write_failed');
-          });
+        const safeBody = sanitizeForFirestore(payload);
+        const cacheDoc = {
+          status: 'completed',
+          statusCode,
+          body: safeBody === undefined ? null : safeBody,
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        try {
+          ref
+            .set(cacheDoc, { merge: true })
+            .catch(err => {
+              req.log && req.log.warn({ err: err.message }, 'idempotency.cache_write_failed');
+            });
+        } catch (err) {
+          req.log && req.log.warn({ err: err.message }, 'idempotency.cache_write_failed_sync');
+        }
       } else {
         // 5xx → release the key so the client can retry.
         ref.delete().catch(() => {});
