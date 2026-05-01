@@ -386,10 +386,13 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_ZOHO_SO', message: 'No Zoho SO number on this order' });
     }
 
+    // Skip cache if ?debug=1 so we can inspect raw Zoho fields
+    const skipCache = req.query.debug === '1';
+
     // Return cached result only if it's the direct portal URL (not old payment gateway URL)
     const cachedUrl = order.zohoInvoiceUrl;
     const isStaleCache = cachedUrl && cachedUrl.includes('zohosecurepay.in');
-    if (cachedUrl && !isStaleCache) {
+    if (!skipCache && cachedUrl && !isStaleCache) {
       return res.json({
         success: true,
         invoiceUrl: cachedUrl,
@@ -421,6 +424,7 @@ const getInvoiceUrl = async (req, res) => {
           }
         );
         invoice = resp.data.invoice || null;
+        if (invoice && skipCache) console.log('[Invoice DEBUG] Raw URL fields:', JSON.stringify({ invoice_url: invoice.invoice_url, client_view_url: invoice.client_view_url, portal_url: invoice.portal_url, payment_url: invoice.payment_url, share_url: invoice.share_url }, null, 2));
       } catch (e) { /* fall through to search by SO number */ }
     }
 
