@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Abandoned Carts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050;
+    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --amber:#f59e0b; --blue2:#3b82f6; --green:#10b981; --red2:#ef4444;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  /* SIDEBAR */
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; flex-shrink:0; }
+
+  /* MAIN */
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+
+  /* TOPBAR */
+  .topbar { height:64px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .topbar-left { display:flex; flex-direction:column; }
+  .topbar-title { font-size:18px; font-weight:700; color:var(--text); }
+  .topbar-sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .topbar-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .btn-refresh { padding:7px 14px; background:var(--navy); color:#fff; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; transition:opacity 0.15s; }
+  .btn-refresh:hover { opacity:0.85; }
+  .btn-refresh:disabled { opacity:0.5; cursor:default; }
+  .filter-select { padding:7px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; font-family:'DM Sans',sans-serif; color:var(--text); background:#fff; cursor:pointer; }
+  .last-updated { font-size:12px; color:var(--muted); }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
+  .btn-logout:hover { background:var(--bg); color:var(--text); }
+
+  /* CONTENT */
+  .content { padding:24px; overflow-y:auto; flex:1; }
+
+  /* STATS */
+  .stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:24px; max-width:480px; }
+  .stat-card { background:#fff; border-radius:10px; padding:20px; border-left:4px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .stat-card.blue { border-left-color:var(--blue2); }
+  .stat-card.amber { border-left-color:var(--amber); }
+  .stat-num { font-size:32px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); }
+  .stat-label { font-size:12px; color:var(--muted); margin-top:4px; font-weight:500; }
+
+  /* TABLE */
+  .table-card { background:#fff; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.06); overflow:hidden; }
+  table { width:100%; border-collapse:collapse; }
+  thead { background:#f8f9fc; }
+  th { padding:12px 16px; text-align:left; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid var(--border); white-space:nowrap; }
+  td { padding:13px 16px; font-size:13px; border-bottom:1px solid #f3f4f6; vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  tr.row-yellow td { background:#fffbeb; }
+  tr.row-red td { background:#fef2f2; }
+  tr.expandable { cursor:pointer; }
+  tr.expandable:hover td { background:rgba(0,0,0,0.02); }
+  tr.row-yellow.expandable:hover td { background:#fef3cd; }
+  tr.row-red.expandable:hover td { background:#fde8e8; }
+
+  /* ITEMS EXPAND ROW */
+  tr.items-row td { padding:0; background:#f8f9fc; }
+  tr.items-row.hidden { display:none; }
+  .items-expand { padding:12px 16px 14px; }
+  .items-expand-title { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; }
+  .item-line { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid #e9ebf0; }
+  .item-line:last-child { border-bottom:none; }
+  .item-name { color:var(--text); flex:1; }
+  .item-shade { color:var(--muted); font-size:12px; }
+  .item-price { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); margin-left:16px; white-space:nowrap; }
+  .items-total { display:flex; justify-content:flex-end; margin-top:8px; font-size:13px; font-weight:600; color:var(--text); }
+
+  /* BADGES + BUTTONS */
+  .idle-badge { display:inline-block; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:600; }
+  .idle-normal { background:#f0f9ff; color:#0369a1; }
+  .idle-warn { background:#fffbeb; color:#92400e; }
+  .idle-hot { background:#fef2f2; color:#b91c1c; }
+  .action-btns { display:flex; gap:6px; flex-wrap:wrap; }
+  .btn-action { display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; text-decoration:none; border:none; font-family:'DM Sans',sans-serif; white-space:nowrap; transition:opacity 0.15s; }
+  .btn-action:hover { opacity:0.85; }
+  .btn-call { background:#f0fdf4; color:#166534; }
+  .btn-wa { background:#dcfce7; color:#166534; }
+  .phone-link { color:var(--blue2); text-decoration:none; font-weight:500; }
+  .phone-link:hover { text-decoration:underline; }
+
+  /* EMPTY STATE */
+  .empty-state { text-align:center; padding:60px 24px; color:var(--muted); }
+  .empty-state .emoji { font-size:48px; display:block; margin-bottom:12px; }
+  .empty-state .title { font-size:18px; font-weight:600; color:var(--text); margin-bottom:8px; }
+  .empty-state .sub { font-size:14px; }
+
+  /* LOADING */
+  .loading-state { text-align:center; padding:60px 24px; color:var(--muted); font-size:15px; }
+
+  /* TOAST */
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(60px); background:#1e2235; color:#fff; padding:10px 20px; border-radius:8px; font-size:14px; opacity:0; transition:all 0.3s; z-index:999; pointer-events:none; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.error { background:#dc2626; }
+  #toast.success { background:#059669; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">Suppliable</div>
+    <div class="sub">Admin Panel</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item active" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="shades.html">🎨 Shades</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-title">🛒 Abandoned Carts</div>
+      <div class="topbar-sub">Carts idle with no order placed</div>
+    </div>
+    <div class="topbar-right">
+      <select class="filter-select" id="minutesFilter" onchange="loadCarts()">
+        <option value="30">30 minutes</option>
+        <option value="60">1 hour</option>
+        <option value="120">2 hours</option>
+        <option value="180">3 hours</option>
+      </select>
+      <button class="btn-refresh" onclick="loadCarts()" id="refreshBtn">↻ Refresh</button>
+      <span class="last-updated" id="lastUpdated"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="stats-grid">
+      <div class="stat-card blue">
+        <div class="stat-num" id="stat-total">—</div>
+        <div class="stat-label">Abandoned Carts</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-num" id="stat-value">—</div>
+        <div class="stat-label">Total Cart Value</div>
+      </div>
+    </div>
+
+    <div id="mainArea">
+      <div class="loading-state">Loading abandoned carts…</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = 'https://construction-api-2.onrender.com';
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+
+function logout() {
+  sessionStorage.clear();
+  window.location.href = 'login.html';
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+}
+
+function sendWhatsApp(phone, text) {
+  const clean = phone.replace(/[^0-9]/g, '');
+  const number = clean.startsWith('91') ? clean : '91' + clean;
+  window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+function fmtIdle(minutes) {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function idleClass(minutes) {
+  if (minutes >= 180) return 'row-red';
+  if (minutes >= 60) return 'row-yellow';
+  return '';
+}
+
+function idleBadgeClass(minutes) {
+  if (minutes >= 180) return 'idle-hot';
+  if (minutes >= 60) return 'idle-warn';
+  return 'idle-normal';
+}
+
+function fmtCurrency(n) {
+  return '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+let lastLoadMs = null;
+let autoRefreshTimer = null;
+
+function updateLastUpdated() {
+  if (!lastLoadMs) return;
+  const mins = Math.floor((Date.now() - lastLoadMs) / 60000);
+  const el = document.getElementById('lastUpdated');
+  if (el) el.textContent = mins < 1 ? 'Updated just now' : `Updated ${mins} min ago`;
+}
+
+async function loadCarts() {
+  const minutes = document.getElementById('minutesFilter').value;
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Loading…';
+
+  try {
+    const res = await apiFetch(`/api/v1/admin/abandoned-carts?minutes=${minutes}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Failed to load');
+
+    const { abandonedCarts = [], total = 0 } = data.data;
+    lastLoadMs = Date.now();
+
+    const totalValue = abandonedCarts.reduce((s, c) => s + c.cartTotal, 0);
+    document.getElementById('stat-total').textContent = total;
+    document.getElementById('stat-value').textContent = fmtCurrency(totalValue);
+
+    renderTable(abandonedCarts);
+    updateLastUpdated();
+  } catch (err) {
+    showToast('Failed to load abandoned carts: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
+  }
+}
+
+function renderTable(carts) {
+  const area = document.getElementById('mainArea');
+
+  if (!carts.length) {
+    area.innerHTML = `
+      <div class="empty-state">
+        <span class="emoji">🎉</span>
+        <div class="title">No abandoned carts right now!</div>
+        <div class="sub">All customers have either placed orders or have empty carts.</div>
+      </div>`;
+    return;
+  }
+
+  let rows = '';
+  carts.forEach((cart, idx) => {
+    const rowCls = idleClass(cart.idleMinutes);
+    const badgeCls = idleBadgeClass(cart.idleMinutes);
+    const phone = cart.customerPhone || '';
+    const name = cart.customerName || 'Unknown';
+
+    const waMsg = `Hi ${name}! 👋 We noticed you left some items in your Suppliable cart. Need help placing your order? We're here to assist! 🏗️`;
+
+    const phoneCell = phone
+      ? `<a class="phone-link" href="tel:${escHtml(phone)}">${escHtml(phone)}</a>`
+      : '<span style="color:var(--muted)">—</span>';
+
+    const callBtn = phone
+      ? `<a class="btn-action btn-call" href="tel:${escHtml(phone)}">📞 Call</a>`
+      : '';
+    const waBtn = phone
+      ? `<button class="btn-action btn-wa" onclick="sendWhatsApp('${escHtml(phone)}','${escHtml(waMsg).replace(/'/g,"\\'")}')">💬 WhatsApp</button>`
+      : '';
+
+    rows += `
+      <tr class="expandable ${rowCls}" onclick="toggleItems(${idx})">
+        <td><strong>${escHtml(name)}</strong></td>
+        <td>${phoneCell}</td>
+        <td style="font-family:'JetBrains Mono',monospace">${cart.itemCount}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${fmtCurrency(cart.cartTotal)}</td>
+        <td><span class="idle-badge ${badgeCls}">${fmtIdle(cart.idleMinutes)} ago</span></td>
+        <td><div class="action-btns">${callBtn}${waBtn}</div></td>
+      </tr>
+      <tr class="items-row hidden" id="items-${idx}">
+        <td colspan="6">
+          <div class="items-expand">
+            <div class="items-expand-title">Cart items</div>
+            ${cart.items.map(item => {
+              const shade = item.shadeCode ? `<div class="item-shade">Shade: ${escHtml(item.shadeCode)}${item.shadeName ? ' — ' + escHtml(item.shadeName) : ''}</div>` : '';
+              const variant = item.variantId ? ` <span style="color:var(--muted);font-size:12px">(${escHtml(item.variantId)})</span>` : '';
+              return `<div class="item-line">
+                <div class="item-name">${escHtml(item.name)}${variant} × ${item.quantity}${item.unit ? ' ' + escHtml(item.unit) : ''}${shade}</div>
+                <div class="item-price">${fmtCurrency(item.price)} each</div>
+              </div>`;
+            }).join('')}
+            <div class="items-total">Total: ${fmtCurrency(cart.cartTotal)}</div>
+          </div>
+        </td>
+      </tr>`;
+  });
+
+  area.innerHTML = `
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Items</th>
+            <th>Cart Value</th>
+            <th>Idle For</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function toggleItems(idx) {
+  const row = document.getElementById(`items-${idx}`);
+  if (row) row.classList.toggle('hidden');
+}
+
+// Auto-refresh every 5 minutes
+function scheduleAutoRefresh() {
+  clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => {
+    loadCarts();
+  }, 5 * 60 * 1000);
+
+  // Update "last updated" display every minute
+  setInterval(updateLastUpdated, 60 * 1000);
+}
+
+loadCarts();
+scheduleAutoRefresh();
+</script>
+</body>
+</html>

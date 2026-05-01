@@ -20,7 +20,8 @@ function formatDuration(ms) {
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId } = require('../services/zohoOrderService');
 const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
 const { setFeatured } = require('../services/firestoreService');
-const { clearCache } = require('../services/productService');
+const { clearCache, getAllProducts } = require('../services/productService');
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { formatTimestamps } = require('../utils/formatDoc');
 
 async function markZohoInvoiceAsSent(invoiceId) {
@@ -924,6 +925,95 @@ const cancelOrder = async (req, res) => {
   }
 };
 
+// GET /api/admin/abandoned-carts
+const getAbandonedCarts = async (req, res) => {
+  try {
+    const minutes = Math.max(1, parseInt(req.query.minutes) || 30);
+    const cutoffMs = Date.now() - minutes * 60 * 1000;
+    const db = getTrackedDb();
+
+    // Fetch in parallel: all carts, recent orders (last 24h), product name map
+    const [cartsSnap, recentOrdersSnap, allProducts] = await Promise.all([
+      db.collection('carts').get(),
+      db.collection('orders')
+        .where('createdAt', '>=', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .get(),
+      getAllProducts(req.traceContext),
+    ]);
+
+    // Users who placed an order in the last 24h → skip their carts
+    const recentOrderUserIds = new Set(
+      recentOrdersSnap.docs.map(d => d.data().userId).filter(Boolean)
+    );
+
+    // Build productId/zohoItemId → {name, unit} lookup from cached product data
+    const productNameMap = {};
+    allProducts.forEach(p => {
+      productNameMap[p.id] = { name: p.name, unit: p.unit };
+      (p.variants || []).forEach(v => {
+        productNameMap[v.id] = { name: `${p.name} ${v.name || ''}`.trim(), unit: p.unit };
+      });
+    });
+
+    // Filter carts to abandoned ones, then resolve customer details
+    const candidateDocs = cartsSnap.docs.filter(cartDoc => {
+      const items = cartDoc.data().items || [];
+      if (!items.length) return false;
+      if (recentOrderUserIds.has(cartDoc.id)) return false;
+      const updatedMs = cartDoc.updateTime?.toMillis?.() || 0;
+      return updatedMs > 0 && updatedMs < cutoffMs;
+    });
+
+    const abandoned = await Promise.all(candidateDocs.map(async cartDoc => {
+      const userId = cartDoc.id;
+      const items = cartDoc.data().items || [];
+      const updatedMs = cartDoc.updateTime.toMillis();
+
+      const customer = await getCustomer(userId, req.traceContext).catch(() => null);
+
+      let cartTotal = 0;
+      const resolvedItems = items.map(item => {
+        cartTotal += (item.price || 0) * (item.quantity || 1);
+        const info = productNameMap[item.zohoItemId] || productNameMap[item.productId] || {};
+        return {
+          name: info.name || item.productId || 'Unknown product',
+          variantId: item.variantId || null,
+          shadeCode: item.shadeCode || null,
+          shadeName: item.shadeName || null,
+          quantity: item.quantity || 1,
+          price: item.price || 0,
+          unit: info.unit || null,
+        };
+      });
+
+      return {
+        userId,
+        customerName: customer?.name || 'Unknown',
+        customerPhone: customer?.phone || null,
+        itemCount: items.length,
+        cartTotal: Math.round(cartTotal * 100) / 100,
+        lastActivity: new Date(updatedMs).toISOString(),
+        idleMinutes: Math.floor((Date.now() - updatedMs) / 60000),
+        items: resolvedItems,
+      };
+    }));
+
+    abandoned.sort((a, b) => b.cartTotal - a.cartTotal);
+
+    return res.json({
+      success: true,
+      data: {
+        abandonedCarts: abandoned,
+        total: abandoned.length,
+        cutoffMinutes: minutes,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -964,6 +1054,7 @@ module.exports = {
   getCustomerOrders,
   assignVehicle,
   getPickingList,
+  getAbandonedCarts,
   getInvoiceUrl,
   getInvoicePdf,
   fixInvoice,

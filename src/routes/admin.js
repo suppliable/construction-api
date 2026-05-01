@@ -20,6 +20,7 @@ const {
   markPacked,
   assignVehicle,
   getPickingList,
+  getAbandonedCarts,
   getInvoiceUrl,
   getInvoicePdf,
   fixInvoice,
@@ -81,6 +82,9 @@ router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
 router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
 router.post('/orders/:orderId/fix-invoice', fixInvoice);
+
+// Abandoned carts
+router.get('/abandoned-carts', getAbandonedCarts);
 
 // Product management
 router.put('/products/:id/featured', toggleFeatured);
