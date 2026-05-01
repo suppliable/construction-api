@@ -386,11 +386,13 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_ZOHO_SO', message: 'No Zoho SO number on this order' });
     }
 
-    // Return cached result if already fetched
-    if (order.zohoInvoiceUrl) {
+    // Return cached result only if it's the direct portal URL (not old payment gateway URL)
+    const cachedUrl = order.zohoInvoiceUrl;
+    const isStaleCache = cachedUrl && cachedUrl.includes('zohosecurepay.in');
+    if (cachedUrl && !isStaleCache) {
       return res.json({
         success: true,
-        invoiceUrl: order.zohoInvoiceUrl,
+        invoiceUrl: cachedUrl,
         invoiceNumber: order.zohoInvoiceNumber || order.zoho_invoice_number || null,
         total: null,
         balance: null,
@@ -419,7 +421,6 @@ const getInvoiceUrl = async (req, res) => {
           }
         );
         invoice = resp.data.invoice || null;
-        if (invoice) console.log('[Invoice] Raw Zoho fields:', JSON.stringify(Object.keys(invoice)), '\n[Invoice] URLs:', JSON.stringify({ invoice_url: invoice.invoice_url, client_view_url: invoice.client_view_url, portal_url: invoice.portal_url, invoice_pdf_url: invoice.invoice_pdf_url, payment_url: invoice.payment_url, share_url: invoice.share_url }));
       } catch (e) { /* fall through to search by SO number */ }
     }
 
@@ -453,7 +454,19 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No invoice found for this order in Zoho Books' });
     }
 
-    const invoiceUrl = invoice.invoice_url || invoice.invoice_pdf_url || null;
+    // Construct direct portal URL (no customer login required) from org alias + invoice_id.
+    // invoice_url from Zoho is the payment gateway (zohosecurepay.in) which prompts signup.
+    // Extract org alias from the payment URL since Zoho doesn't return a separate portal URL.
+    const orgAliasMatch = (invoice.invoice_url || '').match(/\/books\/([^\/\?]+)\//);
+    const orgAlias = orgAliasMatch?.[1] || null;
+    const invoiceUrl =
+      invoice.client_view_url ||
+      (orgAlias && invoice.invoice_id
+        ? `https://books.zoho.in/portal/${orgAlias}/invoices/${invoice.invoice_id}`
+        : null) ||
+      invoice.invoice_url ||
+      null;
+
     if (!invoiceUrl) {
       return res.status(404).json({ success: false, error: 'NO_INVOICE_URL', message: 'Invoice URL not available from Zoho' });
     }
