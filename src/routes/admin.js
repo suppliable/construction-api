@@ -21,7 +21,9 @@ const {
   markPacked,
   assignVehicle,
   getPickingList,
+  getAbandonedCarts,
   getInvoiceUrl,
+  getInvoicePdf,
   fixInvoice,
   getPendingCOD,
   reconcileCOD,
@@ -84,7 +86,11 @@ router.post('/orders/:orderId/force-complete', invalidateOrderMiddleware, forceC
 router.post('/orders/:orderId/cancel', invalidateOrderMiddleware, cancelOrder);
 router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
+router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
 router.post('/orders/:orderId/fix-invoice', invalidateOrderMiddleware, fixInvoice);
+
+// Abandoned carts
+router.get('/abandoned-carts', getAbandonedCarts);
 
 // Product management — invalidate all product/home/search/category caches on featured toggle
 router.put('/products/:id/featured', async (req, res, next) => {

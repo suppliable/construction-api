@@ -400,6 +400,7 @@
   <nav class="sidebar-nav">
     <a class="nav-item active" href="orders.html">📦 Orders</a>
     <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="shades.html">🎨 Shades</a>
@@ -1221,15 +1222,24 @@ function showToast(msg, type = '') {
 // ---- INVOICE DOWNLOAD ----
 async function downloadInvoice(orderId) {
   try {
-    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/invoice-url`);
-    const data = await res.json();
-    if (data.success) {
-      window.open(data.invoiceUrl, '_blank');
-    } else {
-      showToast('Invoice not available yet', 'error');
+    showToast('Loading invoice PDF…', 'info');
+    const res = await apiFetch(`/api/v1/admin/orders/${orderId}/invoice.pdf`);
+    if (!res.ok) {
+      showToast('Invoice PDF not available', 'error');
+      return;
     }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
   } catch(e) {
-    showToast('Failed to get invoice URL', 'error');
+    showToast('Failed to download invoice', 'error');
   }
 }
 
@@ -1284,8 +1294,10 @@ function renderWhatsAppButtons(order) {
   }
 
   if (status === 'delivered') {
-    if (order.zohoInvoiceUrl) {
-      _waMsg[invoiceKey] = `Hi ${rawName}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${order.zohoInvoiceUrl}\n\nThank you for choosing Suppliable! 🙏`;
+    const cachedInvoiceUrl = order.zohoInvoiceUrl;
+    const invoiceUrlIsValid = cachedInvoiceUrl && !cachedInvoiceUrl.includes('books.zoho.in/portal/');
+    if (invoiceUrlIsValid) {
+      _waMsg[invoiceKey] = `Hi ${rawName}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${cachedInvoiceUrl}\n\nThank you for choosing Suppliable! 🙏`;
       html += `<button onclick="sendWhatsApp('${phone}', _waMsg['${invoiceKey}'])"
         style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#1a73e8;
           color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;

@@ -30,7 +30,8 @@ function formatDuration(ms) {
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId } = require('../services/zohoOrderService');
 const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
 const { setFeatured } = require('../services/firestoreService');
-const { clearCache } = require('../services/productService');
+const { clearCache, getAllProducts } = require('../services/productService');
+const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { formatTimestamps } = require('../utils/formatDoc');
 
 async function markZohoInvoiceAsSent(invoiceId) {
@@ -380,7 +381,7 @@ const getPickingList = async (req, res) => {
   }
 };
 
-// GET /api/admin/orders/:orderId/invoice-url
+// GET /api/admin/orders/:orderId/invoice-url  (used for WhatsApp sharing)
 const getInvoiceUrl = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -392,11 +393,14 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_ZOHO_SO', message: 'No Zoho SO number on this order' });
     }
 
-    // Return cached result if already fetched
-    if (order.zohoInvoiceUrl) {
+    // Reject cached portal URLs (books.zoho.in/portal/...) — they require customer login.
+    // invoice_url from Zoho (zohosecurepay.in) is the correct public customer-facing link.
+    const cachedUrl = order.zohoInvoiceUrl;
+    const isStalePortalUrl = cachedUrl && cachedUrl.includes('books.zoho.in/portal/');
+    if (cachedUrl && !isStalePortalUrl) {
       return res.json({
         success: true,
-        invoiceUrl: order.zohoInvoiceUrl,
+        invoiceUrl: cachedUrl,
         invoiceNumber: order.zohoInvoiceNumber || order.zoho_invoice_number || null,
         total: null,
         balance: null,
@@ -425,7 +429,6 @@ const getInvoiceUrl = async (req, res) => {
           }
         );
         invoice = resp.data.invoice || null;
-        if (invoice) console.log('[Invoice] Raw Zoho fields:', JSON.stringify(Object.keys(invoice)), '\n[Invoice] URLs:', JSON.stringify({ invoice_url: invoice.invoice_url, client_view_url: invoice.client_view_url, portal_url: invoice.portal_url, invoice_pdf_url: invoice.invoice_pdf_url, payment_url: invoice.payment_url, share_url: invoice.share_url }));
       } catch (e) { /* fall through to search by SO number */ }
     }
 
@@ -459,7 +462,9 @@ const getInvoiceUrl = async (req, res) => {
       return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No invoice found for this order in Zoho Books' });
     }
 
-    const invoiceUrl = invoice.invoice_url || invoice.invoice_pdf_url || null;
+    // invoice_url is Zoho's own customer-facing link (zohosecurepay.in) — publicly viewable
+    // without customer login. This is what Zoho sends in invoice emails.
+    const invoiceUrl = invoice.invoice_url || null;
     if (!invoiceUrl) {
       return res.status(404).json({ success: false, error: 'NO_INVOICE_URL', message: 'Invoice URL not available from Zoho' });
     }
@@ -481,6 +486,44 @@ const getInvoiceUrl = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// GET /api/admin/orders/:orderId/invoice.pdf  (admin download — proxied from Zoho)
+const getInvoicePdf = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+
+    const invoiceId = order.zoho_invoice_id;
+    if (!invoiceId) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE_ID', message: 'No Zoho invoice ID on this order' });
+    }
+
+    let token;
+    try {
+      token = await getAccessToken();
+    } catch (authErr) {
+      return res.status(500).json({ success: false, error: 'ZOHO_AUTH_ERROR', message: 'Failed to get Zoho access token' });
+    }
+
+    const pdfResp = await axios.get(
+      `https://www.zohoapis.in/books/v3/invoices/${invoiceId}`,
+      {
+        headers: { Authorization: `Zoho-oauthtoken ${token}`, Accept: 'application/pdf' },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        responseType: 'stream'
+      }
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${orderId}.pdf"`);
+    pdfResp.data.pipe(res);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    }
   }
 };
 
@@ -896,6 +939,95 @@ const cancelOrder = async (req, res) => {
   }
 };
 
+// GET /api/admin/abandoned-carts
+const getAbandonedCarts = async (req, res) => {
+  try {
+    const minutes = Math.max(1, parseInt(req.query.minutes) || 30);
+    const cutoffMs = Date.now() - minutes * 60 * 1000;
+    const db = getTrackedDb();
+
+    // Fetch in parallel: all carts, recent orders (last 24h), product name map
+    const [cartsSnap, recentOrdersSnap, allProducts] = await Promise.all([
+      db.collection('carts').get(),
+      db.collection('orders')
+        .where('createdAt', '>=', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .get(),
+      getAllProducts(req.traceContext),
+    ]);
+
+    // Users who placed an order in the last 24h → skip their carts
+    const recentOrderUserIds = new Set(
+      recentOrdersSnap.docs.map(d => d.data().userId).filter(Boolean)
+    );
+
+    // Build productId/zohoItemId → {name, unit} lookup from cached product data
+    const productNameMap = {};
+    allProducts.forEach(p => {
+      productNameMap[p.id] = { name: p.name, unit: p.unit };
+      (p.variants || []).forEach(v => {
+        productNameMap[v.id] = { name: `${p.name} ${v.name || ''}`.trim(), unit: p.unit };
+      });
+    });
+
+    // Filter carts to abandoned ones, then resolve customer details
+    const candidateDocs = cartsSnap.docs.filter(cartDoc => {
+      const items = cartDoc.data().items || [];
+      if (!items.length) return false;
+      if (recentOrderUserIds.has(cartDoc.id)) return false;
+      const updatedMs = cartDoc.updateTime?.toMillis?.() || 0;
+      return updatedMs > 0 && updatedMs < cutoffMs;
+    });
+
+    const abandoned = await Promise.all(candidateDocs.map(async cartDoc => {
+      const userId = cartDoc.id;
+      const items = cartDoc.data().items || [];
+      const updatedMs = cartDoc.updateTime.toMillis();
+
+      const customer = await getCustomer(userId, req.traceContext).catch(() => null);
+
+      let cartTotal = 0;
+      const resolvedItems = items.map(item => {
+        cartTotal += (item.price || 0) * (item.quantity || 1);
+        const info = productNameMap[item.zohoItemId] || productNameMap[item.productId] || {};
+        return {
+          name: info.name || item.productId || 'Unknown product',
+          variantId: item.variantId || null,
+          shadeCode: item.shadeCode || null,
+          shadeName: item.shadeName || null,
+          quantity: item.quantity || 1,
+          price: item.price || 0,
+          unit: info.unit || null,
+        };
+      });
+
+      return {
+        userId,
+        customerName: customer?.name || 'Unknown',
+        customerPhone: customer?.phone || null,
+        itemCount: items.length,
+        cartTotal: Math.round(cartTotal * 100) / 100,
+        lastActivity: new Date(updatedMs).toISOString(),
+        idleMinutes: Math.floor((Date.now() - updatedMs) / 60000),
+        items: resolvedItems,
+      };
+    }));
+
+    abandoned.sort((a, b) => b.cartTotal - a.cartTotal);
+
+    return res.json({
+      success: true,
+      data: {
+        abandonedCarts: abandoned,
+        total: abandoned.length,
+        cutoffMinutes: minutes,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -936,7 +1068,9 @@ module.exports = {
   getCustomerOrders,
   assignVehicle,
   getPickingList,
+  getAbandonedCarts,
   getInvoiceUrl,
+  getInvoicePdf,
   fixInvoice,
   getPendingCOD,
   reconcileCOD,
