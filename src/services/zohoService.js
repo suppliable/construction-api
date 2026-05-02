@@ -2,6 +2,7 @@ const axios = require('axios');
 const logger = require('../utils/logger');
 const { createSpan } = require('../utils/spanTracer');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
+const { zohoPost, zohoPut } = require('./zohoHttp');
 
 let accessToken = null;
 let tokenExpiry = null;
@@ -138,7 +139,6 @@ async function getZohoItemGroupById(groupId, traceContext = null) {
 
 async function createZohoContact(contactData, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.createContact', { 'peer.service': 'zoho', phone: contactData.phone, endpoint: '/books/v3/contacts' });
-  const token = await getAccessToken();
   const contactBody = {
     contact_name: contactData.business_name || contactData.name || contactData.phone,
     company_name: contactData.business_name || contactData.name || contactData.phone,
@@ -166,10 +166,7 @@ async function createZohoContact(contactData, traceContext = null) {
   };
   logger.debug({ body: contactBody }, 'Creating Zoho contact');
   try {
-    const response = await axios.post('https://www.zohoapis.in/books/v3/contacts', contactBody, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    });
+    const response = await zohoPost('https://www.zohoapis.in/books/v3/contacts', contactBody);
     logger.debug({ contactId: response.data.contact?.contact_id }, 'Zoho contact created');
     span.end({ success: true, contact_id: response.data.contact?.contact_id });
     return response.data.contact;
@@ -218,12 +215,8 @@ async function searchZohoContactByPhone(phone, traceContext = null) {
 async function updateZohoItemImage(itemId, imageUrl, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.updateItemImage', { 'peer.service': 'zoho', itemId, endpoint: '/inventory/v1/items/:id' });
   try {
-    const token = await getAccessToken();
-    const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+    const response = await zohoPut(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
       custom_fields: [{ label: 'Image URL', value: imageUrl }]
-    }, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
     });
     span.end({ success: true, item_id: response.data.item?.item_id });
     return response.data.item;
@@ -236,12 +229,8 @@ async function updateZohoItemImage(itemId, imageUrl, traceContext = null) {
 async function updateZohoItemFeatured(itemId, featured, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.updateItemFeatured', { 'peer.service': 'zoho', itemId, endpoint: '/inventory/v1/items/:id' });
   try {
-    const token = await getAccessToken();
-    const response = await axios.put(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
+    const response = await zohoPut(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, {
       custom_fields: [{ label: 'Featured', value: featured }]
-    }, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
     });
     span.end({ success: true, item_id: response.data.item?.item_id });
     return response.data.item;
@@ -258,7 +247,6 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
     endpoint: '/books/v3/contacts/:id'
   });
   logger.debug({ zohoContactId }, 'updateZohoContact called');
-  const token = await getAccessToken();
   const updateBody = {};
 
   if (contactData.name || contactData.business_name) {
@@ -292,13 +280,9 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
 
   logger.debug({ body: updateBody }, 'Sending updateZohoContact request');
   try {
-    const response = await axios.put(
+    const response = await zohoPut(
       `https://www.zohoapis.in/books/v3/contacts/${zohoContactId}`,
-      updateBody,
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID }
-      }
+      updateBody
     );
     logger.debug({ contactId: response.data.contact?.contact_id }, 'updateZohoContact succeeded');
     span.end({ success: true, contact_id: response.data.contact?.contact_id });
