@@ -1,9 +1,10 @@
 'use strict';
 
 const redis = require('./redis');
+const env = require('../config/env');
 const { createSpan } = require('../utils/spanTracer');
 
-const prefix = `${process.env.NODE_ENV || 'development'}:`;
+const prefix = `${env.appEnv}:`;
 
 async function delPattern(pattern) {
   let cursor = 0;
