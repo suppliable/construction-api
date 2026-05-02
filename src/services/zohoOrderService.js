@@ -1,6 +1,5 @@
-const axios = require('axios');
-const { getAccessToken } = require('./zohoService');
 const { createSpan } = require('../utils/spanTracer');
+const { zohoPost, zohoPut } = require('./zohoHttp');
 
 async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.createSalesOrder', {
@@ -10,7 +9,6 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
     endpoint: '/inventory/v1/salesorders'
   });
   try {
-    const token = await getAccessToken();
     const zohoLineItems = lineItems.map(item => {
       const gstRate = item.gstRate || 18;
       const baseRate = Math.round((item.unitPrice / (1 + gstRate / 100)) * 100) / 100;
@@ -43,13 +41,9 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       notes: `Suppliable B2B Order${phone ? ` | Phone: ${phone}` : ''}`
     };
 
-    const response = await axios.post(
+    const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders`,
-      body,
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID }
-      }
+      body
     );
     span.end({ success: true, salesorder_id: response.data.salesorder?.salesorder_id });
     return response.data.salesorder;
@@ -66,14 +60,9 @@ async function confirmZohoSalesOrder(salesorder_id, traceContext = null) {
     endpoint: '/inventory/v1/salesorders/:id/status/open'
   });
   try {
-    const token = await getAccessToken();
-    const response = await axios.post(
+    const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders/${salesorder_id}/status/open`,
-      {},
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID }
-      }
+      {}
     );
     span.end({ success: true, salesorder_id: response.data.salesorder?.salesorder_id });
     return response.data;
@@ -90,14 +79,10 @@ async function createZohoInvoiceFromSO(salesorder_id, traceContext = null) {
     endpoint: '/inventory/v1/invoices/fromsalesorder'
   });
   try {
-    const token = await getAccessToken();
-    const response = await axios.post(
+    const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/fromsalesorder`,
       {},
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID, salesorder_id }
-      }
+      { params: { salesorder_id } }
     );
     span.end({ success: true, invoice_id: response.data.invoice?.invoice_id });
     return response.data.invoice;
@@ -114,14 +99,9 @@ async function updateZohoShipment(salesorder_id, traceContext = null) {
     endpoint: '/inventory/v1/salesorders/:id/shipmentorders'
   });
   try {
-    const token = await getAccessToken();
-    const response = await axios.post(
+    const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders/${salesorder_id}/shipmentorders`,
-      {},
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID }
-      }
+      {}
     );
     span.end({ success: true, shipment_id: response.data.shipmentorder?.shipment_id });
     return response.data;
@@ -134,14 +114,9 @@ async function updateZohoShipment(salesorder_id, traceContext = null) {
 async function updateZohoSOOrderId(salesorder_id, orderId, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.updateSOOrderId', { 'peer.service': 'zoho', salesorder_id, endpoint: '/inventory/v1/salesorders/:id' });
   try {
-    const token = await getAccessToken();
-    await axios.put(
+    await zohoPut(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders/${salesorder_id}`,
-      { custom_fields: [{ label: 'Suppliable Order ID', value: orderId }] },
-      {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { organization_id: process.env.ZOHO_ORG_ID }
-      }
+      { custom_fields: [{ label: 'Suppliable Order ID', value: orderId }] }
     );
     span.end({ success: true, orderId });
   } catch (error) {
@@ -150,4 +125,22 @@ async function updateZohoSOOrderId(salesorder_id, orderId, traceContext = null) 
   }
 }
 
-module.exports = { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoShipment, updateZohoSOOrderId };
+async function markZohoInvoiceAsSent(invoiceId, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.markInvoiceAsSent', {
+    'peer.service': 'zoho',
+    invoice_id: invoiceId,
+    endpoint: '/inventory/v1/invoices/:id/status/sent'
+  });
+  try {
+    await zohoPost(
+      `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoiceId}/status/sent`,
+      {}
+    );
+    span.end({ success: true, invoice_id: invoiceId });
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
+module.exports = { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoShipment, updateZohoSOOrderId, markZohoInvoiceAsSent };

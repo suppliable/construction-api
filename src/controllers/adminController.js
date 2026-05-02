@@ -27,24 +27,12 @@ function formatDuration(ms) {
   if (h === 0) return `${m}m`;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
-const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId } = require('../services/zohoOrderService');
+const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
 const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { formatTimestamps } = require('../utils/formatDoc');
-
-async function markZohoInvoiceAsSent(invoiceId) {
-  const token = await getAccessToken();
-  await axios.post(
-    `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoiceId}/status/sent`,
-    {},
-    {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    }
-  );
-}
 
 // GET /api/admin/orders
 const listOrders = async (req, res) => {

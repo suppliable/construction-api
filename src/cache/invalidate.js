@@ -77,6 +77,25 @@ async function invalidateDeliveryConfig() {
   });
 }
 
+async function invalidateAfterZohoMutation(method, endpoint) {
+  // Lazy require to avoid circular dependency: productService → zohoService → zohoHttp → invalidate.
+  const productService = require('../services/productService');
+  await withInvalidateSpan(
+    'cache.invalidate.zoho_mutation',
+    { 'zoho.method': method, 'zoho.endpoint': endpoint },
+    async () => {
+      const counts = await Promise.all([
+        delPattern(`${prefix}products:*`),
+        delKey(`${prefix}home:data`).then(() => 1),
+        delPattern(`${prefix}search:*`),
+        delPattern(`${prefix}categories:*`),
+      ]);
+      productService.clearCache();
+      return counts.reduce((a, b) => a + b, 0);
+    }
+  );
+}
+
 module.exports = {
   invalidateProducts,
   invalidateOrder,
@@ -84,4 +103,5 @@ module.exports = {
   invalidateDriverProfile,
   invalidateConfig,
   invalidateDeliveryConfig,
+  invalidateAfterZohoMutation,
 };
