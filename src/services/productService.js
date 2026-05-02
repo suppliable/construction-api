@@ -6,6 +6,7 @@ const {
 const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
 const { withSpan } = require('../utils/spanTracer');
+const redis = require('../cache/redis');
 
 function detectShadeBrand(brand) {
   if (!brand) return null;
@@ -39,7 +40,7 @@ const toNumberOrNull = (value) => {
 };
 
 
-// In-memory cache. ttlMs is seeded with the default and updated from Remote Config on each miss.
+// In-memory L1 cache per instance.
 const cache = {
   products: null,
   groups: null,
@@ -49,43 +50,77 @@ const cache = {
   ttlMs: 10 * 60 * 1000,
 };
 
+// Dedup: if a refresh is already in-flight on this instance, all concurrent
+// callers await the same promise instead of each launching their own Zoho burst.
+let fetchInFlight = null;
+
+const REDIS_ZOHO_KEY = `${process.env.NODE_ENV || 'development'}:zoho:catalogue`;
+
 async function fetchZohoData(traceContext = null) {
   const cacheHit = !!(cache.lastFetched && (Date.now() - cache.lastFetched) < cache.ttlMs);
   return withSpan(traceContext, 'products.fetchZohoData', { 'cache.hit': cacheHit }, async () => {
     if (cacheHit) {
       return { items: cache.products, groups: cache.groups, categoryMap: cache.categoryMap };
     }
-    const [items, groups, zohoCategories, ttlMinutes] = await Promise.all([
-      getZohoProducts(traceContext),
-      getZohoItemGroups(traceContext),
-      getZohoCategories(traceContext),
-      remoteConfig.getNumber('product_cache_ttl_minutes', 10),
-    ]);
 
-    // Build category id → name map
-    const categoryMap = {};
-    zohoCategories.forEach(c => { categoryMap[c.category_id] = c.name; });
-
-    // Build imageMap from Zoho items (custom_field_hash if available)
-    const imageMap = {};
-    items.forEach(item => {
-      if (item.custom_field_hash?.cf_image_url) {
-        imageMap[item.item_id] = item.custom_field_hash.cf_image_url;
-      }
-    });
-
-    // Merge with Firestore imageMap (Firestore values take precedence)
-    const firestoreImages = await getImageMap(traceContext);
-    const mergedImageMap = { ...imageMap, ...firestoreImages };
-
-    cache.products = items;
-    cache.groups = groups;
-    cache.categoryMap = categoryMap;
-    cache.imageMap = mergedImageMap;
-    cache.ttlMs = ttlMinutes * 60 * 1000;
-    cache.lastFetched = Date.now();
-    return { items, groups, categoryMap };
+    // Dedup concurrent callers on this instance.
+    if (fetchInFlight) return fetchInFlight;
+    fetchInFlight = _doFetchZohoData(traceContext).finally(() => { fetchInFlight = null; });
+    return fetchInFlight;
   });
+}
+
+async function _doFetchZohoData(traceContext = null) {
+  // L2: try Redis before hitting Zoho (guards cross-instance stampede).
+  try {
+    const cached = await redis.get(REDIS_ZOHO_KEY);
+    if (cached) {
+      const { items, groups, categoryMap, imageMap, ttlMs } = cached;
+      cache.products = items;
+      cache.groups = groups;
+      cache.categoryMap = categoryMap;
+      cache.imageMap = imageMap;
+      cache.ttlMs = ttlMs;
+      cache.lastFetched = Date.now();
+      return { items, groups, categoryMap };
+    }
+  } catch (_) { /* Redis unavailable — fall through to Zoho */ }
+
+  const [items, groups, zohoCategories, ttlMinutes] = await Promise.all([
+    getZohoProducts(traceContext),
+    getZohoItemGroups(traceContext),
+    getZohoCategories(traceContext),
+    remoteConfig.getNumber('product_cache_ttl_minutes', 10),
+  ]);
+
+  // Build category id → name map
+  const categoryMap = {};
+  zohoCategories.forEach(c => { categoryMap[c.category_id] = c.name; });
+
+  // Build imageMap from Zoho items (custom_field_hash if available)
+  const imageMap = {};
+  items.forEach(item => {
+    if (item.custom_field_hash?.cf_image_url) {
+      imageMap[item.item_id] = item.custom_field_hash.cf_image_url;
+    }
+  });
+
+  // Merge with Firestore imageMap (Firestore values take precedence)
+  const firestoreImages = await getImageMap(traceContext);
+  const mergedImageMap = { ...imageMap, ...firestoreImages };
+
+  const ttlMs = ttlMinutes * 60 * 1000;
+  cache.products = items;
+  cache.groups = groups;
+  cache.categoryMap = categoryMap;
+  cache.imageMap = mergedImageMap;
+  cache.ttlMs = ttlMs;
+  cache.lastFetched = Date.now();
+
+  // Populate Redis L2 so other instances skip Zoho on their next cache miss.
+  redis.set(REDIS_ZOHO_KEY, { items, groups, categoryMap, imageMap: mergedImageMap, ttlMs }, { ex: ttlMinutes * 60 }).catch(() => {});
+
+  return { items, groups, categoryMap };
 }
 
 function clearCache() {
@@ -94,6 +129,7 @@ function clearCache() {
   cache.categoryMap = null;
   cache.imageMap = null;
   cache.lastFetched = null;
+  redis.del(REDIS_ZOHO_KEY).catch(() => {});
 }
 
 async function getAllProducts(category = null, traceContext = null) {

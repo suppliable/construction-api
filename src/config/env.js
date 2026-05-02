@@ -82,13 +82,13 @@ if (result.data.EXPECTED_PROJECT_ID && firebaseProjectId !== result.data.EXPECTE
   process.exit(1);
 }
 
-const appEnv = firebaseProjectId.startsWith('suppliable-prod')
+const appEnv = firebaseProjectId.includes('suppliable-app')
   ? 'prod'
-  : firebaseProjectId.startsWith('suppliable-qa')
+  : firebaseProjectId.includes('suppliable-qa')
     ? 'qa'
     : 'dev';
 
 // eslint-disable-next-line no-console -- intentional boot-time signal so it's obvious which env this container is talking to
-console.log(`[Config] Booting in app_env=${appEnv} (firebase project_id=${firebaseProjectId})`);
+console.log(`[Config] Booting in app_env=${appEnv} node_env=${result.data.NODE_ENV} (firebase project_id=${firebaseProjectId})`);
 
 module.exports = { ...result.data, appEnv, firebaseProjectId };

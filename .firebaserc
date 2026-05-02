@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "suppliable-app"
+    "default": "suppliable-app",
+    "prod": "suppliable-app",
+    "dev": "suppliable-dev",
+    "qa": "suppliable-qa-723f2"
   }
 }

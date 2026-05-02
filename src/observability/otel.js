@@ -1,8 +1,33 @@
 'use strict';
 
 const os = require('os');
-const { diag, DiagConsoleLogger, DiagLogLevel } = require('@opentelemetry/api');
-diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
+const { diag, DiagLogLevel } = require('@opentelemetry/api');
+
+// Firestore SDK has a known race where it adds events to already-ended spans.
+// Filter that one message out of OTEL's diag log AND its global error handler.
+// They are harmless — the span has already been exported.
+const ENDED_SPAN_MSG = 'ended Span';
+function shouldSuppress(args) {
+  for (const a of args) {
+    const s = a instanceof Error ? a.message : String(a);
+    if (s.includes(ENDED_SPAN_MSG)) return true;
+  }
+  return false;
+}
+const filteredDiagLogger = {
+  verbose: (...args) => { if (!shouldSuppress(args)) console.debug(...args); },
+  debug:   (...args) => { if (!shouldSuppress(args)) console.debug(...args); },
+  info:    (...args) => { if (!shouldSuppress(args)) console.info(...args); },
+  warn:    (...args) => { if (!shouldSuppress(args)) console.warn(...args); },
+  error:   (...args) => { if (!shouldSuppress(args)) console.error(...args); },
+};
+diag.setLogger(filteredDiagLogger, DiagLogLevel.WARN);
+
+const { setGlobalErrorHandler } = require('@opentelemetry/core');
+setGlobalErrorHandler((err) => {
+  if (err && err.message && err.message.includes(ENDED_SPAN_MSG)) return;
+  console.error('[otel]', err);
+});
 
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
@@ -28,7 +53,8 @@ const headers = (process.env.GRAFANA_USER && process.env.GRAFANA_API_KEY)
   : {};
 
 const serviceName = process.env.OTEL_SERVICE_NAME || 'construction-api';
-const deployEnv = process.env.NODE_ENV || 'development';
+const { appEnv } = require('../config/env');
+const deployEnv = appEnv;
 
 const sdk = new NodeSDK({
   textMapPropagator: new CompositePropagator({

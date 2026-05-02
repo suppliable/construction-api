@@ -7,6 +7,7 @@ const {
   getShadesByBrand, addShade, updateShade, getShadeByCode, VALID_TIERS, VALID_SIZES,
 } = require('../repositories/paintRepository');
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
+const { buildRuntimeDiagnostics } = require('../services/diagnosticsService');
 const {
   listOrders,
   getOrderStats,
@@ -251,21 +252,14 @@ router.post('/firestore-usage/reset', (req, res) => {
 
 // Debug: resolved environment config (secrets omitted)
 router.get('/debug/config', (req, res) => {
-  const env = require('../config/env');
-  const admin = require('../utils/firebaseAdmin');
   res.json({
     success: true,
     data: {
-      app_env: env.appEnv,
-      firebase_project_id: env.firebaseProjectId,
-      storage_bucket: env.FIREBASE_STORAGE_BUCKET || '(not set)',
-      database_url: env.FIREBASE_DATABASE_URL || '(not set)',
-      warehouse: { lat: env.WAREHOUSE_LAT, lng: env.WAREHOUSE_LNG },
-      redis: env.UPSTASH_REDIS_REST_URL ? 'configured' : 'not set',
-      zoho_domain: env.ZOHO_API_DOMAIN,
-      node_env: env.NODE_ENV,
-      port: env.PORT,
-      firebase_apps_initialized: admin.apps.length,
+      ...buildRuntimeDiagnostics(),
+      warehouse: {
+        lat: process.env.WAREHOUSE_LAT ?? null,
+        lng: process.env.WAREHOUSE_LNG ?? null,
+      },
     },
   });
 });

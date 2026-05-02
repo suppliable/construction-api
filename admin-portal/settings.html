@@ -121,6 +121,40 @@
   .input-group input:focus { border-color:var(--blue); }
   .btn-row { display:flex; gap:10px; margin-top:14px; }
 
+  /* PAGE LAYOUT — left content column + right env panel */
+  .page-layout { display:flex; align-items:flex-start; gap:20px; padding:24px; }
+  .content { max-width:680px; flex:1; display:flex; flex-direction:column; gap:20px; padding:0; min-width:0; }
+
+  /* ENV PANEL */
+  .env-panel { width:300px; flex-shrink:0; position:sticky; top:80px; background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .env-panel-head { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; cursor:pointer; user-select:none; border-bottom:1px solid transparent; transition:border-color 0.2s; }
+  .env-panel-head:hover { background:#f8f9fc; }
+  .env-panel-head.open { border-bottom-color:var(--border); }
+  .env-panel-head-left { display:flex; align-items:center; gap:8px; }
+  .env-panel-head-icon { font-size:14px; }
+  .env-panel-head-title { font-size:13px; font-weight:700; color:var(--text); }
+  .env-panel-chevron { color:var(--muted); font-size:11px; transition:transform 0.2s; }
+  .env-panel-chevron.open { transform:rotate(180deg); }
+  .env-panel-body { display:none; padding:12px 0 8px; }
+  .env-panel-body.open { display:block; }
+  .env-panel-refresh { display:flex; justify-content:flex-end; padding:0 12px 10px; }
+  .btn-refresh { background:none; border:1px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600; color:var(--muted); padding:4px 10px; cursor:pointer; transition:all 0.15s; }
+  .btn-refresh:hover { background:var(--bg); color:var(--text); }
+  .env-row { display:flex; flex-direction:column; padding:7px 14px; border-bottom:1px solid var(--border); }
+  .env-row:last-child { border-bottom:none; }
+  .env-key { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px; }
+  .env-val { font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:var(--navy); word-break:break-all; }
+  .env-val.env-ok { color:var(--green); }
+  .env-val.env-warn { color:var(--amber); }
+  .env-val.env-dev { color:#7c3aed; }
+  .env-val.env-prod { color:var(--green); }
+  .env-loading { padding:20px 14px; color:var(--muted); font-size:12px; text-align:center; }
+  .env-error { padding:14px; color:var(--red2); font-size:12px; text-align:center; }
+  .env-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; }
+  .env-badge-dev { background:#ede9fe; color:#6d28d9; }
+  .env-badge-prod { background:#d1fae5; color:#065f46; }
+  .env-badge-qa { background:#fef3c7; color:#92400e; }
+
   /* TOAST */
   #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
   #toast.show { transform:translateY(0); opacity:1; }
@@ -154,6 +188,7 @@
     <div class="topbar-title">Settings</div>
     <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
+  <div class="page-layout">
   <div class="content">
 
     <!-- SECTION 1: WAREHOUSE STATUS -->
@@ -248,7 +283,26 @@
       </div>
     </div>
 
-  </div>
+  </div><!-- /.content -->
+
+  <!-- ENV INFO PANEL -->
+  <aside class="env-panel">
+    <div class="env-panel-head" id="envPanelHead" onclick="toggleEnvPanel()">
+      <div class="env-panel-head-left">
+        <span class="env-panel-head-icon">🔧</span>
+        <span class="env-panel-head-title">Environment Info</span>
+      </div>
+      <span class="env-panel-chevron" id="envChevron">▼</span>
+    </div>
+    <div class="env-panel-body" id="envPanelBody">
+      <div class="env-panel-refresh">
+        <button class="btn-refresh" onclick="fetchEnvInfo()">↻ Refresh</button>
+      </div>
+      <div id="envContent"><div class="env-loading">Loading…</div></div>
+    </div>
+  </aside>
+
+  </div><!-- /.page-layout -->
 </div>
 
 <div id="toast"></div>
@@ -488,6 +542,78 @@ async function saveThreshold() {
     } else { showToast(data.message || 'Failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Changes'; }
+}
+
+// ── ENV INFO ──────────────────────────────────────────────
+let envPanelOpen = false;
+
+function toggleEnvPanel() {
+  envPanelOpen = !envPanelOpen;
+  document.getElementById('envPanelBody').classList.toggle('open', envPanelOpen);
+  document.getElementById('envPanelHead').classList.toggle('open', envPanelOpen);
+  document.getElementById('envChevron').classList.toggle('open', envPanelOpen);
+  if (envPanelOpen && document.getElementById('envContent').querySelector('.env-loading')) {
+    fetchEnvInfo();
+  }
+}
+
+async function fetchEnvInfo() {
+  const container = document.getElementById('envContent');
+  container.innerHTML = '<div class="env-loading">Loading…</div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/debug/config');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    renderEnvInfo(json.data);
+  } catch (e) {
+    container.innerHTML = `<div class="env-error">⚠ ${e.message}</div>`;
+  }
+}
+
+function envValClass(key, val) {
+  if (key === 'app_env') {
+    if (val === 'prod') return 'env-val env-prod';
+    if (val === 'qa')   return 'env-val env-warn';
+    return 'env-val env-dev';
+  }
+  if (key === 'node_env' && val === 'production') return 'env-val env-ok';
+  if (key === 'redis' && val === 'configured')    return 'env-val env-ok';
+  if (key === 'redis' && val === 'not set')       return 'env-val env-warn';
+  return 'env-val';
+}
+
+function envValDisplay(key, val) {
+  if (val === null || val === undefined) return '(not set)';
+  if (key === 'app_env') {
+    const cls = val === 'prod' ? 'env-badge-prod' : val === 'qa' ? 'env-badge-qa' : 'env-badge-dev';
+    return `<span class="env-badge ${cls}">${val}</span>`;
+  }
+  if (key === 'port')                     return val;
+  if (key === 'firebase_apps_initialized') return val;
+  const s = String(val);
+  if (s.length > 42) return `<span title="${s}">${s.slice(0, 40)}…</span>`;
+  return s;
+}
+
+function renderEnvInfo(data) {
+  const keys = [
+    'app_env','firebase_project_id','storage_bucket','database_url',
+    'redis','zoho_domain','node_env','port','firebase_apps_initialized'
+  ];
+  const rows = keys.map(key => {
+    const val = data[key];
+    return `<div class="env-row">
+      <div class="env-key">${key}</div>
+      <div class="${envValClass(key, val)}">${envValDisplay(key, val)}</div>
+    </div>`;
+  });
+  if (data.warehouse) {
+    rows.push(`<div class="env-row">
+      <div class="env-key">warehouse</div>
+      <div class="env-val">${data.warehouse.lat ?? '?'}, ${data.warehouse.lng ?? '?'}</div>
+    </div>`);
+  }
+  document.getElementById('envContent').innerHTML = rows.join('');
 }
 
 // ── INIT ──────────────────────────────────────────────────

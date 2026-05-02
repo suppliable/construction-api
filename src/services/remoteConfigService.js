@@ -54,4 +54,39 @@ async function getBoolean(key, defaultValue = false) {
   return raw === 'true';
 }
 
-module.exports = { getString, getNumber, getBoolean };
+function normalizePhone(raw) {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length > 10) return digits.slice(-10);
+  return digits;
+}
+
+function parseCsv(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(',')
+    .map(value => normalizePhone(value))
+    .filter(Boolean);
+}
+
+async function getAdminUserPhoneAllowlist() {
+  const raw = await getString('admin_user_phones', '');
+  return parseCsv(raw);
+}
+
+async function isAllowlistedAdminPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return false;
+  const allowlist = await getAdminUserPhoneAllowlist();
+  return allowlist.includes(normalized);
+}
+
+module.exports = {
+  getString,
+  getNumber,
+  getBoolean,
+  normalizePhone,
+  getAdminUserPhoneAllowlist,
+  isAllowlistedAdminPhone,
+};
