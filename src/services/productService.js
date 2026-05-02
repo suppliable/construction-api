@@ -7,6 +7,7 @@ const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
 const { withSpan } = require('../utils/spanTracer');
 const redis = require('../cache/redis');
+const env = require('../config/env');
 
 function detectShadeBrand(brand) {
   if (!brand) return null;
@@ -54,7 +55,7 @@ const cache = {
 // callers await the same promise instead of each launching their own Zoho burst.
 let fetchInFlight = null;
 
-const REDIS_ZOHO_KEY = `${process.env.NODE_ENV || 'development'}:zoho:catalogue`;
+const REDIS_ZOHO_KEY = `${env.appEnv}:zoho:catalogue`;
 
 async function fetchZohoData(traceContext = null) {
   const cacheHit = !!(cache.lastFetched && (Date.now() - cache.lastFetched) < cache.ttlMs);
