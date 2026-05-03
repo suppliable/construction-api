@@ -31,10 +31,19 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
     const totalRequestedQty = existingQty + quantity;
     if (totalRequestedQty > product.available_stock) {
       const availableToAdd = product.available_stock - existingQty;
+      const maxAllowedQty = Math.max(0, product.available_stock);
       throw new StockError(
         availableToAdd <= 0
           ? `Sorry, ${product.name} is out of stock`
-          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+        [{
+          productId,
+          productName: product.name,
+          requestedQty: totalRequestedQty,
+          availableQty: product.available_stock,
+          maxAllowedQty,
+          existingCartQty: existingQty,
+        }]
       );
     }
   }
@@ -86,10 +95,19 @@ async function updateCartItem(userId, productId, quantity, cartItemId = null) {
         const existingItem = findItem(cart.items);
         const existingQty = existingItem ? existingItem.quantity : 0;
         const availableToAdd = product.available_stock - existingQty;
+        const maxAllowedQty = Math.max(0, product.available_stock);
         throw new StockError(
           availableToAdd <= 0
             ? `Sorry, ${product.name} is out of stock`
-            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+          [{
+            productId,
+            productName: product.name,
+            requestedQty: quantity,
+            availableQty: product.available_stock,
+            maxAllowedQty,
+            existingCartQty: existingQty,
+          }]
         );
       }
     }
