@@ -20,6 +20,17 @@ router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'search:all'), async (req,
       imageUrl: p.imageUrl,
       hasVariants: p.hasVariants,
       featured: p.featured,
+      stock: p.stock || 0,
+      available_stock: p.available_stock || 0,
+      variants: p.hasVariants
+        ? p.variants.map(v => ({
+            id: v.id,
+            name: v.name,
+            price: v.price || 0,
+            stock: v.stock || 0,
+            available_stock: v.available_stock || 0,
+          }))
+        : [],
       inStock: p.hasVariants
         ? p.variants.some(v => (v.available_stock || v.stock || 0) > 0)
         : (p.available_stock || p.stock || 0) > 0

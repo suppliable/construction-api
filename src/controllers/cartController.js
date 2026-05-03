@@ -55,6 +55,11 @@ async function updateCart(req, res) {
     const result = await cartService.updateCartItem(userId, productId, parseInt(quantity), cartItemId || null);
     res.json({ success: true, data: result });
   } catch (err) {
+    if (err instanceof AppError) {
+      const body = { success: false, error: err.code, message: err.message };
+      if (err.issues) body.issues = err.issues;
+      return res.status(err.statusCode).json(body);
+    }
     res.status(400).json({ success: false, error: 'BAD_REQUEST', message: err.message });
   }
 }

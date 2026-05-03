@@ -1,6 +1,7 @@
 'use strict';
 
 const { getCustomer, getAddressById, saveOrder, getSettings } = require('./firestoreService');
+const remoteConfig = require('./remoteConfigService');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
@@ -114,7 +115,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     return order;
   }
 
-  const cod_threshold = settings.cod_threshold ?? 7500;
+  const cod_threshold = await remoteConfig.getNumber('cod_threshold', settings.cod_threshold ?? 7500);
   if (grand_total > cod_threshold) {
     throw new ValidationError(
       `COD not available for orders above ₹${cod_threshold}. Please use online payment.`,

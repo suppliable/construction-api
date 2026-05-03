@@ -1,9 +1,11 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
+const remoteConfig = require('../services/remoteConfigService');
 
 const getCodThreshold = async (req, res) => {
   try {
     const settings = await getSettings(req.traceContext);
-    res.json({ success: true, data: { cod_threshold: settings.cod_threshold ?? 7500 } });
+    const cod_threshold = await remoteConfig.getNumber('cod_threshold', settings.cod_threshold ?? 7500);
+    res.json({ success: true, data: { cod_threshold } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

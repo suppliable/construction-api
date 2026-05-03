@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "liveOrders": {
+      "$orderId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    }
+  }
+}

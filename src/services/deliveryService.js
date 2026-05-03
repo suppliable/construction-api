@@ -24,6 +24,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, addressString = null, traceContext = null) {
+  logger.info({ pincode, latitude, longitude, orderValue, addressString, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY }, 'delivery_calculate_start');
   const [pincodesStr, ratePerKm, minDeliveryCharge] = await Promise.all([
     remoteConfig.getString('serviceable_pincodes', DEFAULT_PINCODES),
     remoteConfig.getNumber('rate_per_km', 50),
@@ -50,15 +51,16 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
       distanceKm = result.distanceKm;
       distanceText = result.distanceText;
       distanceSource = 'google_maps';
+      logger.warn(distanceKm, distanceText, 'Google Maps distance calculated successfully');
     } catch (err) {
-      logger.warn({ err: err.message }, 'Google Maps distance failed; falling back to Haversine');
+      logger.warn({ err: err.message, pincode, addressString }, 'Google Maps distance failed; falling back to Haversine');
       distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
     }
   } else {
     distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
   }
 
-  // Round up to nearest even km (existing logic)
+  // Round up to nearest even km (existing logic — note: this also doubles distance for round-trip pricing)
   const distance_km = Math.ceil(distanceKm / 2) * 2;
 
   // Step 3 — Get delivery config from Firestore
@@ -88,6 +90,23 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
   }
 
   const min_charge_applied = !is_free_delivery && (distance_km * ratePerKm) < minDeliveryCharge;
+
+  logger.info({
+    pincode,
+    addressString,
+    latitude,
+    longitude,
+    rawDistanceKm: Math.round(distanceKm * 100) / 100,
+    billableKm: distance_km,
+    distanceSource,
+    distanceText,
+    ratePerKm,
+    minDeliveryCharge,
+    orderValue,
+    delivery_charge,
+    is_free_delivery,
+    min_charge_applied,
+  }, 'delivery_calculated');
 
   return {
     serviceable: true,
