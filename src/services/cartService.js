@@ -149,11 +149,13 @@ async function buildCartResponse(userId) {
   let subtotalRaw = 0;
   let gstTotalRaw = 0;
 
-  const items = await Promise.all(cart.items.map(async (item) => {
+  const itemResults = await Promise.all(cart.items.map(async (item) => {
     const product = await getProductById(item.productId);
     if (!product) return null;
 
     const price = item.price;
+    if (!price || price <= 0) return null;
+
     const gstRate = product.gst_percentage || 18;
     const qty = item.quantity;
 
@@ -192,10 +194,17 @@ async function buildCartResponse(userId) {
       cartItem.shadeTier = item.shadeTier || null;
     }
 
-    return cartItem;
+    return { raw: item, computed: cartItem };
   }));
 
-  const validItems = items.filter(Boolean);
+  const validResults = itemResults.filter(Boolean);
+  const validItems = validResults.map(r => r.computed);
+
+  // Persist cleanup: remove stale entries (product removed from Zoho or price invalid)
+  if (validResults.length !== cart.items.length) {
+    cart.items = validResults.map(r => r.raw);
+    saveCart(userId, cart).catch(() => {});
+  }
   const subtotal = Math.round(subtotalRaw * 100) / 100;
   const gstTotal = Math.round(gstTotalRaw * 100) / 100;
   const deliveryCharge = Number(cart.deliveryCharge || 0);
