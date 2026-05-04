@@ -5,7 +5,7 @@ const { cacheFor } = require('../cache/middleware');
 const { CACHE_TTL_CATALOGUE_S } = require('../constants');
 
 // GET /api/categories/:category?page=1&limit=20
-router.get('/:category', cacheFor(CACHE_TTL_CATALOGUE_S, req => `categories:${req.params.category}`), async (req, res) => {
+router.get('/:category', cacheFor(CACHE_TTL_CATALOGUE_S, req => `categories:${req.params.category}:p${req.query.page || 1}:l${req.query.limit || 20}`), async (req, res) => {
   try {
     const { category } = req.params;
     const page = Math.max(1, parseInt(req.query.page) || 1);
