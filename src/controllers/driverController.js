@@ -86,10 +86,50 @@ const loadingComplete = async (req, res) => {
     }, req.traceContext);
 
     const _addr = order.deliveryAddress || {};
-    const _destLat = _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
-    const _destLng = _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
+    let _destLat = order.deliveryCoordinates?.latitude
+      ?? _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
+    let _destLng = order.deliveryCoordinates?.longitude
+      ?? _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
+
+    // Resolve destination from addressId if still missing (geocode if needed)
+    if ((!_destLat || !_destLng) && order.addressId) {
+      const address = await getAddressById(order.addressId, req.traceContext).catch(() => null);
+      _destLat = address?.latitude ?? _destLat;
+      _destLng = address?.longitude ?? _destLng;
+      if ((!_destLat || !_destLng) && address && process.env.GOOGLE_MAPS_API_KEY) {
+        try {
+          const parts = [address.flatNo, address.buildingName, address.streetAddress, address.city, address.state, address.pincode].filter(Boolean);
+          if (parts.length) {
+            const coords = await geocodeAddress(parts.join(', '), req.traceContext);
+            _destLat = coords.latitude;
+            _destLng = coords.longitude;
+            // Cache resolved coords on the order so subsequent location pings skip geocoding
+            updateOrder(orderId, { deliveryCoordinates: { latitude: _destLat, longitude: _destLng } }, req.traceContext)
+              .catch(err => req.log?.warn({ err: err.message }, 'Cache deliveryCoordinates failed (non-fatal)'));
+          }
+        } catch (geoErr) {
+          req.log?.warn({ err: geoErr.message }, 'Geocode failed at loadingComplete — initial ETA skipped');
+        }
+      }
+    }
     if (!_destLat || !_destLng) req.log?.warn({ orderId }, '[LiveOrder] No dest coords');
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null, destLat: _destLat, destLng: _destLng })
+
+    // Use driver's last known location (from periodic pings during loading) as origin
+    const originLat = order.driverLocation?.latitude ?? null;
+    const originLng = order.driverLocation?.longitude ?? null;
+    let etaString = null;
+    let etaMinutes = null;
+    if (originLat && originLng && _destLat && _destLng && process.env.GOOGLE_MAPS_API_KEY) {
+      try {
+        const { seconds } = await getDirectionsETA(originLat, originLng, _destLat, _destLng, req.traceContext);
+        etaString = formatEtaString(seconds);
+        etaMinutes = Math.ceil(seconds / 60);
+      } catch (mapsErr) {
+        req.log?.warn({ err: mapsErr.message }, 'Directions API failed at loadingComplete — initial ETA skipped');
+      }
+    }
+
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude: originLat, longitude: originLng, destLat: _destLat, destLng: _destLng })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     if (order.userId) {
