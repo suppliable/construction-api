@@ -28,7 +28,7 @@ function formatDuration(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
-const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact } = require('../services/zohoService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
@@ -162,6 +162,20 @@ const acceptOrder = async (req, res) => {
       return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho account not found' });
     }
 
+    // Sync Zoho contact with latest customer name/phone before creating the SO
+    // so the invoice always shows the correct details instead of a stale phone number.
+    if (customer.name || customer.business_name) {
+      try {
+        await updateZohoContact(customer.zoho_contact_id, {
+          name: customer.name,
+          phone: customer.phone,
+          business_name: customer.business_name || null,
+        }, req.traceContext);
+      } catch (syncErr) {
+        req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');
+      }
+    }
+
     const zohoSO = await createZohoSalesOrder(
       customer.zoho_contact_id,
       order.items,
@@ -221,6 +235,15 @@ const acceptOrder = async (req, res) => {
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
     req.log.error({ err: err.response?.data || err.message }, 'acceptOrder failed');
+    const zohoMsg = (err.response?.data?.message || err.message || '').toLowerCase();
+    if (zohoMsg.includes('inactive')) {
+      const itemNames = (order.items || []).map(i => i.name).join(', ');
+      return res.status(422).json({
+        success: false,
+        error: 'ZOHO_INACTIVE_ITEM',
+        message: `Cannot accept order: the following item(s) are inactive in Zoho Inventory — ${itemNames}. Please mark them as Active in Zoho and retry.`
+      });
+    }
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.response?.data?.message || err.message });
   }
 };

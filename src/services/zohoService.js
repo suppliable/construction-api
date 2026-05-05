@@ -39,7 +39,7 @@ async function getZohoProducts(traceContext = null) {
           timeout: DEFAULT_TIMEOUT_MS,
         })
       );
-      const items = response.data.items || [];
+      const items = (response.data.items || []).filter(i => i.status !== 'inactive');
       allItems.push(...items);
       if (!response.data.page_context?.has_more_page) break;
       page++;
@@ -105,7 +105,7 @@ async function getZohoItemGroups(traceContext = null) {
           timeout: DEFAULT_TIMEOUT_MS,
         })
       );
-      const groups = response.data.itemgroups || [];
+      const groups = (response.data.itemgroups || []).filter(g => g.status !== 'inactive');
       allGroups.push(...groups);
       if (!response.data.page_context?.has_more_page) break;
       page++;
