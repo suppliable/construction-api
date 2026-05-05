@@ -166,10 +166,10 @@ const acceptOrder = async (req, res) => {
     // so the invoice always shows the correct details instead of a stale phone number.
     if (customer.name || customer.business_name) {
       try {
+        // Only update contact_name/company_name — skip contact_persons to avoid
+        // Zoho rejecting the request due to missing contact_person_id.
         await updateZohoContact(customer.zoho_contact_id, {
-          name: customer.name,
-          phone: customer.phone,
-          business_name: customer.business_name || null,
+          business_name: customer.business_name || customer.name,
         }, req.traceContext);
       } catch (syncErr) {
         req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');

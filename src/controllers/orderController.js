@@ -120,4 +120,37 @@ const getCustomerInvoice = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getUserOrders, getOrderDetail, getCustomerInvoice };
+const getCustomerInvoicePdf = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!orderId || !orderId.startsWith('ORD')) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'Invalid orderId' });
+    }
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (!order.zoho_invoice_id) {
+      return res.status(404).json({ success: false, message: 'Invoice not available yet' });
+    }
+
+    const token = await getAccessToken();
+    const pdfResp = await axios.get(
+      `https://www.zohoapis.in/books/v3/invoices/${order.zoho_invoice_id}`,
+      {
+        headers: { Authorization: `Zoho-oauthtoken ${token}`, Accept: 'application/pdf' },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        responseType: 'stream',
+        timeout: DEFAULT_TIMEOUT_MS,
+      }
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${orderId}.pdf"`);
+    pdfResp.data.pipe(res);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    }
+  }
+};
+
+module.exports = { createOrder, getUserOrders, getOrderDetail, getCustomerInvoice, getCustomerInvoicePdf };
