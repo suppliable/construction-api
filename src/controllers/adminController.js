@@ -11,6 +11,7 @@ const {
 } = require('../services/firestoreService');
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
 const fcm = require('../services/fcmService');
+const { invalidateDriverOrders, invalidateOrder } = require('../cache/invalidate');
 
 const { DEFAULT_ADMIN_LIST_LIMIT, MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, NEW_ORDER_THRESHOLD_MS } = require('../constants');
 const { normalizePhone } = require('../utils/phone');
@@ -338,6 +339,9 @@ const assignVehicle = async (req, res) => {
       vehicle: { vehicleNumber: vehicle.name, driverName: driver.name, driverPhone: driver.phone },
       assignedAt: new Date().toISOString()
     }, req.traceContext);
+
+    invalidateDriverOrders(driverId).catch(() => {});
+    invalidateOrder(orderId).catch(() => {});
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -861,6 +865,7 @@ const forceCompleteOrder = async (req, res) => {
         const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
         await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
+      invalidateDriverOrders(order.driverId).catch(() => {});
     }
     if (order.vehicleId) {
       const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
@@ -869,6 +874,7 @@ const forceCompleteOrder = async (req, res) => {
         await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
     }
+    invalidateOrder(orderId).catch(() => {});
 
     updateLiveOrderStatus(orderId, 'delivered')
       .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
@@ -924,6 +930,7 @@ const cancelOrder = async (req, res) => {
         const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
         await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
+      invalidateDriverOrders(order.driverId).catch(() => {});
     }
     if (order.vehicleId) {
       const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
@@ -932,6 +939,7 @@ const cancelOrder = async (req, res) => {
         await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
     }
+    invalidateOrder(orderId).catch(() => {});
 
     if (order.userId) {
       fcm.notifyOrderCancelled(order.userId, orderId)

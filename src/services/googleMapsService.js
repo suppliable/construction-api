@@ -77,6 +77,35 @@ async function geocodeAddress(addressString, traceContext = null) {
   }
 }
 
+async function reverseGeocode(lat, lng, traceContext = null) {
+  const span = createSpan(traceContext, 'google_maps.api.reverseGeocode', { endpoint: '/maps/api/geocode/json' });
+  try {
+    const response = await withRetry('google_maps.api.reverseGeocode', () =>
+      axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+        params: { latlng: `${lat},${lng}`, key: process.env.GOOGLE_MAPS_API_KEY },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    if (response.data.status !== 'OK' || !response.data.results?.length) {
+      throw new Error(`Reverse geocode failed: ${response.data.status}`);
+    }
+    const result = response.data.results[0];
+    const components = result.address_components || [];
+    const find = (type) => components.find(c => c.types.includes(type))?.long_name || null;
+    const parsed = {
+      postalCode: find('postal_code'),
+      locality: find('locality') || find('sublocality') || find('administrative_area_level_3'),
+      adminArea: find('administrative_area_level_1'),
+      formattedAddress: result.formatted_address || null,
+    };
+    span.end({ success: true, postalCode: parsed.postalCode });
+    return parsed;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
 async function getDirectionsETA(originLat, originLng, destLat, destLng, traceContext = null) {
   const span = createSpan(traceContext, 'google_maps.api.directions', { endpoint: '/maps/api/directions/json' });
   try {
@@ -114,4 +143,4 @@ function formatEtaString(seconds) {
   return m > 0 ? `Arriving in ${h}h ${m}m` : `Arriving in ${h}h`;
 }
 
-module.exports = { getRoadDistance, getETA, geocodeAddress, getDirectionsETA, formatEtaString };
+module.exports = { getRoadDistance, getETA, geocodeAddress, reverseGeocode, getDirectionsETA, formatEtaString };
