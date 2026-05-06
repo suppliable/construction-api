@@ -1,8 +1,9 @@
 const admin = require('firebase-admin');
+const env = require('../config/env');
 
 async function uploadToFirebase(fileBuffer, mimeType, folder) {
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET
-    || 'suppliable-app.firebasestorage.app';
+    || `${env.firebaseProjectId}.firebasestorage.app`;
 
   console.log('[Storage] Using bucket:', bucketName);
 
