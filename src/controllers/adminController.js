@@ -29,7 +29,8 @@ function formatDuration(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
-const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact } = require('../services/zohoService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks } = require('../services/zohoService');
+const { uploadToFirebase } = require('../services/storageService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
@@ -566,8 +567,8 @@ const getPendingCOD = async (req, res) => {
     const limit = parsePositiveInt(req.query.limit, DEFAULT_ADMIN_LIST_LIMIT);
     const orders = await findOrders({ status: 'delivered', paymentType: 'COD', limit }, req.traceContext);
     const pending = orders.filter(o =>
-      o.codCollected !== true &&
-      o.status === 'delivered'
+      o.status === 'delivered' &&
+      (o.codCollected !== true || o.zohoPaymentRecorded !== true)
     );
     res.json({ success: true, data: { count: pending.length, orders: pending.map(formatTimestamps) } });
   } catch (err) {
@@ -1047,6 +1048,133 @@ const getAbandonedCarts = async (req, res) => {
   }
 };
 
+// POST /api/admin/orders/:orderId/record-payment
+const recordCodPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { date, notes } = req.body;
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.paymentType !== 'COD') return res.status(400).json({ success: false, error: 'NOT_COD_ORDER', message: 'Order is not a COD order' });
+    if (order.status !== 'delivered') return res.status(400).json({ success: false, error: 'ORDER_NOT_DELIVERED', message: 'Order must be delivered first' });
+    if (!order.codCollectedByDriver) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    if (order.zohoPaymentRecorded) return res.status(400).json({ success: false, error: 'PAYMENT_ALREADY_RECORDED', message: 'Payment already recorded in Zoho Books' });
+
+    if (!order.zoho_invoice_id) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No Zoho Books invoice found. Ensure SO is converted to invoice in Zoho.' });
+    }
+
+    const customer = await getCustomer(order.userId, req.traceContext);
+    if (!customer || !customer.zoho_contact_id) {
+      return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho contact not found' });
+    }
+
+    const amount = order.codAmountCollected || order.grand_total || order.grandTotal || 0;
+    const paymentMethod = order.codPaymentMethod || 'cash';
+
+    const { zohoPaymentId, zohoPaymentNumber } = await recordPaymentInZohoBooks({
+      invoiceId: order.zoho_invoice_id,
+      customerId: customer.zoho_contact_id,
+      amount,
+      paymentMethod,
+      date: date || new Date().toISOString().split('T')[0],
+      notes
+    });
+
+    await getTrackedDb().collection('orders').doc(orderId).update({
+      zohoPaymentRecorded: true,
+      zohoPaymentId,
+      zohoPaymentNumber,
+      zohoPaymentDate: date || new Date().toISOString().split('T')[0],
+      zohoPaymentRecordedAt: new Date().toISOString(),
+      zohoPaymentRecordedBy: 'admin'
+    });
+
+    return res.json({
+      success: true,
+      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
+    });
+  } catch (err) {
+    req.log.error({ err: err.response?.data || err.message }, 'recordCodPayment failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.response?.data?.message || err.message });
+  }
+};
+
+function toCategoryId(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// GET /api/admin/categories
+const listCategories = async (req, res) => {
+  try {
+    const [products, catSnap] = await Promise.all([
+      getAllProducts(req.traceContext),
+      getTrackedDb().collection('categories').get()
+    ]);
+
+    const categoryImages = {};
+    catSnap.docs.forEach(d => { categoryImages[d.id] = d.data().imageUrl || null; });
+
+    const catMap = {};
+    products.forEach(p => {
+      if (!p.category) return;
+      const id = toCategoryId(p.category);
+      if (!catMap[id]) catMap[id] = { id, name: p.category, productCount: 0 };
+      catMap[id].productCount++;
+    });
+
+    const categories = Object.values(catMap)
+      .map(cat => ({ ...cat, imageUrl: categoryImages[cat.id] || null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ success: true, data: { categories } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/categories/:categoryId/image
+const uploadCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { categoryName } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_FILE', message: 'image file is required' });
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FILE_TYPE', message: 'Only jpeg, png, webp images are allowed' });
+    }
+
+    const imageUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'categories');
+
+    await getTrackedDb().collection('categories').doc(categoryId).set({
+      imageUrl,
+      categoryName: categoryName || categoryId,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    res.json({ success: true, imageUrl });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// DELETE /api/admin/categories/:categoryId/image
+const deleteCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    await getTrackedDb().collection('categories').doc(categoryId).set({
+      imageUrl: null,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -1093,6 +1221,7 @@ module.exports = {
   fixInvoice,
   getPendingCOD,
   reconcileCOD,
+  recordCodPayment,
   listVehicles,
   createVehicle,
   removeVehicle,
@@ -1103,5 +1232,8 @@ module.exports = {
   listHandovers,
   confirmHandover,
   listCodHistory,
-  toggleFeatured
+  toggleFeatured,
+  listCategories,
+  uploadCategoryImage,
+  deleteCategoryImage
 };

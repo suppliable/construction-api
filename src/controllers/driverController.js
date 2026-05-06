@@ -285,7 +285,7 @@ const arrived = async (req, res) => {
 const codCollected = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { amount } = req.body;
+    const { amount, paymentMethod } = req.body;
     const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.paymentType !== 'COD') {
@@ -294,15 +294,27 @@ const codCollected = async (req, res) => {
     if (order.status !== 'arrived') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be in arrived status (current: ${order.status})` });
     }
-    if (amount === undefined || amount === null) {
-      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'amount is required' });
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, error: 'INVALID_AMOUNT', message: 'amount must be greater than 0' });
+    }
+    if (!paymentMethod || !['cash', 'upi'].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PAYMENT_METHOD', message: 'paymentMethod must be cash or upi' });
     }
     const updated = await updateOrder(orderId, {
       codCollectedByDriver: true,
-      codAmountCollected: parseFloat(amount),
+      codAmountCollected: Number(amount),
+      codPaymentMethod: paymentMethod,
       codCollectedAt: new Date().toISOString()
     }, req.traceContext);
-    res.json({ success: true, data: { order: formatTimestamps(updated) } });
+    res.json({
+      success: true,
+      data: {
+        orderId,
+        codCollected: true,
+        codAmount: Number(amount),
+        codPaymentMethod: paymentMethod
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

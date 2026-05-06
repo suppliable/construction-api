@@ -16,20 +16,12 @@
   }
   body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
 
-  .sidebar {
-    width:220px; min-height:100vh; background:var(--navy);
-    display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40;
-  }
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
   .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
   .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
   .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
   .sidebar-nav { flex:1; padding:12px 0; }
-  .nav-item {
-    display:flex; align-items:center; gap:10px;
-    padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
-    cursor:pointer; text-decoration:none; transition:background 0.15s;
-    border-left:3px solid transparent;
-  }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
   .nav-item:hover { background:var(--navy-light); color:#fff; }
   .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
   .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
@@ -37,106 +29,118 @@
   .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
 
   .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
-  .topbar {
-    height:60px; background:#fff; border-bottom:1px solid var(--border);
-    display:flex; align-items:center; justify-content:space-between;
-    padding:0 24px; position:sticky; top:0; z-index:30;
-    box-shadow:0 1px 4px rgba(0,0,0,0.06);
-  }
+  .topbar { height:60px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
   .topbar-title { font-size:18px; font-weight:700; }
-  .btn-logout {
-    background:none; border:none; color:var(--muted); font-size:13px;
-    font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px;
-    border-radius:6px; transition:background 0.15s;
-  }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
   .btn-logout:hover { background:var(--bg); color:var(--text); }
 
   .content { padding:24px; }
 
-  .stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; max-width:520px; margin-bottom:24px; }
-  .stat-card {
-    background:#fff; border-radius:10px; padding:20px;
-    border-left:4px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.06);
-  }
-  .stat-card.amber { border-left-color:var(--amber); }
-  .stat-card.orange { border-left-color:var(--orange); }
-  .stat-num { font-size:28px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); }
-  .stat-label { font-size:12px; color:var(--muted); margin-top:4px; font-weight:500; }
+  /* SUMMARY CARDS */
+  .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+  .stat-card { background:#fff; border-radius:10px; padding:18px 20px; border-left:4px solid var(--border); box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .stat-card.cash { border-left-color:#6b7280; }
+  .stat-card.upi  { border-left-color:var(--blue); }
+  .stat-card.total { border-left-color:var(--amber); }
+  .stat-card.done  { border-left-color:var(--green); }
+  .stat-label { font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+  .stat-num { font-size:22px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .stat-sub { font-size:12px; color:var(--muted); margin-top:2px; font-family:'JetBrains Mono',monospace; }
 
-  .table-card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  /* DATE FILTER */
+  .filter-bar { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .filter-label { font-size:13px; font-weight:600; color:var(--muted); }
+  .filter-input { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text); outline:none; }
+  .filter-input:focus { border-color:var(--blue); }
+  .btn-filter { padding:8px 14px; background:#fff; color:var(--text); border:1.5px solid var(--border); border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; cursor:pointer; }
+  .btn-filter:hover { background:var(--bg); }
+  .btn-filter.active-date { background:var(--blue); color:#fff; border-color:var(--blue); }
+
+  /* TABS */
+  .tabs-bar { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid var(--border); }
+  .tab-btn { padding:10px 20px; border:none; background:none; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all 0.15s; }
+  .tab-btn:hover { color:var(--text); }
+  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+
+  /* TABLE */
+  .table-card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:24px; }
+  .table-header { padding:16px 18px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .table-title { font-size:14px; font-weight:700; }
+  .table-count { font-size:12px; color:var(--muted); background:var(--bg); padding:3px 8px; border-radius:10px; }
   table { width:100%; border-collapse:collapse; }
-  thead th {
-    padding:11px 14px; text-align:left; font-size:11px; font-weight:700;
-    color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
-    background:#f8f9fc; border-bottom:1px solid var(--border);
-  }
+  thead th { padding:11px 14px; text-align:left; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; background:#f8f9fc; border-bottom:1px solid var(--border); }
   tbody tr { border-bottom:1px solid var(--border); }
   tbody tr:last-child { border-bottom:none; }
   tbody tr:hover { background:#f8f9fc; }
   td { padding:13px 14px; font-size:13px; vertical-align:middle; }
-  .mono { font-family:'JetBrains Mono',monospace; }
   .order-id { color:var(--blue); font-weight:600; font-family:'JetBrains Mono',monospace; font-size:13px; }
   .amount { font-family:'JetBrains Mono',monospace; font-weight:600; }
   .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
-  .empty-state .icon { font-size:48px; display:block; margin-bottom:12px; }
+  .empty-state .icon { font-size:40px; display:block; margin-bottom:10px; }
 
-  .btn-reconcile {
-    background:var(--green); color:#fff; border:none; border-radius:6px;
-    padding:7px 14px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600;
-    cursor:pointer; transition:background 0.15s;
-  }
-  .btn-reconcile:hover { background:#059669; }
-  .btn-reconcile:disabled { background:#aaa; cursor:not-allowed; }
-
-  #toast {
-    position:fixed; bottom:24px; right:24px; z-index:999;
-    background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px;
-    font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25);
-    transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none;
-  }
-  #toast.show { transform:translateY(0); opacity:1; }
-  #toast.success { background:var(--green); }
-  #toast.error { background:#ef4444; }
-
-  /* TABS */
-  .tabs-bar { display:flex; gap:4px; margin-bottom:24px; border-bottom:2px solid var(--border); }
-  .tab-btn {
-    padding:10px 20px; border:none; background:none; font-family:'DM Sans',sans-serif;
-    font-size:14px; font-weight:600; color:var(--muted); cursor:pointer;
-    border-bottom:2px solid transparent; margin-bottom:-2px; transition:all 0.15s;
-  }
-  .tab-btn:hover { color:var(--text); }
-  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
-
-  /* HISTORY FILTERS */
-  .history-filters {
-    display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end;
-  }
-  .filter-group { display:flex; flex-direction:column; gap:4px; }
-  .filter-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); }
-  .filter-input {
-    padding:8px 12px; border:1.5px solid var(--border); border-radius:7px;
-    font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text);
-    outline:none; transition:border-color 0.2s; min-width:160px;
-  }
-  .filter-input:focus { border-color:var(--blue); }
-  .btn-search {
-    padding:8px 18px; background:var(--blue); color:#fff; border:none;
-    border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600;
-    cursor:pointer; transition:background 0.15s; align-self:flex-end;
-  }
-  .btn-search:hover { background:#0d47a1; }
-  .btn-clear {
-    padding:8px 14px; background:#fff; color:var(--muted); border:1.5px solid var(--border);
-    border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500;
-    cursor:pointer; transition:background 0.15s; align-self:flex-end;
-  }
-  .btn-clear:hover { background:var(--bg); }
-
-  /* HISTORY STATUS BADGES */
+  /* METHOD BADGES */
+  .badge-cash { background:#f3f4f6; color:#374151; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+  .badge-upi  { background:#dbeafe; color:#1e40af; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+  .badge-unknown { background:#fef3c7; color:#92400e; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
   .badge-reconciled { background:#d1fae5; color:#065f46; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
   .badge-confirmed  { background:#dbeafe; color:#1e40af; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
   .badge-pending    { background:#fef3c7; color:#92400e; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
+
+  /* ZOHO STATUS */
+  .zoho-pending { color:var(--orange); font-size:12px; font-weight:600; }
+  .zoho-done    { color:var(--green); font-size:12px; font-weight:600; font-family:'JetBrains Mono',monospace; }
+
+  /* ACTION BUTTONS */
+  .btn-record { background:var(--green); color:#fff; border:none; border-radius:6px; padding:7px 14px; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+  .btn-record:hover { background:#059669; }
+  .btn-record:disabled { background:#aaa; cursor:not-allowed; }
+  .btn-reconcile { background:var(--blue); color:#fff; border:none; border-radius:6px; padding:7px 14px; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+  .btn-reconcile:hover { background:#0d47a1; }
+  .btn-reconcile:disabled { background:#aaa; cursor:not-allowed; }
+  .awaiting-text { color:var(--muted); font-size:12px; }
+
+  /* AWAITING SECTION */
+  .section-title { font-size:15px; font-weight:700; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+
+  /* HISTORY FILTERS */
+  .history-filters { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end; }
+  .filter-group { display:flex; flex-direction:column; gap:4px; }
+  .filter-group-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); }
+  .filter-search { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text); outline:none; min-width:160px; }
+  .filter-search:focus { border-color:var(--blue); }
+  .btn-search { padding:8px 18px; background:var(--blue); color:#fff; border:none; border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; align-self:flex-end; }
+  .btn-search:hover { background:#0d47a1; }
+  .btn-clear { padding:8px 14px; background:#fff; color:var(--muted); border:1.5px solid var(--border); border-radius:7px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; cursor:pointer; align-self:flex-end; }
+  .btn-clear:hover { background:var(--bg); }
+
+  /* MODAL */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200; display:none; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:14px; padding:28px; width:420px; box-shadow:0 20px 60px rgba(0,0,0,0.2); }
+  .modal-title { font-size:17px; font-weight:700; margin-bottom:4px; }
+  .modal-sub { font-size:13px; color:var(--muted); margin-bottom:20px; }
+  .modal-row { display:flex; justify-content:space-between; margin-bottom:10px; font-size:14px; }
+  .modal-row span:first-child { color:var(--muted); }
+  .modal-row span:last-child { font-weight:600; }
+  .modal-row.amount span:last-child { font-family:'JetBrains Mono',monospace; font-size:16px; color:var(--green); }
+  .modal-divider { border:none; border-top:1px solid var(--border); margin:16px 0; }
+  .modal-field { margin-bottom:14px; }
+  .modal-field label { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; display:block; margin-bottom:6px; }
+  .modal-field input, .modal-field textarea { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; outline:none; }
+  .modal-field input:focus, .modal-field textarea:focus { border-color:var(--blue); }
+  .modal-field textarea { resize:vertical; height:70px; }
+  .modal-actions { display:flex; gap:10px; margin-top:20px; }
+  .btn-confirm { flex:1; padding:11px; background:var(--green); color:#fff; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn-confirm:hover { background:#059669; }
+  .btn-confirm:disabled { background:#aaa; cursor:not-allowed; }
+  .btn-cancel { flex:1; padding:11px; background:#f3f4f6; color:var(--text); border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn-cancel:hover { background:#e5e7eb; }
+
+  /* TOAST */
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.success { background:var(--green); }
+  #toast.error { background:#ef4444; }
 </style>
 </head>
 <body>
@@ -151,6 +155,7 @@
     <a class="nav-item active" href="cod.html">💰 COD Reconciliation</a>
     <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
@@ -167,7 +172,41 @@
     <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
   <div class="content">
-    <!-- TAB BAR -->
+
+    <!-- SUMMARY CARDS -->
+    <div class="stats-grid">
+      <div class="stat-card cash">
+        <div class="stat-label">💵 Cash Orders</div>
+        <div class="stat-num" id="stat-cash-count">—</div>
+        <div class="stat-sub" id="stat-cash-total">₹0</div>
+      </div>
+      <div class="stat-card upi">
+        <div class="stat-label">📱 UPI Orders</div>
+        <div class="stat-num" id="stat-upi-count">—</div>
+        <div class="stat-sub" id="stat-upi-total">₹0</div>
+      </div>
+      <div class="stat-card total">
+        <div class="stat-label">📦 Total Pending</div>
+        <div class="stat-num" id="stat-total-count">—</div>
+        <div class="stat-sub" id="stat-total-amount">₹0</div>
+      </div>
+      <div class="stat-card done">
+        <div class="stat-label">✅ Zoho Recorded</div>
+        <div class="stat-num" id="stat-done-count">—</div>
+        <div class="stat-sub" id="stat-done-total">₹0</div>
+      </div>
+    </div>
+
+    <!-- DATE FILTER -->
+    <div class="filter-bar">
+      <span class="filter-label">Showing deliveries for:</span>
+      <input type="date" class="filter-input" id="date-filter">
+      <button class="btn-filter" id="btn-today" onclick="setToday()">Today</button>
+      <button class="btn-filter" id="btn-yesterday" onclick="setYesterday()">Yesterday</button>
+      <button class="btn-filter" onclick="setDate('')">All</button>
+    </div>
+
+    <!-- TABS -->
     <div class="tabs-bar">
       <button class="tab-btn active" id="tab-btn-pending" onclick="switchTab('pending')">Pending</button>
       <button class="tab-btn" id="tab-btn-history" onclick="switchTab('history')">History</button>
@@ -175,26 +214,34 @@
 
     <!-- PENDING TAB -->
     <div id="tab-pending">
-      <div class="stats-grid">
-        <div class="stat-card amber">
-          <div class="stat-num mono" id="stat-count">—</div>
-          <div class="stat-label">Pending COD Orders</div>
-        </div>
-        <div class="stat-card orange">
-          <div class="stat-num mono" id="stat-total">—</div>
-          <div class="stat-label">Total Pending Amount</div>
-        </div>
-      </div>
+      <!-- Main table: collected by driver -->
       <div class="table-card">
+        <div class="table-header">
+          <span class="table-title">COD Collected by Driver</span>
+          <span class="table-count" id="main-count">0 orders</span>
+        </div>
         <table>
           <thead>
             <tr>
-              <th>Order ID</th><th>Customer</th><th>Driver</th>
-              <th>Collected</th><th>Order Total</th><th>Date</th><th>Action</th>
+              <th>Order</th><th>Customer</th><th>Amount</th>
+              <th>Method</th><th>Collected</th><th>Zoho</th><th>Date</th><th>Action</th>
             </tr>
           </thead>
           <tbody id="codTableBody"></tbody>
         </table>
+      </div>
+
+      <!-- Awaiting collection section -->
+      <div id="awaiting-section" style="display:none">
+        <div class="section-title">⚠️ COD Not Yet Collected <span id="awaiting-count-badge" style="font-size:12px;font-weight:500;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;"></span></div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr><th>Order</th><th>Customer</th><th>Amount</th><th>Delivered At</th><th>Idle Time</th></tr>
+            </thead>
+            <tbody id="awaitingTableBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -202,34 +249,56 @@
     <div id="tab-history" style="display:none">
       <div class="history-filters">
         <div class="filter-group">
-          <span class="filter-label">Order ID</span>
-          <input type="text" class="filter-input" id="h-order-id" placeholder="e.g. ORD123..." style="min-width:180px">
+          <span class="filter-group-label">Order ID</span>
+          <input type="text" class="filter-search" id="h-order-id" placeholder="e.g. ORD123..." style="min-width:180px">
         </div>
         <div class="filter-group">
-          <span class="filter-label">Date</span>
-          <input type="date" class="filter-input" id="h-date" style="min-width:150px">
+          <span class="filter-group-label">Date</span>
+          <input type="date" class="filter-search" id="h-date" style="min-width:150px">
         </div>
         <div class="filter-group">
-          <span class="filter-label">Driver</span>
-          <input type="text" class="filter-input" id="h-driver" placeholder="Driver name or ID..." style="min-width:180px">
+          <span class="filter-group-label">Driver</span>
+          <input type="text" class="filter-search" id="h-driver" placeholder="Driver name or ID..." style="min-width:180px">
         </div>
         <button class="btn-search" onclick="fetchHistory()">Search</button>
         <button class="btn-clear" onclick="clearHistoryFilters()">Clear</button>
       </div>
-
       <div class="table-card">
         <table>
           <thead>
-            <tr>
-              <th>Order ID</th><th>Customer</th><th>Driver</th>
-              <th>Amount</th><th>Status</th><th>Date</th><th>Reconciled By</th>
-            </tr>
+            <tr><th>Order ID</th><th>Customer</th><th>Driver</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th><th>Reconciled By</th></tr>
           </thead>
           <tbody id="historyTableBody">
-            <tr><td colspan="7"><div class="empty-state"><span class="icon">🔍</span>Use filters above to search history</div></td></tr>
+            <tr><td colspan="8"><div class="empty-state"><span class="icon">🔍</span>Use filters above to search history</div></td></tr>
           </tbody>
         </table>
       </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- RECORD PAYMENT MODAL -->
+<div class="modal-overlay" id="paymentModal">
+  <div class="modal">
+    <div class="modal-title">Record Payment in Zoho Books</div>
+    <div class="modal-sub">This will mark the invoice as paid in Zoho Books.</div>
+    <div class="modal-row"><span>Order</span><span id="modal-order-id" style="font-family:'JetBrains Mono',monospace"></span></div>
+    <div class="modal-row"><span>Customer</span><span id="modal-customer"></span></div>
+    <div class="modal-row amount"><span>Amount</span><span id="modal-amount"></span></div>
+    <div class="modal-row"><span>Method</span><span id="modal-method"></span></div>
+    <hr class="modal-divider">
+    <div class="modal-field">
+      <label>Date</label>
+      <input type="date" id="modal-date">
+    </div>
+    <div class="modal-field">
+      <label>Notes (optional)</label>
+      <textarea id="modal-notes" placeholder="e.g. EOD reconciliation batch"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-confirm" id="modal-confirm-btn" onclick="confirmRecordPayment()">✅ Confirm</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
     </div>
   </div>
 </div>
@@ -241,60 +310,160 @@ const API_BASE = window.location.origin;
 const token = sessionStorage.getItem('adminToken');
 if (!token) window.location.href = 'login.html';
 
-function authHeaders() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-}
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
 async function apiFetch(url, opts = {}) {
-  const res = await fetch(API_BASE + url, {
-    ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) }
-  });
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
   if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
   return res;
 }
 function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
 
-let pendingOrders = [];
+let allOrders = [];
+let activeOrderId = null;
+let dateFilter = '';
+
+// Date helpers
+function todayISO() { return new Date().toLocaleDateString('en-CA'); }
+function yesterdayISO() {
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString('en-CA');
+}
+function setToday() { setDate(todayISO()); }
+function setYesterday() { setDate(yesterdayISO()); }
+function setDate(val) {
+  dateFilter = val;
+  document.getElementById('date-filter').value = val;
+  renderPending();
+}
+
+// Init date to today
+document.getElementById('date-filter').value = todayISO();
+dateFilter = todayISO();
+document.getElementById('date-filter').addEventListener('change', e => { dateFilter = e.target.value; renderPending(); });
 
 async function fetchCOD() {
   try {
-    const res = await apiFetch('/api/v1/admin/cod/pending');
+    const res = await apiFetch('/api/v1/admin/cod/pending?limit=100');
     const data = await res.json();
     if (data.success) {
-      pendingOrders = data.data?.orders || [];
-      renderStats();
-      renderTable();
+      allOrders = data.data?.orders || [];
+      renderPending();
     }
   } catch(e) {}
 }
 
-function renderStats() {
-  document.getElementById('stat-count').textContent = pendingOrders.length;
-  const total = pendingOrders.reduce((s, o) => s + (o.codAmountCollected || o.grand_total || 0), 0);
-  document.getElementById('stat-total').textContent = '₹' + total.toLocaleString('en-IN');
+function filterByDate(orders) {
+  if (!dateFilter) return orders;
+  return orders.filter(o => {
+    const d = o.deliveredAt || o.createdAt || '';
+    return d.startsWith(dateFilter);
+  });
 }
 
-function renderTable() {
+function renderPending() {
+  const orders = filterByDate(allOrders);
+
+  const collected = orders.filter(o => o.codCollectedByDriver || o.codCollected);
+  const awaiting  = orders.filter(o => !o.codCollectedByDriver && !o.codCollected);
+
+  renderStats(orders);
+  renderMainTable(collected);
+  renderAwaitingTable(awaiting);
+}
+
+function renderStats(orders) {
+  const cashOrders = orders.filter(o => (o.codPaymentMethod || '').toLowerCase() === 'cash');
+  const upiOrders  = orders.filter(o => (o.codPaymentMethod || '').toLowerCase() === 'upi');
+  const doneOrders = orders.filter(o => o.zohoPaymentRecorded);
+
+  const sum = arr => arr.reduce((s, o) => s + (o.codAmountCollected || o.grand_total || 0), 0);
+
+  document.getElementById('stat-cash-count').textContent = cashOrders.length;
+  document.getElementById('stat-cash-total').textContent = '₹' + sum(cashOrders).toLocaleString('en-IN');
+  document.getElementById('stat-upi-count').textContent  = upiOrders.length;
+  document.getElementById('stat-upi-total').textContent  = '₹' + sum(upiOrders).toLocaleString('en-IN');
+  document.getElementById('stat-total-count').textContent  = orders.length;
+  document.getElementById('stat-total-amount').textContent = '₹' + sum(orders).toLocaleString('en-IN');
+  document.getElementById('stat-done-count').textContent  = doneOrders.length;
+  document.getElementById('stat-done-total').textContent  = '₹' + sum(doneOrders).toLocaleString('en-IN');
+}
+
+function methodBadge(method) {
+  if (!method) return `<span class="badge-unknown">❓ Unknown</span>`;
+  if (method.toLowerCase() === 'cash') return `<span class="badge-cash">💵 Cash</span>`;
+  if (method.toLowerCase() === 'upi')  return `<span class="badge-upi">📱 UPI</span>`;
+  return `<span class="badge-unknown">❓ ${method}</span>`;
+}
+
+function zohoBadge(o) {
+  if (o.zohoPaymentRecorded && o.zohoPaymentNumber) return `<span class="zoho-done">✅ ${o.zohoPaymentNumber}</span>`;
+  if (o.zohoPaymentRecorded) return `<span class="zoho-done">✅ Recorded</span>`;
+  return `<span class="zoho-pending">⏳ Pending</span>`;
+}
+
+function actionCell(o) {
+  if (o.zohoPaymentRecorded) return `<span style="color:var(--green);font-size:12px;">✅ Done</span>`;
+  if (o.codCollected) {
+    return `<button class="btn-record" id="btn-${o.orderId}" onclick="openModal('${o.orderId}')">📒 Record Payment</button>`;
+  }
+  if (o.codCollectedByDriver) {
+    return `<button class="btn-reconcile" id="btn-${o.orderId}" onclick="reconcile('${o.orderId}', ${o.codAmountCollected || o.grand_total || 0})">✓ Reconcile</button>`;
+  }
+  return `<span class="awaiting-text">⏳ Awaiting driver</span>`;
+}
+
+function renderMainTable(orders) {
   const tbody = document.getElementById('codTableBody');
-  if (!pendingOrders.length) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">✅</span>All COD orders reconciled!</div></td></tr>`;
+  document.getElementById('main-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
+  if (!orders.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="icon">✅</span>All collected orders processed!</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = pendingOrders.map(o => `
+  tbody.innerHTML = orders.map(o => `
     <tr id="row-${o.orderId}">
       <td><span class="order-id">${o.orderId}</span></td>
       <td>${o.customer?.name || o.userId || '—'}</td>
-      <td>${o.vehicle?.driverName || '—'}</td>
-      <td><span class="amount">₹${(o.codAmountCollected || 0).toLocaleString('en-IN')}</span></td>
-      <td><span class="amount">₹${(o.grand_total || 0).toLocaleString('en-IN')}</span></td>
+      <td><span class="amount">₹${(o.codAmountCollected || o.grand_total || 0).toLocaleString('en-IN')}</span></td>
+      <td>${methodBadge(o.codPaymentMethod)}</td>
+      <td><span style="font-size:12px">${o.codCollectedByDriver ? '✅ Yes' : '—'}</span></td>
+      <td>${zohoBadge(o)}</td>
       <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt || o.createdAt)}</td>
-      <td><button class="btn-reconcile" id="btn-${o.orderId}" onclick="reconcile('${o.orderId}', ${o.codAmountCollected || o.grand_total || 0})">✓ Reconcile</button></td>
+      <td>${actionCell(o)}</td>
     </tr>`).join('');
 }
 
+function renderAwaitingTable(orders) {
+  const section = document.getElementById('awaiting-section');
+  const tbody   = document.getElementById('awaitingTableBody');
+  document.getElementById('awaiting-count-badge').textContent = orders.length;
+  if (!orders.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  tbody.innerHTML = orders.map(o => {
+    const delivered = o.deliveredAt ? new Date(o.deliveredAt) : null;
+    const idleMs = delivered ? Date.now() - delivered.getTime() : null;
+    const idleStr = idleMs ? formatDuration(idleMs) : '—';
+    return `<tr>
+      <td><span class="order-id">${o.orderId}</span></td>
+      <td>${o.customer?.name || o.userId || '—'}</td>
+      <td><span class="amount">₹${(o.grand_total || 0).toLocaleString('en-IN')}</span></td>
+      <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt)}</td>
+      <td style="color:var(--orange);font-size:12px;font-weight:600">${idleStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+function formatDuration(ms) {
+  const m = Math.floor(ms / 60000);
+  const h = Math.floor(m / 60);
+  if (h >= 1) return `${h}h ${m % 60}m`;
+  return `${m}m`;
+}
+
+// Reconcile (admin confirms physical receipt)
 async function reconcile(orderId, amount) {
-  if (!confirm(`Mark ${orderId} as reconciled? Amount: ₹${amount}`)) return;
+  if (!confirm(`Confirm received ₹${amount.toLocaleString('en-IN')} for ${orderId}?`)) return;
   const btn = document.getElementById('btn-' + orderId);
-  btn.disabled = true; btn.textContent = 'Processing...';
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
   try {
     const res = await apiFetch(`/api/v1/admin/cod/${orderId}/reconcile`, {
       method: 'POST',
@@ -302,16 +471,67 @@ async function reconcile(orderId, amount) {
     });
     const data = await res.json();
     if (data.success) {
-      document.getElementById('row-' + orderId)?.remove();
-      pendingOrders = pendingOrders.filter(o => o.orderId !== orderId);
-      renderStats();
-      if (!pendingOrders.length) renderTable();
-      showToast('Reconciled!', 'success');
+      const order = allOrders.find(o => o.orderId === orderId);
+      if (order) { order.codCollected = true; order.codAmount = amount; }
+      renderPending();
+      showToast('Reconciled! Now click "Record Payment" to log in Zoho Books.', 'success');
     } else {
       showToast(data.message || 'Failed', 'error');
-      btn.disabled = false; btn.textContent = '✓ Reconcile';
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Reconcile'; }
     }
-  } catch(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '✓ Reconcile'; }
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Reconcile'; }
+  }
+}
+
+// MODAL
+function openModal(orderId) {
+  const order = allOrders.find(o => o.orderId === orderId);
+  if (!order) return;
+  activeOrderId = orderId;
+  document.getElementById('modal-order-id').textContent = orderId;
+  document.getElementById('modal-customer').textContent = order.customer?.name || order.userId || '—';
+  document.getElementById('modal-amount').textContent = '₹' + (order.codAmountCollected || order.grand_total || 0).toLocaleString('en-IN');
+  document.getElementById('modal-method').textContent = order.codPaymentMethod === 'upi' ? '📱 UPI' : '💵 Cash';
+  document.getElementById('modal-date').value = todayISO();
+  document.getElementById('modal-notes').value = '';
+  document.getElementById('modal-confirm-btn').disabled = false;
+  document.getElementById('modal-confirm-btn').textContent = '✅ Confirm';
+  document.getElementById('paymentModal').classList.add('open');
+}
+function closeModal() { document.getElementById('paymentModal').classList.remove('open'); activeOrderId = null; }
+document.getElementById('paymentModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+
+async function confirmRecordPayment() {
+  if (!activeOrderId) return;
+  const date  = document.getElementById('modal-date').value;
+  const notes = document.getElementById('modal-notes').value.trim();
+  const btn   = document.getElementById('modal-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Recording...';
+  try {
+    const res = await apiFetch(`/api/v1/admin/orders/${activeOrderId}/record-payment`, {
+      method: 'POST',
+      body: JSON.stringify({ date, notes })
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeModal();
+      const order = allOrders.find(o => o.orderId === activeOrderId);
+      if (order) {
+        order.zohoPaymentRecorded = true;
+        order.zohoPaymentNumber   = data.data?.zohoPaymentNumber || 'Recorded';
+      }
+      renderPending();
+      showToast(`Payment recorded in Zoho Books ✅ ${data.data?.zohoPaymentNumber || ''}`, 'success');
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      btn.disabled = false; btn.textContent = '✅ Confirm';
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '✅ Confirm';
+  }
 }
 
 function fmtDate(iso) {
@@ -321,15 +541,12 @@ function fmtDate(iso) {
 
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'show' + (type ? ' ' + type : '');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+  t._timer = setTimeout(() => { t.className = ''; }, 5000);
 }
 
-fetchCOD();
-
-// ---- TABS ----
+// TABS
 function switchTab(tab) {
   document.getElementById('tab-pending').style.display = tab === 'pending' ? '' : 'none';
   document.getElementById('tab-history').style.display = tab === 'history' ? '' : 'none';
@@ -338,49 +555,42 @@ function switchTab(tab) {
   if (tab === 'history') fetchHistory();
 }
 
-// ---- HISTORY ----
+// HISTORY
 async function fetchHistory() {
   const orderId = document.getElementById('h-order-id').value.trim();
   const date    = document.getElementById('h-date').value.trim();
   const driver  = document.getElementById('h-driver').value.trim();
-
-  const params = new URLSearchParams();
+  const params  = new URLSearchParams();
   if (orderId) params.set('orderId', orderId);
   if (date)    params.set('date', date);
   if (driver)  params.set('driverId', driver);
-
   const tbody = document.getElementById('historyTableBody');
-  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading...</td></tr>`;
-
+  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading...</td></tr>`;
   try {
-    const res = await apiFetch('/api/v1/admin/cod/history' + (params.toString() ? '?' + params.toString() : ''));
+    const res  = await apiFetch('/api/v1/admin/cod/history' + (params.toString() ? '?' + params.toString() : ''));
     const data = await res.json();
-    if (!data.success) { tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">⚠️</span>Failed to load history</div></td></tr>`; return; }
+    if (!data.success) { tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="icon">⚠️</span>Failed to load history</div></td></tr>`; return; }
     renderHistory(data.data?.records || []);
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">⚠️</span>Error: ${e.message}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="icon">⚠️</span>${e.message}</div></td></tr>`;
   }
 }
 
 function renderHistory(records) {
   const tbody = document.getElementById('historyTableBody');
-  if (!records.length) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">📭</span>No history found</div></td></tr>`;
-    return;
-  }
+  if (!records.length) { tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="icon">📭</span>No history found</div></td></tr>`; return; }
   tbody.innerHTML = records.map(r => {
-    const statusBadge = r.codStatus === 'reconciled'
-      ? `<span class="badge-reconciled">Reconciled</span>`
-      : r.codStatus === 'confirmed'
-      ? `<span class="badge-confirmed">Confirmed</span>`
+    const badge = r.status === 'reconciled' ? `<span class="badge-reconciled">Reconciled</span>`
+      : r.status === 'confirmed' ? `<span class="badge-confirmed">Confirmed</span>`
       : `<span class="badge-pending">Pending</span>`;
-    const amount = r.codAmountCollected || r.grand_total || r.amount || 0;
+    const amount = r.codAmountCollected || r.amount || r.grand_total || 0;
     return `<tr>
       <td><span class="order-id">${r.orderId || '—'}</span></td>
       <td>${r.customer?.name || r.customerName || r.userId || '—'}</td>
       <td>${r.vehicle?.driverName || r.driverName || '—'}</td>
-      <td><span class="amount">₹${amount.toLocaleString('en-IN')}</span></td>
-      <td>${statusBadge}</td>
+      <td><span class="amount">₹${(amount).toLocaleString('en-IN')}</span></td>
+      <td>${methodBadge(r.codPaymentMethod)}</td>
+      <td>${badge}</td>
       <td style="color:var(--muted);font-size:12px">${fmtDate(r.reconciledAt || r.deliveredAt || r.createdAt)}</td>
       <td style="font-size:12px;color:var(--muted)">${r.reconciledBy || '—'}</td>
     </tr>`;
@@ -393,6 +603,8 @@ function clearHistoryFilters() {
   document.getElementById('h-driver').value = '';
   fetchHistory();
 }
+
+fetchCOD();
 </script>
 </body>
 </html>

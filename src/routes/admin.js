@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
+const multer = require('multer');
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const { invalidateProducts, invalidateOrder } = require('../cache/invalidate');
 const {
   getPaintPricing, setPaintPricing, listAllPaintPricing,
@@ -38,7 +40,11 @@ const {
   createDriver,
   removeDriver,
   setDriverPin,
-  toggleFeatured
+  toggleFeatured,
+  recordCodPayment,
+  listCategories,
+  uploadCategoryImage,
+  deleteCategoryImage
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -99,6 +105,18 @@ router.get('/orders/:orderId/picking-list', getPickingList);
 router.get('/orders/:orderId/invoice-url', invalidateOrderAfterMutation, getInvoiceUrl);
 router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
 router.post('/orders/:orderId/fix-invoice', invalidateOrderAfterMutation, fixInvoice);
+router.post('/orders/:orderId/record-payment', invalidateOrderAfterMutation, recordCodPayment);
+
+// Categories
+router.get('/categories', listCategories);
+router.post('/categories/:categoryId/image', upload.single('image'), async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, uploadCategoryImage);
+router.delete('/categories/:categoryId/image', async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, deleteCategoryImage);
 
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);
