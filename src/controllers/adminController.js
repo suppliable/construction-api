@@ -565,8 +565,9 @@ const fixInvoice = async (req, res) => {
 const getPendingCOD = async (req, res) => {
   try {
     const limit = parsePositiveInt(req.query.limit, DEFAULT_ADMIN_LIST_LIMIT);
-    const orders = await findOrders({ status: 'delivered', paymentType: 'COD', limit }, req.traceContext);
+    const orders = await findOrders({ status: 'delivered', limit }, req.traceContext);
     const pending = orders.filter(o =>
+      o.paymentType === 'COD' &&
       o.status === 'delivered' &&
       (o.codCollected !== true || o.zohoPaymentRecorded !== true)
     );
