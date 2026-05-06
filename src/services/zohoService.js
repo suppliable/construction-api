@@ -293,6 +293,44 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
   }
 }
 
+async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, paymentMethod, date, notes }) {
+  const token = await getAccessToken();
+  const orgId = process.env.ZOHO_ORG_ID;
+
+  const modeMap = {
+    cash: { payment_mode: 'cash', account_id: process.env.ZOHO_CASH_ACCOUNT_ID },
+    upi:  { payment_mode: 'bank_transfer', account_id: process.env.ZOHO_BANK_ACCOUNT_ID }
+  };
+  const modeConfig = modeMap[paymentMethod] || modeMap.cash;
+
+  const payload = {
+    customer_id: customerId,
+    payment_mode: modeConfig.payment_mode,
+    amount: Number(amount),
+    date: date || new Date().toISOString().split('T')[0],
+    description: notes || `COD payment via ${(paymentMethod || 'cash').toUpperCase()} — Suppliable`,
+    invoices: [{ invoice_id: invoiceId, amount_applied: Number(amount) }]
+  };
+  if (modeConfig.account_id) payload.account_id = modeConfig.account_id;
+
+  const res = await axios.post(
+    'https://www.zohoapis.in/books/v3/customerpayments',
+    payload,
+    {
+      headers: { Authorization: `Zoho-oauthtoken ${token}`, 'Content-Type': 'application/json' },
+      params: { organization_id: orgId },
+      timeout: DEFAULT_TIMEOUT_MS
+    }
+  );
+
+  if (res.data.code !== 0) throw new Error(`Zoho payment failed: ${res.data.message}`);
+
+  return {
+    zohoPaymentId: res.data.payment.payment_id,
+    zohoPaymentNumber: res.data.payment.payment_number
+  };
+}
+
 module.exports = {
   getAccessToken,
   getZohoProducts,
@@ -304,5 +342,6 @@ module.exports = {
   updateZohoContact,
   updateZohoItemImage,
   updateZohoItemFeatured,
-  searchZohoContactByPhone
+  searchZohoContactByPhone,
+  recordPaymentInZohoBooks
 };
