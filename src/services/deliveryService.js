@@ -34,18 +34,15 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
   let distanceText = null;
   let distanceSource = 'haversine';
 
-  if (process.env.GOOGLE_MAPS_API_KEY && (latitude && longitude || addressString)) {
-    // Prefer GPS coordinates as destination — more accurate than text geocoding.
-    // Falls back to address string when coordinates are unavailable.
-    const destination = (latitude && longitude) ? `${latitude},${longitude}` : addressString;
+  if (addressString && process.env.GOOGLE_MAPS_API_KEY) {
     try {
-      const result = await getRoadDistance(WAREHOUSE.latitude, WAREHOUSE.longitude, destination, traceContext);
+      const result = await getRoadDistance(WAREHOUSE.latitude, WAREHOUSE.longitude, addressString, traceContext);
       distanceKm = result.distanceKm;
       distanceText = result.distanceText;
       distanceSource = 'google_maps';
-      logger.info({ distanceKm, distanceText, destination }, 'Google Maps distance calculated');
+      logger.warn(distanceKm, distanceText, 'Google Maps distance calculated successfully');
     } catch (err) {
-      logger.warn({ err: err.message, pincode, destination }, 'Google Maps distance failed; falling back to Haversine');
+      logger.warn({ err: err.message, pincode, addressString }, 'Google Maps distance failed; falling back to Haversine');
       distanceKm = haversineKm(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
     }
   } else {
