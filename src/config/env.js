@@ -6,8 +6,9 @@ const path = require('path');
 
 // Load base .env (gitignored, developer file)
 dotenv.config();
-// Load .env.local if present — higher priority, overrides .env (gitignored)
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
+// Load ENV_FILE if specified (e.g. .env.local.dev), otherwise fall back to .env.local
+const envFile = process.env.ENV_FILE || '.env.local';
+dotenv.config({ path: path.resolve(process.cwd(), envFile), override: true });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

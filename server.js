@@ -35,11 +35,13 @@ function createApp() {
   app.use(helmet({ contentSecurityPolicy: false }));
   // Core middleware — order matters
   app.use(tracing); // W3C traceparent — must run before pino-http so genReqId can read traceId
+  const debugPayloads = process.env.DEBUG_PAYLOADS === 'true';
+
   app.use(pinoHttp({
     logger,
     // Use the W3C traceId as the pino-http request ID so every req.log.* call carries it
     genReqId: req => req.traceContext?.traceId,
-    customProps: req => {
+    customProps: (req, res) => {
       const props = {
         clientTraceId: req.traceContext?.clientTraceId || undefined,
         traceparent: req.traceContext?.traceparent || undefined,
@@ -50,6 +52,10 @@ function createApp() {
       if (spanCtx) {
         props.trace_id = spanCtx.traceId;
         props.span_id = spanCtx.spanId;
+      }
+      if (debugPayloads) {
+        if (req.body && Object.keys(req.body).length > 0) props.reqBody = req.body;
+        if (res._debugPayload !== undefined) props.resBody = res._debugPayload;
       }
       return props;
     },
@@ -62,6 +68,14 @@ function createApp() {
   app.use(compression()); // Enable gzip compression for all responses
   app.use(cors());
   app.use(express.json());
+  // When DEBUG_PAYLOADS=true, intercept res.json() to capture the response body for logging
+  if (debugPayloads) {
+    app.use((req, res, next) => {
+      const orig = res.json.bind(res);
+      res.json = (body) => { res._debugPayload = body; return orig(body); };
+      next();
+    });
+  }
   app.use(firestoreTracking);
 
   // Health check — unversioned, no middleware chain
