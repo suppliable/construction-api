@@ -12,13 +12,19 @@ function toCategoryId(name) {
 // GET /api/home
 router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, res) => {
   try {
-    const [products, catSnap] = await Promise.all([
+    const [products, catSnap, bannerSnap] = await Promise.all([
       getAllProducts(null, req.traceContext),
-      admin.firestore().collection('categories').get()
+      admin.firestore().collection('categories').get(),
+      admin.firestore().collection('banners').where('active', '==', true).orderBy('sortOrder', 'asc').get()
     ]);
 
     const categoryImages = {};
     catSnap.docs.forEach(d => { categoryImages[d.id] = d.data().imageUrl || null; });
+
+    const banners = bannerSnap.docs.map(d => {
+      const b = d.data();
+      return { bannerId: d.id, imageUrl: b.imageUrl, title: b.title || null, link: b.link || null, sortOrder: b.sortOrder };
+    });
 
     const catMap = {};
     products.forEach(p => {
@@ -39,7 +45,7 @@ router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, 
       preview[cat.name] = products.filter(p => p.category === cat.name).slice(0, 5);
     });
 
-    res.json({ success: true, data: { categories, featured, preview } });
+    res.json({ success: true, data: { banners, categories, featured, preview } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

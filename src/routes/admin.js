@@ -44,7 +44,11 @@ const {
   recordCodPayment,
   listCategories,
   uploadCategoryImage,
-  deleteCategoryImage
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -117,6 +121,13 @@ router.delete('/categories/:categoryId/image', async (req, res, next) => {
   await invalidateProducts().catch(() => {});
   next();
 }, deleteCategoryImage);
+
+// Banners
+const invalidateBannersCache = async () => { await invalidateProducts().catch(() => {}); };
+router.get('/banners', listBanners);
+router.post('/banners', upload.single('image'), async (req, res, next) => { await invalidateBannersCache(); next(); }, uploadBanner);
+router.patch('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, updateBanner);
+router.delete('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, deleteBanner);
 
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);

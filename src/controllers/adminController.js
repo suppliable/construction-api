@@ -1176,6 +1176,81 @@ const deleteCategoryImage = async (req, res) => {
   }
 };
 
+// GET /api/admin/banners
+const listBanners = async (req, res) => {
+  try {
+    const snap = await getTrackedDb().collection('banners').orderBy('sortOrder', 'asc').get();
+    const banners = snap.docs.map(d => ({ bannerId: d.id, ...d.data() }));
+    res.json({ success: true, data: { banners } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/banners
+const uploadBanner = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_FILE', message: 'image file is required' });
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FILE_TYPE', message: 'Only jpeg, png, webp images are allowed' });
+    }
+
+    const imageUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'banners');
+    const bannerId = 'BNR' + Date.now();
+    const sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    const banner = {
+      bannerId,
+      imageUrl,
+      title: req.body.title || null,
+      link: req.body.link || null,
+      sortOrder,
+      active: true,
+      createdAt: new Date().toISOString()
+    };
+
+    await getTrackedDb().collection('banners').doc(bannerId).set(banner);
+    res.json({ success: true, data: { banner } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// PATCH /api/admin/banners/:bannerId
+const updateBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+
+    const updates = {};
+    if (req.body.title !== undefined) updates.title = req.body.title || null;
+    if (req.body.link !== undefined) updates.link = req.body.link || null;
+    if (req.body.sortOrder !== undefined) updates.sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    if (req.body.active !== undefined) updates.active = req.body.active === true || req.body.active === 'true';
+    updates.updatedAt = new Date().toISOString();
+
+    await getTrackedDb().collection('banners').doc(bannerId).update(updates);
+    res.json({ success: true, data: { bannerId, ...updates } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// DELETE /api/admin/banners/:bannerId
+const deleteBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+    await getTrackedDb().collection('banners').doc(bannerId).delete();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -1236,5 +1311,9 @@ module.exports = {
   toggleFeatured,
   listCategories,
   uploadCategoryImage,
-  deleteCategoryImage
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 };
