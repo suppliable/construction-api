@@ -15,16 +15,16 @@ router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, 
     const [products, catSnap, bannerSnap] = await Promise.all([
       getAllProducts(null, req.traceContext),
       admin.firestore().collection('categories').get(),
-      admin.firestore().collection('banners').where('active', '==', true).orderBy('sortOrder', 'asc').get()
+      admin.firestore().collection('banners').orderBy('sortOrder', 'asc').get()
     ]);
 
     const categoryImages = {};
     catSnap.docs.forEach(d => { categoryImages[d.id] = d.data().imageUrl || null; });
 
-    const banners = bannerSnap.docs.map(d => {
-      const b = d.data();
-      return { bannerId: d.id, imageUrl: b.imageUrl, title: b.title || null, link: b.link || null, sortOrder: b.sortOrder };
-    });
+    const banners = bannerSnap.docs
+      .map(d => { const b = d.data(); return { bannerId: d.id, imageUrl: b.imageUrl, title: b.title || null, link: b.link || null, sortOrder: b.sortOrder, active: b.active }; })
+      .filter(b => b.active !== false)
+      .map(({ active, ...rest }) => rest);
 
     const catMap = {};
     products.forEach(p => {
