@@ -95,6 +95,13 @@ async function startServer() {
   const app = createApp();
   const server = app.listen(env.PORT, '0.0.0.0', () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, 'Server started');
+    // Keep connections alive for 65 s — longer than typical mobile client idle gaps.
+    // Node default is 5 s, which causes "Connection closed before full header" on
+    // persistent HTTP clients (Flutter, curl --keepalive) when the client reuses a
+    // connection the server has already decided to close.
+    server.keepAliveTimeout = 65_000;
+    // headersTimeout must be > keepAliveTimeout to avoid a race during the handshake.
+    server.headersTimeout = 66_000;
     // Google Maps cost reminder — Directions API calls from driver location updates
     // 9 calls/order (every 5 min, ~45 min delivery) × 30 orders/day = 270 calls/day
     // 270 × $0.005 = $1.35/day ≈ ₹3,400/month at current usage
