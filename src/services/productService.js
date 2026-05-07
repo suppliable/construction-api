@@ -204,7 +204,7 @@ async function getAllProducts(category = null, traceContext = null) {
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
       shadeBrand: detectShadeBrand(group.brand || group.group_name),
-      rackNumber: firstVariantItem?.custom_field_hash?.cf_rack_number || null,
+      rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
 
@@ -214,7 +214,7 @@ async function getAllProducts(category = null, traceContext = null) {
     .map(item => {
       const itemImageUrl = cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name);
       const zohoFeatured = item.custom_field_hash?.cf_featured === true || item.custom_field_hash?.cf_featured === 'true';
-      const rackNumber = item.custom_field_hash?.cf_rack_number || null;
+      const rackNumber = item.cf_rack_number || item.custom_field_hash?.cf_rack_number || null;
       return {
         id: item.item_id,
         name: item.name,
