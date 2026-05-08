@@ -194,6 +194,8 @@ async function buildCartResponse(userId) {
       cartItem.shadeTier = item.shadeTier || null;
     }
 
+    if (product.rackNumber) cartItem.rackNumber = product.rackNumber;
+
     return { raw: item, computed: cartItem };
   }));
 
