@@ -3,7 +3,7 @@ const axios = require('axios');
 const multer = require('multer');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-const { invalidateProducts, invalidateOrder } = require('../cache/invalidate');
+const { invalidateProducts, invalidateOrder, invalidateAfterZohoMutation } = require('../cache/invalidate');
 const {
   getPaintPricing, setPaintPricing, listAllPaintPricing,
   getShadesByBrand, addShade, updateShade, getShadeByCode, VALID_TIERS, VALID_SIZES,
@@ -264,6 +264,17 @@ router.post('/paint-pricing/:productId', async (req, res) => {
     }
     await setPaintPricing(productId, { productName, brandSlug, tiers, updatedAt: new Date().toISOString() });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Manual cache invalidation — flush Zoho-derived caches (products, home, search, categories)
+// after editing items directly in Zoho so users see fresh data without waiting for TTL.
+router.post('/cache/invalidate-zoho', async (req, res) => {
+  try {
+    await invalidateAfterZohoMutation('manual', '/admin/cache/invalidate-zoho');
+    res.json({ success: true, message: 'Zoho caches cleared' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "ENV_FILE=.env.local nodemon server.js",
+    "dev:debug": "ENV_FILE=.env.local DEBUG_PAYLOADS=true nodemon server.js",
+    "qa": "ENV_FILE=.env.local.qa nodemon server.js",
+    "prod": "ENV_FILE=.env.local.prod nodemon server.js",
     "test": "jest",
     "lint": "eslint src/",
     "firestore:deploy:prod": "npx firebase-tools deploy --project prod --only firestore:rules,firestore:indexes",
