@@ -1,11 +1,15 @@
 const express = require('express');
 const axios = require('axios');
+const multer = require('multer');
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const { invalidateProducts, invalidateOrder, invalidateAfterZohoMutation } = require('../cache/invalidate');
 const {
   getPaintPricing, setPaintPricing, listAllPaintPricing,
   getShadesByBrand, addShade, updateShade, getShadeByCode, VALID_TIERS, VALID_SIZES,
 } = require('../repositories/paintRepository');
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
+const { buildRuntimeDiagnostics } = require('../services/diagnosticsService');
 const {
   listOrders,
   getOrderStats,
@@ -36,7 +40,15 @@ const {
   createDriver,
   removeDriver,
   setDriverPin,
-  toggleFeatured
+  toggleFeatured,
+  recordCodPayment,
+  listCategories,
+  uploadCategoryImage,
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -58,11 +70,26 @@ router.use((req, res, next) => {
   next();
 });
 
+// Invalidate order detail cache only after a successful mutation response.
+// Doing this pre-handler can allow a race where stale data is re-cached
+// before the write commits.
+const invalidateOrderAfterMutation = (req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    const statusCode = res.statusCode || 200;
+    if (statusCode < 500 && req.params.orderId) {
+      invalidateOrder(req.params.orderId).catch(() => {});
+    }
+    return originalJson(body);
+  };
+  next();
+};
+
 // Static routes first — must come before /:orderId to avoid conflicts
 router.get('/orders/new-count', getNewOrderCount);
 router.get('/orders/stats', getOrderStats);
 router.get('/cod/pending', getPendingCOD);
-router.post('/cod/:orderId/reconcile', reconcileCOD);
+router.post('/cod/:orderId/reconcile', invalidateOrderAfterMutation, reconcileCOD);
 router.get('/cod/handovers', listHandovers);
 router.post('/cod/confirm-handover/:handoverId', confirmHandover);
 router.get('/cod/history', listCodHistory);
@@ -71,23 +98,45 @@ router.get('/cod/history', listCodHistory);
 router.get('/orders', listOrders);
 router.get('/orders/:orderId', getOrderDetail);
 
-// Order actions
-router.post('/orders/:orderId/accept', acceptOrder);
-router.post('/orders/:orderId/decline', declineOrder);
-router.post('/orders/:orderId/packed', markPacked);
-router.post('/orders/:orderId/assign-vehicle', assignVehicle);
-router.post('/orders/:orderId/force-complete', forceCompleteOrder);
-router.post('/orders/:orderId/cancel', cancelOrder);
+// Order actions — invalidate cached order detail after each state change
+router.post('/orders/:orderId/accept', invalidateOrderAfterMutation, acceptOrder);
+router.post('/orders/:orderId/decline', invalidateOrderAfterMutation, declineOrder);
+router.post('/orders/:orderId/packed', invalidateOrderAfterMutation, markPacked);
+router.post('/orders/:orderId/assign-vehicle', invalidateOrderAfterMutation, assignVehicle);
+router.post('/orders/:orderId/force-complete', invalidateOrderAfterMutation, forceCompleteOrder);
+router.post('/orders/:orderId/cancel', invalidateOrderAfterMutation, cancelOrder);
 router.get('/orders/:orderId/picking-list', getPickingList);
-router.get('/orders/:orderId/invoice-url', getInvoiceUrl);
+router.get('/orders/:orderId/invoice-url', invalidateOrderAfterMutation, getInvoiceUrl);
 router.get('/orders/:orderId/invoice.pdf', getInvoicePdf);
-router.post('/orders/:orderId/fix-invoice', fixInvoice);
+router.post('/orders/:orderId/fix-invoice', invalidateOrderAfterMutation, fixInvoice);
+router.post('/orders/:orderId/record-payment', invalidateOrderAfterMutation, recordCodPayment);
+
+// Categories
+router.get('/categories', listCategories);
+router.post('/categories/:categoryId/image', upload.single('image'), async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, uploadCategoryImage);
+router.delete('/categories/:categoryId/image', async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, deleteCategoryImage);
+
+// Banners
+const invalidateBannersCache = async () => { await invalidateProducts().catch(() => {}); };
+router.get('/banners', listBanners);
+router.post('/banners', upload.single('image'), async (req, res, next) => { await invalidateBannersCache(); next(); }, uploadBanner);
+router.patch('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, updateBanner);
+router.delete('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, deleteBanner);
 
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);
 
-// Product management
-router.put('/products/:id/featured', toggleFeatured);
+// Product management — invalidate all product/home/search/category caches on featured toggle
+router.put('/products/:id/featured', async (req, res, next) => {
+  await invalidateProducts().catch(() => {});
+  next();
+}, toggleFeatured);
 // Customer lookup by phone (support panel)
 router.get('/customers/phone/:phone', getCustomerByPhoneNumber);
 router.get('/customers/:userId/orders', getCustomerOrders);
@@ -220,6 +269,17 @@ router.post('/paint-pricing/:productId', async (req, res) => {
   }
 });
 
+// Manual cache invalidation — flush Zoho-derived caches (products, home, search, categories)
+// after editing items directly in Zoho so users see fresh data without waiting for TTL.
+router.post('/cache/invalidate-zoho', async (req, res) => {
+  try {
+    await invalidateAfterZohoMutation('manual', '/admin/cache/invalidate-zoho');
+    res.json({ success: true, message: 'Zoho caches cleared' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
 // Firestore usage profiling
 router.get('/firestore-usage', (req, res) => {
   res.json({ success: true, data: getGlobalReport() });
@@ -228,6 +288,20 @@ router.get('/firestore-usage', (req, res) => {
 router.post('/firestore-usage/reset', (req, res) => {
   resetGlobal();
   res.json({ success: true, message: 'Firestore usage counters reset' });
+});
+
+// Debug: resolved environment config (secrets omitted)
+router.get('/debug/config', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      ...buildRuntimeDiagnostics(),
+      warehouse: {
+        lat: process.env.WAREHOUSE_LAT ?? null,
+        lng: process.env.WAREHOUSE_LNG ?? null,
+      },
+    },
+  });
 });
 
 module.exports = router;

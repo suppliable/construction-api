@@ -1,7 +1,9 @@
 const axios = require('axios');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
-  getAllOrders, getOrdersPage, getOrderById, updateOrder,
+  findOrders, getAllOrders, getOrdersPage, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
   getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver, updateVehicle,
@@ -9,6 +11,15 @@ const {
 } = require('../services/firestoreService');
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
 const fcm = require('../services/fcmService');
+const { invalidateDriverOrders, invalidateOrder } = require('../cache/invalidate');
+
+const { DEFAULT_ADMIN_LIST_LIMIT, MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, NEW_ORDER_THRESHOLD_MS } = require('../constants');
+const { normalizePhone } = require('../utils/phone');
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function formatDuration(ms) {
   const totalMins = Math.floor(ms / 60000);
@@ -17,24 +28,13 @@ function formatDuration(ms) {
   if (h === 0) return `${m}m`;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
-const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId } = require('../services/zohoOrderService');
-const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById } = require('../services/zohoService');
+const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks } = require('../services/zohoService');
+const { uploadToFirebase } = require('../services/storageService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { formatTimestamps } = require('../utils/formatDoc');
-
-async function markZohoInvoiceAsSent(invoiceId) {
-  const token = await getAccessToken();
-  await axios.post(
-    `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoiceId}/status/sent`,
-    {},
-    {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      params: { organization_id: process.env.ZOHO_ORG_ID }
-    }
-  );
-}
 
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
@@ -45,7 +45,6 @@ const listOrders = async (req, res) => {
     let orders, hasMore = false, lastOrderId = null;
 
     if (status || date) {
-      // Filtered: in-memory filter with cursor pagination
       let all = await getAllOrders(req.traceContext);
       if (status) all = all.filter(o => o.status === status);
       if (date) all = all.filter(o => o.createdAt && o.createdAt.startsWith(date));
@@ -106,11 +105,8 @@ const getOrderStats = async (req, res) => {
 // GET /api/admin/orders/new-count
 const getNewOrderCount = async (req, res) => {
   try {
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const orders = await getAllOrders(req.traceContext);
-    const newOrders = orders.filter(o =>
-      o.status === 'warehouse_review' && o.createdAt > fiveMinutesAgo
-    );
+    const fiveMinutesAgo = new Date(Date.now() - NEW_ORDER_THRESHOLD_MS).toISOString();
+    const newOrders = await findOrders({ status: 'warehouse_review', startISO: fiveMinutesAgo, limit: 0 }, req.traceContext);
     res.json({ success: true, data: { count: newOrders.length, orders: newOrders } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -168,6 +164,20 @@ const acceptOrder = async (req, res) => {
       return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho account not found' });
     }
 
+    // Sync Zoho contact with latest customer name/phone before creating the SO
+    // so the invoice always shows the correct details instead of a stale phone number.
+    if (customer.name || customer.business_name) {
+      try {
+        // Only update contact_name/company_name — skip contact_persons to avoid
+        // Zoho rejecting the request due to missing contact_person_id.
+        await updateZohoContact(customer.zoho_contact_id, {
+          business_name: customer.business_name || customer.name,
+        }, req.traceContext);
+      } catch (syncErr) {
+        req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');
+      }
+    }
+
     const zohoSO = await createZohoSalesOrder(
       customer.zoho_contact_id,
       order.items,
@@ -207,7 +217,7 @@ const acceptOrder = async (req, res) => {
       }
     }
 
-    const deliveryOtp = String(Math.floor(1000 + Math.random() * 9000));
+    const deliveryOtp = String(crypto.randomInt(1000, 10000));
 
     const updated = await updateOrder(orderId, {
       status: 'accepted',
@@ -227,6 +237,15 @@ const acceptOrder = async (req, res) => {
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
     req.log.error({ err: err.response?.data || err.message }, 'acceptOrder failed');
+    const zohoMsg = (err.response?.data?.message || err.message || '').toLowerCase();
+    if (zohoMsg.includes('inactive')) {
+      const itemNames = (order.items || []).map(i => i.name).join(', ');
+      return res.status(422).json({
+        success: false,
+        error: 'ZOHO_INACTIVE_ITEM',
+        message: `Cannot accept order: the following item(s) are inactive in Zoho Inventory — ${itemNames}. Please mark them as Active in Zoho and retry.`
+      });
+    }
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.response?.data?.message || err.message });
   }
 };
@@ -297,18 +316,18 @@ const assignVehicle = async (req, res) => {
 
     const driverCount = driver.activeOrderCount ?? 0;
     const vehicleCount = vehicle.activeOrderCount ?? 0;
-    if (driverCount >= 2) {
-      return res.status(400).json({ success: false, error: 'DRIVER_AT_CAPACITY', message: 'Driver already has 2 active orders' });
+    if (driverCount >= MAX_ACTIVE_ORDERS_PER_ASSIGNMENT) {
+      return res.status(400).json({ success: false, error: 'DRIVER_AT_CAPACITY', message: `Driver already has ${MAX_ACTIVE_ORDERS_PER_ASSIGNMENT} active orders` });
     }
-    if (vehicleCount >= 2) {
-      return res.status(400).json({ success: false, error: 'VEHICLE_AT_CAPACITY', message: 'Vehicle already has 2 active orders' });
+    if (vehicleCount >= MAX_ACTIVE_ORDERS_PER_ASSIGNMENT) {
+      return res.status(400).json({ success: false, error: 'VEHICLE_AT_CAPACITY', message: `Vehicle already has ${MAX_ACTIVE_ORDERS_PER_ASSIGNMENT} active orders` });
     }
 
     const newDriverCount = driverCount + 1;
     const newVehicleCount = vehicleCount + 1;
     await Promise.all([
-      updateVehicle(vehicleId, { isAvailable: newVehicleCount < 2, activeOrderCount: newVehicleCount }, req.traceContext),
-      updateDriver(driverId, { isAvailable: newDriverCount < 2, activeOrderCount: newDriverCount }, req.traceContext)
+      updateVehicle(vehicleId, { isAvailable: newVehicleCount < MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, activeOrderCount: newVehicleCount }, req.traceContext),
+      updateDriver(driverId, { isAvailable: newDriverCount < MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, activeOrderCount: newDriverCount }, req.traceContext)
     ]);
 
     const updated = await updateOrder(orderId, {
@@ -321,6 +340,9 @@ const assignVehicle = async (req, res) => {
       vehicle: { vehicleNumber: vehicle.name, driverName: driver.name, driverPhone: driver.phone },
       assignedAt: new Date().toISOString()
     }, req.traceContext);
+
+    invalidateDriverOrders(driverId).catch(() => {});
+    invalidateOrder(orderId).catch(() => {});
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -542,11 +564,12 @@ const fixInvoice = async (req, res) => {
 // GET /api/admin/cod/pending
 const getPendingCOD = async (req, res) => {
   try {
-    const orders = await getAllOrders(req.traceContext);
+    const limit = parsePositiveInt(req.query.limit, DEFAULT_ADMIN_LIST_LIMIT);
+    const orders = await findOrders({ status: 'delivered', limit }, req.traceContext);
     const pending = orders.filter(o =>
       o.paymentType === 'COD' &&
-      o.codCollected !== true &&
-      o.status === 'delivered'
+      o.status === 'delivered' &&
+      (o.codCollected !== true || o.zohoPaymentRecorded !== true)
     );
     res.json({ success: true, data: { count: pending.length, orders: pending.map(formatTimestamps) } });
   } catch (err) {
@@ -635,7 +658,9 @@ const createDriver = async (req, res) => {
     const { name, phone } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'name is required' });
     if (!phone) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'phone is required' });
-    const driver = await addDriver(name.trim(), phone.trim(), req.traceContext);
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ success: false, error: 'INVALID_PHONE', message: 'Valid Indian mobile number required' });
+    const driver = await addDriver(name.trim(), normalizedPhone, req.traceContext);
     res.json({ success: true, data: { driver } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -678,11 +703,14 @@ const removeDriver = async (req, res) => {
 // GET /api/admin/cod/history
 const listCodHistory = async (req, res) => {
   try {
-    const { orderId, driverId, date, status } = req.query;
+    const { orderId, driverId, date, status, limit: limitParam } = req.query;
+    const limit = parsePositiveInt(limitParam, DEFAULT_ADMIN_LIST_LIMIT);
 
     const [allOrders, handovers] = await Promise.all([
-      getAllOrders(),
-      getAllHandovers(null, req.traceContext)
+      orderId
+        ? getOrderById(orderId, req.traceContext).then(order => (order ? [order] : []))
+        : findOrders({ status: 'delivered', driverId, date, limit }, req.traceContext).then(orders => orders.filter(o => o.paymentType === 'COD')),
+      getAllHandovers(status || null, req.traceContext, { driverId, date, limit })
     ]);
 
     // Order-level COD records (delivered COD orders with codCollectedByDriver)
@@ -691,6 +719,7 @@ const listCodHistory = async (req, res) => {
       .map(o => ({
         type: 'order',
         orderId: o.orderId,
+        customerName: o.customerName || o.customer?.name || null,
         driverName: o.driverName || '',
         driverId: o.driverId || '',
         amount: o.codAmountCollected || o.codAmount || 0,
@@ -733,8 +762,9 @@ const listCodHistory = async (req, res) => {
 // GET /api/admin/cod/handovers
 const listHandovers = async (req, res) => {
   try {
-    const { status } = req.query;
-    const handovers = await getAllHandovers(status || null, req.traceContext);
+    const { status, limit: limitParam } = req.query;
+    const limit = parsePositiveInt(limitParam, DEFAULT_ADMIN_LIST_LIMIT);
+    const handovers = await getAllHandovers(status || null, req.traceContext, { limit });
     res.json({ success: true, data: { handovers } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -779,7 +809,9 @@ const confirmHandover = async (req, res) => {
 const getCustomerByPhoneNumber = async (req, res) => {
   try {
     const { phone } = req.params;
-    const customer = await getCustomerByPhone(phone, req.traceContext);
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ success: false, error: 'INVALID_PHONE', message: 'Valid Indian mobile number required' });
+    const customer = await getCustomerByPhone(normalizedPhone, req.traceContext);
     if (!customer) return res.status(404).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'No customer found with that phone number' });
     res.json({ success: true, data: { customer } });
   } catch (err) {
@@ -836,6 +868,7 @@ const forceCompleteOrder = async (req, res) => {
         const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
         await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
+      invalidateDriverOrders(order.driverId).catch(() => {});
     }
     if (order.vehicleId) {
       const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
@@ -844,6 +877,7 @@ const forceCompleteOrder = async (req, res) => {
         await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
     }
+    invalidateOrder(orderId).catch(() => {});
 
     updateLiveOrderStatus(orderId, 'delivered')
       .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
@@ -899,6 +933,7 @@ const cancelOrder = async (req, res) => {
         const count = Math.max(0, (driver.activeOrderCount ?? 1) - 1);
         await updateDriver(order.driverId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
+      invalidateDriverOrders(order.driverId).catch(() => {});
     }
     if (order.vehicleId) {
       const vehicle = await getVehicleById(order.vehicleId, req.traceContext).catch(() => null);
@@ -907,6 +942,7 @@ const cancelOrder = async (req, res) => {
         await updateVehicle(order.vehicleId, { activeOrderCount: count, isAvailable: count < 2 }, req.traceContext).catch(() => {});
       }
     }
+    invalidateOrder(orderId).catch(() => {});
 
     if (order.userId) {
       fcm.notifyOrderCancelled(order.userId, orderId)
@@ -1014,6 +1050,208 @@ const getAbandonedCarts = async (req, res) => {
   }
 };
 
+// POST /api/admin/orders/:orderId/record-payment
+const recordCodPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { date, notes } = req.body;
+
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.paymentType !== 'COD') return res.status(400).json({ success: false, error: 'NOT_COD_ORDER', message: 'Order is not a COD order' });
+    if (order.status !== 'delivered') return res.status(400).json({ success: false, error: 'ORDER_NOT_DELIVERED', message: 'Order must be delivered first' });
+    if (!order.codCollectedByDriver) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    if (order.zohoPaymentRecorded) return res.status(400).json({ success: false, error: 'PAYMENT_ALREADY_RECORDED', message: 'Payment already recorded in Zoho Books' });
+
+    if (!order.zoho_invoice_id) {
+      return res.status(404).json({ success: false, error: 'NO_INVOICE', message: 'No Zoho Books invoice found. Ensure SO is converted to invoice in Zoho.' });
+    }
+
+    const customer = await getCustomer(order.userId, req.traceContext);
+    if (!customer || !customer.zoho_contact_id) {
+      return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho contact not found' });
+    }
+
+    const amount = order.codAmountCollected || order.grand_total || order.grandTotal || 0;
+    const paymentMethod = order.codPaymentMethod || 'cash';
+
+    const { zohoPaymentId, zohoPaymentNumber } = await recordPaymentInZohoBooks({
+      invoiceId: order.zoho_invoice_id,
+      customerId: customer.zoho_contact_id,
+      amount,
+      paymentMethod,
+      date: date || new Date().toISOString().split('T')[0],
+      notes
+    });
+
+    await getTrackedDb().collection('orders').doc(orderId).update({
+      zohoPaymentRecorded: true,
+      zohoPaymentId,
+      zohoPaymentNumber,
+      zohoPaymentDate: date || new Date().toISOString().split('T')[0],
+      zohoPaymentRecordedAt: new Date().toISOString(),
+      zohoPaymentRecordedBy: 'admin'
+    });
+
+    return res.json({
+      success: true,
+      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
+    });
+  } catch (err) {
+    req.log.error({ err: err.response?.data || err.message }, 'recordCodPayment failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.response?.data?.message || err.message });
+  }
+};
+
+function toCategoryId(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// GET /api/admin/categories
+const listCategories = async (req, res) => {
+  try {
+    const [products, catSnap] = await Promise.all([
+      getAllProducts(req.traceContext),
+      getTrackedDb().collection('categories').get()
+    ]);
+
+    const categoryImages = {};
+    catSnap.docs.forEach(d => { categoryImages[d.id] = d.data().imageUrl || null; });
+
+    const catMap = {};
+    products.forEach(p => {
+      if (!p.category) return;
+      const id = toCategoryId(p.category);
+      if (!catMap[id]) catMap[id] = { id, name: p.category, productCount: 0 };
+      catMap[id].productCount++;
+    });
+
+    const categories = Object.values(catMap)
+      .map(cat => ({ ...cat, imageUrl: categoryImages[cat.id] || null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ success: true, data: { categories } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/categories/:categoryId/image
+const uploadCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { categoryName } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_FILE', message: 'image file is required' });
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FILE_TYPE', message: 'Only jpeg, png, webp images are allowed' });
+    }
+
+    const imageUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'categories');
+
+    await getTrackedDb().collection('categories').doc(categoryId).set({
+      imageUrl,
+      categoryName: categoryName || categoryId,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    res.json({ success: true, imageUrl });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// DELETE /api/admin/categories/:categoryId/image
+const deleteCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    await getTrackedDb().collection('categories').doc(categoryId).set({
+      imageUrl: null,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// GET /api/admin/banners
+const listBanners = async (req, res) => {
+  try {
+    const snap = await getTrackedDb().collection('banners').orderBy('sortOrder', 'asc').get();
+    const banners = snap.docs.map(d => ({ bannerId: d.id, ...d.data() }));
+    res.json({ success: true, data: { banners } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/banners
+const uploadBanner = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_FILE', message: 'image file is required' });
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FILE_TYPE', message: 'Only jpeg, png, webp images are allowed' });
+    }
+
+    const imageUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'banners');
+    const bannerId = 'BNR' + Date.now();
+    const sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    const banner = {
+      bannerId,
+      imageUrl,
+      title: req.body.title || null,
+      link: req.body.link || null,
+      sortOrder,
+      active: true,
+      createdAt: new Date().toISOString()
+    };
+
+    await getTrackedDb().collection('banners').doc(bannerId).set(banner);
+    res.json({ success: true, data: { banner } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// PATCH /api/admin/banners/:bannerId
+const updateBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+
+    const updates = {};
+    if (req.body.title !== undefined) updates.title = req.body.title || null;
+    if (req.body.link !== undefined) updates.link = req.body.link || null;
+    if (req.body.sortOrder !== undefined) updates.sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    if (req.body.active !== undefined) updates.active = req.body.active === true || req.body.active === 'true';
+    updates.updatedAt = new Date().toISOString();
+
+    await getTrackedDb().collection('banners').doc(bannerId).update(updates);
+    res.json({ success: true, data: { bannerId, ...updates } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// DELETE /api/admin/banners/:bannerId
+const deleteBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+    await getTrackedDb().collection('banners').doc(bannerId).delete();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -1060,6 +1298,7 @@ module.exports = {
   fixInvoice,
   getPendingCOD,
   reconcileCOD,
+  recordCodPayment,
   listVehicles,
   createVehicle,
   removeVehicle,
@@ -1070,5 +1309,12 @@ module.exports = {
   listHandovers,
   confirmHandover,
   listCodHistory,
-  toggleFeatured
+  toggleFeatured,
+  listCategories,
+  uploadCategoryImage,
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 };

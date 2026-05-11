@@ -2,6 +2,7 @@
 
 const { dbOp } = require('../utils/dbOp');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
+const { DEFAULT_HANDOVER_QUERY_LIMIT } = require('../constants');
 
 const db = getTrackedDb();
 
@@ -58,11 +59,19 @@ async function getDriverByToken(token, traceContext = null) {
   }, traceContext);
 }
 
-async function getAllHandoversForDriver(driverId, traceContext = null) {
+async function getAllHandoversForDriver(driverId, traceContext = null, options = {}) {
+  return getAllHandoversForDriverFiltered(driverId, traceContext, options);
+}
+
+async function getAllHandoversForDriverFiltered(driverId, traceContext = null, options = {}) {
+  const { date, limit = DEFAULT_HANDOVER_QUERY_LIMIT } = options;
   return dbOp('getAllHandoversForDriver', async () => {
-    const snap = await db.collection('codHandovers').where('driverId', '==', driverId).get();
-    const docs = snap.docs.map(d => d.data());
-    return docs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    let q = db.collection('codHandovers').where('driverId', '==', driverId);
+    if (date) q = q.where('date', '==', date);
+    q = q.orderBy('createdAt', 'desc');
+    if (limit > 0) q = q.limit(limit);
+    const snap = await q.get();
+    return snap.docs.map(d => d.data());
   }, traceContext);
 }
 
@@ -78,17 +87,28 @@ async function getHandoversByDriver(driverId, date, traceContext = null) {
     const snap = await db.collection('codHandovers')
       .where('driverId', '==', driverId)
       .where('date', '==', date)
+      .orderBy('createdAt', 'desc')
+      .limit(DEFAULT_HANDOVER_QUERY_LIMIT)
       .get();
     return snap.docs.map(d => d.data());
   }, traceContext);
 }
 
-async function getAllHandovers(status, traceContext = null) {
+async function getAllHandovers(status, traceContext = null, options = {}) {
+  return getAllHandoversFiltered(status, traceContext, options);
+}
+
+async function getAllHandoversFiltered(status, traceContext = null, options = {}) {
+  const { date, driverId, limit = DEFAULT_HANDOVER_QUERY_LIMIT } = options;
   return dbOp('getAllHandovers', async () => {
-    const snap = await db.collection('codHandovers').orderBy('createdAt', 'desc').get();
-    let handovers = snap.docs.map(d => d.data());
-    if (status) handovers = handovers.filter(h => h.status === status);
-    return handovers;
+    let q = db.collection('codHandovers');
+    if (status) q = q.where('status', '==', status);
+    if (date) q = q.where('date', '==', date);
+    if (driverId) q = q.where('driverId', '==', driverId);
+    q = q.orderBy('createdAt', 'desc');
+    if (limit > 0) q = q.limit(limit);
+    const snap = await q.get();
+    return snap.docs.map(d => d.data());
   }, traceContext);
 }
 
@@ -109,6 +129,7 @@ async function updateHandover(handoverId, updates, traceContext = null) {
 module.exports = {
   getDrivers, addDriver, updateDriver, softDeleteDriver,
   getDriverById, getDriverByPhone, getDriverByToken,
-  getAllHandoversForDriver,
-  createHandover, getHandoversByDriver, getAllHandovers, getHandoverById, updateHandover,
+  getAllHandoversForDriver, getAllHandoversForDriverFiltered,
+  createHandover, getHandoversByDriver, getAllHandovers, getAllHandoversFiltered,
+  getHandoverById, updateHandover,
 };

@@ -1,28 +1,30 @@
 // In-memory rate limiting — no external dependency required.
 // All stores are Map<key, number[]> (arrays of timestamps in ms).
 
-const OTP_SEND_MAX = 3;
-const OTP_SEND_WINDOW_MS = 15 * 60 * 1000;   // 15 min per phone
-const IP_MAX = 10;
-const IP_WINDOW_MS = 60 * 60 * 1000;          // 1 hour per IP
-const RESEND_COOLDOWN_MS = 30 * 1000;          // 30 sec per phone
-const VERIFY_MAX_ATTEMPTS = 5;
-const VERIFY_LOCKOUT_MS = 15 * 60 * 1000;     // 15 min lockout
+const {
+  OTP_SEND_MAX, OTP_SEND_WINDOW_MS,
+  IP_MAX, IP_WINDOW_MS,
+  RESEND_COOLDOWN_MS,
+  VERIFY_MAX_ATTEMPTS, VERIFY_LOCKOUT_MS,
+} = require('../constants');
 
 const phoneSendLog = new Map();   // phone → [timestamp, ...]
 const ipLog = new Map();          // ip → [timestamp, ...]
 const resendLog = new Map();      // phone → last-send-timestamp
 const verifyAttempts = new Map(); // phone → { count, lockedUntil }
 
-function pruneOld(arr, windowMs) {
+function pruneTimestamps(map, key, windowMs) {
   const cutoff = Date.now() - windowMs;
-  return arr.filter(t => t > cutoff);
+  const arr = (map.get(key) || []).filter(t => t > cutoff);
+  if (arr.length === 0) map.delete(key);
+  else map.set(key, arr);
+  return arr;
 }
 
 // ── OTP SEND RATE LIMIT (per phone) ───────────────────────
 function checkOtpSendLimit(phone) {
   const now = Date.now();
-  const log = pruneOld(phoneSendLog.get(phone) || [], OTP_SEND_WINDOW_MS);
+  const log = pruneTimestamps(phoneSendLog, phone, OTP_SEND_WINDOW_MS);
   if (log.length >= OTP_SEND_MAX) {
     const retryAfter = Math.ceil((log[0] + OTP_SEND_WINDOW_MS - now) / 1000);
     const err = new Error(`Too many OTP requests. Try again in ${retryAfter}s`);
@@ -32,7 +34,7 @@ function checkOtpSendLimit(phone) {
 }
 
 function recordOtpSend(phone) {
-  const log = pruneOld(phoneSendLog.get(phone) || [], OTP_SEND_WINDOW_MS);
+  const log = pruneTimestamps(phoneSendLog, phone, OTP_SEND_WINDOW_MS);
   log.push(Date.now());
   phoneSendLog.set(phone, log);
   resendLog.set(phone, Date.now());
@@ -42,7 +44,7 @@ function recordOtpSend(phone) {
 function ipRateLimiter(req, res, next) {
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
   const now = Date.now();
-  const log = pruneOld(ipLog.get(ip) || [], IP_WINDOW_MS);
+  const log = pruneTimestamps(ipLog, ip, IP_WINDOW_MS);
   if (log.length >= IP_MAX) {
     return res.status(429).json({ success: false, message: 'Too many requests from this IP. Try again later.' });
   }
@@ -62,17 +64,23 @@ function checkResendCooldown(phone) {
       err.status = 429;
       throw err;
     }
+    if (elapsed >= RESEND_COOLDOWN_MS) resendLog.delete(phone);
   }
 }
 
 // ── VERIFY ATTEMPT TRACKING (per phone) ───────────────────
 function checkVerifyLockout(phone) {
   const state = verifyAttempts.get(phone);
-  if (state && state.lockedUntil > Date.now()) {
+  if (!state) return;
+  if (state.lockedUntil > Date.now()) {
     const wait = Math.ceil((state.lockedUntil - Date.now()) / 1000);
     const err = new Error(`Too many failed attempts. Try again in ${wait}s`);
     err.status = 429;
     throw err;
+  }
+  // Lockout has expired — clean up the stale entry
+  if (state.lockedUntil > 0 && state.lockedUntil <= Date.now()) {
+    verifyAttempts.delete(phone);
   }
 }
 

@@ -1,13 +1,14 @@
 const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
+const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 
 async function addToCart(userId, productId, quantity, price, shadeInfo = null, variantId = null) {
-  if (!price || price <= 0) throw new Error('price is required and must be greater than 0');
+  if (!price || price <= 0) throw new ValidationError('price is required and must be greater than 0', 'INVALID_PARAM');
 
   const cart = await getCart(userId);
   const product = await getProductById(productId);
-  if (!product) throw new Error('Product not found');
+  if (!product) throw new NotFoundError('Product not found', 'PRODUCT_NOT_FOUND');
 
   // Resolve variant fields for ALL products (shade or not)
   let resolvedZohoItemId = productId;
@@ -30,10 +31,19 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
     const totalRequestedQty = existingQty + quantity;
     if (totalRequestedQty > product.available_stock) {
       const availableToAdd = product.available_stock - existingQty;
-      throw new Error(
+      const maxAllowedQty = Math.max(0, product.available_stock);
+      throw new StockError(
         availableToAdd <= 0
           ? `Sorry, ${product.name} is out of stock`
-          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+        [{
+          productId,
+          productName: product.name,
+          requestedQty: totalRequestedQty,
+          availableQty: product.available_stock,
+          maxAllowedQty,
+          existingCartQty: existingQty,
+        }]
       );
     }
   }
@@ -78,17 +88,26 @@ async function updateCartItem(userId, productId, quantity, cartItemId = null) {
 
   if (quantity > 0) {
     const product = await getProductById(productId);
-    if (!product) throw new Error('Product not found');
+    if (!product) throw new NotFoundError('Product not found', 'PRODUCT_NOT_FOUND');
 
     if (product.available_stock !== undefined && product.available_stock !== null) {
       if (quantity > product.available_stock) {
         const existingItem = findItem(cart.items);
         const existingQty = existingItem ? existingItem.quantity : 0;
         const availableToAdd = product.available_stock - existingQty;
-        throw new Error(
+        const maxAllowedQty = Math.max(0, product.available_stock);
+        throw new StockError(
           availableToAdd <= 0
             ? `Sorry, ${product.name} is out of stock`
-            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`
+            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+          [{
+            productId,
+            productName: product.name,
+            requestedQty: quantity,
+            availableQty: product.available_stock,
+            maxAllowedQty,
+            existingCartQty: existingQty,
+          }]
         );
       }
     }
@@ -130,11 +149,13 @@ async function buildCartResponse(userId) {
   let subtotalRaw = 0;
   let gstTotalRaw = 0;
 
-  const items = await Promise.all(cart.items.map(async (item) => {
+  const itemResults = await Promise.all(cart.items.map(async (item) => {
     const product = await getProductById(item.productId);
     if (!product) return null;
 
     const price = item.price;
+    if (!price || price <= 0) return null;
+
     const gstRate = product.gst_percentage || 18;
     const qty = item.quantity;
 
@@ -173,10 +194,19 @@ async function buildCartResponse(userId) {
       cartItem.shadeTier = item.shadeTier || null;
     }
 
-    return cartItem;
+    if (product.rackNumber) cartItem.rackNumber = product.rackNumber;
+
+    return { raw: item, computed: cartItem };
   }));
 
-  const validItems = items.filter(Boolean);
+  const validResults = itemResults.filter(Boolean);
+  const validItems = validResults.map(r => r.computed);
+
+  // Persist cleanup: remove stale entries (product removed from Zoho or price invalid)
+  if (validResults.length !== cart.items.length) {
+    cart.items = validResults.map(r => r.raw);
+    saveCart(userId, cart).catch(() => {});
+  }
   const subtotal = Math.round(subtotalRaw * 100) / 100;
   const gstTotal = Math.round(gstTotalRaw * 100) / 100;
   const deliveryCharge = Number(cart.deliveryCharge || 0);

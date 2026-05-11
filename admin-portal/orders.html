@@ -402,6 +402,7 @@
     <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
     <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
@@ -581,7 +582,7 @@
 </div>
 
 <script>
-const API_BASE = 'https://construction-api-2.onrender.com';
+const API_BASE = window.location.origin;
 
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -871,19 +872,33 @@ function buildActions(o) {
         ${cancelBtn}`;
     case 'loading':
       return `
-        <div class="info-box grey">🔄 Vehicle loaded — driver is preparing for departure.<br><small style="margin-top:4px;display:block;color:var(--muted)">Assigned: ${o.assignedAt ? fmtDate(o.assignedAt) : '—'}</small></div>
+        <div class="info-box grey">🔄 Vehicle loaded — driver is preparing for departure.<br>
+          <small style="margin-top:4px;display:block;color:var(--muted)">Assigned: ${o.assignedAt ? fmtDate(o.assignedAt) : '—'}</small>
+          ${o.driverName ? `<small style="display:block;margin-top:2px">🧑‍✈️ ${o.driverName}${o.driverPhone ? ' · ' + o.driverPhone : ''}</small>` : ''}
+          ${o.vehicleName || o.vehicle?.vehicleNumber ? `<small style="display:block;margin-top:2px">🚛 ${o.vehicleName || ''}${o.vehicle?.vehicleNumber ? ' · ' + o.vehicle.vehicleNumber : ''}</small>` : ''}
+        </div>
         <button class="btn-purple-outline no-print" onclick="viewPickingList('${o.orderId}')">📋 View Picking List</button>
         ${cancelBtn}`;
     case 'out_for_delivery':
       return `
-        <div class="info-box grey">🚚 Order is out for delivery.<br><small style="margin-top:4px;display:block;color:var(--muted)">Dispatched: ${o.loadingCompleteAt ? fmtDate(o.loadingCompleteAt) : '—'}</small></div>
+        <div class="info-box grey">🚚 Order is out for delivery.<br>
+          <small style="margin-top:4px;display:block;color:var(--muted)">Dispatched: ${o.loadingCompleteAt ? fmtDate(o.loadingCompleteAt) : '—'}</small>
+          ${o.driverName ? `<small style="display:block;margin-top:2px">🧑‍✈️ ${o.driverName}${o.driverPhone ? ' · ' + o.driverPhone : ''}</small>` : ''}
+          ${o.vehicleName || o.vehicle?.vehicleNumber ? `<small style="display:block;margin-top:2px">🚛 ${o.vehicleName || ''}${o.vehicle?.vehicleNumber ? ' · ' + o.vehicle.vehicleNumber : ''}</small>` : ''}
+        </div>
         <button class="btn-full btn-orange" onclick="openForceModal('${o.orderId}')">⚡ Force Complete</button>`;
     case 'arrived':
       return `
-        <div class="info-box grey">📍 Driver has arrived at delivery location.<br><small style="margin-top:4px;display:block;color:var(--muted)">Arrived: ${o.arrivedAt ? fmtDate(o.arrivedAt) : '—'}</small></div>
+        <div class="info-box grey">📍 Driver has arrived at delivery location.<br>
+          <small style="margin-top:4px;display:block;color:var(--muted)">Arrived: ${o.arrivedAt ? fmtDate(o.arrivedAt) : '—'}</small>
+          ${o.driverName ? `<small style="display:block;margin-top:2px">🧑‍✈️ ${o.driverName}${o.driverPhone ? ' · ' + o.driverPhone : ''}</small>` : ''}
+          ${o.vehicleName || o.vehicle?.vehicleNumber ? `<small style="display:block;margin-top:2px">🚛 ${o.vehicleName || ''}${o.vehicle?.vehicleNumber ? ' · ' + o.vehicle.vehicleNumber : ''}</small>` : ''}
+        </div>
         <button class="btn-full btn-orange" onclick="openForceModal('${o.orderId}')">⚡ Force Complete</button>`;
     case 'delivered':
       return `<div class="info-box success">✅ Delivered on ${o.deliveredAt ? fmtDate(o.deliveredAt) : '—'}
+        ${o.driverName ? `<br><small>🧑‍✈️ ${o.driverName}${o.driverPhone ? ' · ' + o.driverPhone : ''}</small>` : ''}
+        ${o.vehicleName || o.vehicle?.vehicleNumber ? `<br><small>🚛 ${o.vehicleName || ''}${o.vehicle?.vehicleNumber ? ' · ' + o.vehicle.vehicleNumber : ''}</small>` : ''}
         ${o.deliveryPhotoUrl ? `<br><img src="${o.deliveryPhotoUrl}" class="delivery-photo" alt="Delivery proof">` : ''}
         ${o.forcedComplete ? `<br><small style="color:var(--orange);font-weight:600">⚡ Force completed — ${o.forceReason||''}</small>` : ''}
       </div>`;

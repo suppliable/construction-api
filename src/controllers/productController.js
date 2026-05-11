@@ -24,7 +24,7 @@ const getProduct = async (req, res) => {
   }
 };
 
-const PLACEHOLDER_IMAGE = 'https://placehold.co/400x300?text=No+Image';
+const { PLACEHOLDER_IMAGE } = require('../constants');
 
 const updateProductImage = async (req, res) => {
   const { id } = req.params;

@@ -12,8 +12,10 @@ const calculateDeliveryCharge = async (req, res) => {
       return res.status(404).json({ success: false, error: 'ADDRESS_NOT_FOUND', message: 'Address not found' });
     }
 
-    const addressString = [address.streetAddress, address.city, address.state, address.pincode]
-      .filter(Boolean).join(', ');
+    const addressString = [
+      address.flatNo, address.buildingName, address.streetAddress,
+      address.landmark, address.area, address.city, address.state, address.pincode
+    ].filter(Boolean).join(', ');
 
     const result = await calculateDelivery(
       address.pincode,

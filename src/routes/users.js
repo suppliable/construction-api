@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const admin = require('../utils/firebaseAdmin');
 const authenticate = require('../middleware/auth');
+const { buildRuntimeDiagnostics, ensureAllowlistedAdminPhone } = require('../services/diagnosticsService');
 
 // POST /api/v1/users/fcm-token
 router.post('/fcm-token', authenticate, async (req, res) => {
@@ -29,6 +30,18 @@ router.post('/fcm-token', authenticate, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+router.get('/environment-info', authenticate, async (req, res, next) => {
+  try {
+    await ensureAllowlistedAdminPhone(req.user.phone);
+    return res.json({
+      success: true,
+      data: buildRuntimeDiagnostics(),
+    });
+  } catch (err) {
+    return next(err);
   }
 });
 

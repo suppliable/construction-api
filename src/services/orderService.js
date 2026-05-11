@@ -1,11 +1,12 @@
 'use strict';
 
 const { getCustomer, getAddressById, saveOrder, getSettings } = require('./firestoreService');
+const remoteConfig = require('./remoteConfigService');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 
-async function createOrder({ userId, addressId, paymentType }, traceContext, log) {
+async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
   if (!addressId) throw new ValidationError('addressId is required', 'MISSING_PARAM');
   if (!paymentType || !['COD', 'ONLINE'].includes(paymentType)) {
@@ -14,12 +15,11 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
 
   const settings = await getSettings(traceContext);
   if (settings.warehouseOpen === false) {
-    const err = new ValidationError(
+    throw new StockError(
       settings.warehouseClosedMessage || 'We are currently closed.',
-      'WAREHOUSE_CLOSED'
+      [],
+      true
     );
-    err.canAddToCart = true;
-    throw err;
   }
 
   const cart = await getCart(userId);
@@ -92,9 +92,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
   }));
 
   if (stockIssues.length > 0) {
-    const err = new ValidationError('Stock validation failed', 'STOCK_ISSUE');
-    err.issues = stockIssues;
-    throw err;
+    throw new StockError('Stock validation failed', stockIssues);
   }
 
   const subtotal = parseFloat(lineItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));
@@ -117,7 +115,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, log
     return order;
   }
 
-  const cod_threshold = settings.cod_threshold ?? 7500;
+  const cod_threshold = await remoteConfig.getNumber('cod_threshold', settings.cod_threshold ?? 7500);
   if (grand_total > cod_threshold) {
     throw new ValidationError(
       `COD not available for orders above ₹${cod_threshold}. Please use online payment.`,

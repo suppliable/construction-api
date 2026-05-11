@@ -143,3 +143,7 @@ firebase-service-account.json
 
 
 postman/postman/*
+/.agents
+/.claude
+/.continue
+skills-lock.json

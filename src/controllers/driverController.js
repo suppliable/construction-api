@@ -2,13 +2,25 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { getOrderById, updateOrder, getAddressById, updateVehicle, updateDriver, getDriverByPhone, getDriverById, getVehicleById, getOrdersByDriver, createHandover, getHandoversByDriver, getAllHandoversForDriver } = require('../services/firestoreService');
 const { getETA, geocodeAddress, getDirectionsETA, formatEtaString } = require('../services/googleMapsService');
-const { writeLiveOrder, updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
+const { writeLiveOrder, updateLiveOrderStatus } = require('../services/realtimeDBService');
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
 const { formatTimestamps } = require('../utils/formatDoc');
 const fcm = require('../services/fcmService');
 
 const upload = multer({ storage: multer.memoryStorage() });
+const { ACTIVE_DRIVER_ORDER_STATUSES, DEFAULT_DRIVER_HISTORY_LIMIT, DRIVER_STATUS_LABELS } = require('../constants');
+const { normalizePhone } = require('../utils/phone');
+
+function getUtcDayBounds(date = new Date()) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const start = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
+}
 
 // POST /api/driver/auth
 const driverAuth = async (req, res) => {
@@ -18,7 +30,12 @@ const driverAuth = async (req, res) => {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'phone and pin are required' });
     }
 
-    const driver = await getDriverByPhone(phone, req.traceContext);
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      return res.status(400).json({ success: false, error: 'INVALID_PHONE', message: 'Valid Indian mobile number required' });
+    }
+
+    const driver = await getDriverByPhone(normalized, req.traceContext);
 
     if (!driver) {
       return res.status(401).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Phone number not registered as a driver' });
@@ -69,10 +86,50 @@ const loadingComplete = async (req, res) => {
     }, req.traceContext);
 
     const _addr = order.deliveryAddress || {};
-    const _destLat = _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
-    const _destLng = _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
-    if (!_destLat || !_destLng) console.warn('[LiveOrder] No dest coords for:', orderId);
-    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: null, etaMinutes: null, latitude: null, longitude: null, destLat: _destLat, destLng: _destLng })
+    let _destLat = order.deliveryCoordinates?.latitude
+      ?? _addr.lat ?? _addr.latitude ?? _addr.coordinates?.lat ?? _addr.coordinates?.latitude ?? null;
+    let _destLng = order.deliveryCoordinates?.longitude
+      ?? _addr.lng ?? _addr.longitude ?? _addr.coordinates?.lng ?? _addr.coordinates?.longitude ?? null;
+
+    // Resolve destination from addressId if still missing (geocode if needed)
+    if ((!_destLat || !_destLng) && order.addressId) {
+      const address = await getAddressById(order.addressId, req.traceContext).catch(() => null);
+      _destLat = address?.latitude ?? _destLat;
+      _destLng = address?.longitude ?? _destLng;
+      if ((!_destLat || !_destLng) && address && process.env.GOOGLE_MAPS_API_KEY) {
+        try {
+          const parts = [address.flatNo, address.buildingName, address.streetAddress, address.city, address.state, address.pincode].filter(Boolean);
+          if (parts.length) {
+            const coords = await geocodeAddress(parts.join(', '), req.traceContext);
+            _destLat = coords.latitude;
+            _destLng = coords.longitude;
+            // Cache resolved coords on the order so subsequent location pings skip geocoding
+            updateOrder(orderId, { deliveryCoordinates: { latitude: _destLat, longitude: _destLng } }, req.traceContext)
+              .catch(err => req.log?.warn({ err: err.message }, 'Cache deliveryCoordinates failed (non-fatal)'));
+          }
+        } catch (geoErr) {
+          req.log?.warn({ err: geoErr.message }, 'Geocode failed at loadingComplete — initial ETA skipped');
+        }
+      }
+    }
+    if (!_destLat || !_destLng) req.log?.warn({ orderId }, '[LiveOrder] No dest coords');
+
+    // Use driver's last known location (from periodic pings during loading) as origin
+    const originLat = order.driverLocation?.latitude ?? null;
+    const originLng = order.driverLocation?.longitude ?? null;
+    let etaString = null;
+    let etaMinutes = null;
+    if (originLat && originLng && _destLat && _destLng && process.env.GOOGLE_MAPS_API_KEY) {
+      try {
+        const { seconds } = await getDirectionsETA(originLat, originLng, _destLat, _destLng, req.traceContext);
+        etaString = formatEtaString(seconds);
+        etaMinutes = Math.ceil(seconds / 60);
+      } catch (mapsErr) {
+        req.log?.warn({ err: mapsErr.message }, 'Directions API failed at loadingComplete — initial ETA skipped');
+      }
+    }
+
+    writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude: originLat, longitude: originLng, destLat: _destLat, destLng: _destLng })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
 
     if (order.userId) {
@@ -155,12 +212,12 @@ const updateDriverLocation = async (req, res) => {
       }
     }
 
+    // Write only driverLocation (and cached coords) to Firestore — permanent record
+    await updateOrder(orderId, firestoreUpdate, req.traceContext);
+
     // Always write to Realtime DB for live tracking (ETA may be null if Maps unavailable)
     writeLiveOrder(orderId, { status: 'out_for_delivery', eta: etaString, etaMinutes, latitude, longitude, destLat: destLat || null, destLng: destLng || null })
       .catch(err => req.log?.warn({ err: err.message }, 'RTDB writeLiveOrder failed (non-fatal)'));
-
-    // Write only driverLocation (and cached coords) to Firestore — permanent record
-    await updateOrder(orderId, firestoreUpdate, req.traceContext);
 
     return res.json({
       success: true,
@@ -212,8 +269,11 @@ const arrived = async (req, res) => {
       arrivedAt: new Date().toISOString()
     }, req.traceContext);
 
-    updateLiveOrderStatus(orderId, 'arrived')
-      .catch(err => req.log?.warn({ err: err.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)'));
+    try {
+      await updateLiveOrderStatus(orderId, 'arrived');
+    } catch (rtdbErr) {
+      req.log.warn({ err: rtdbErr.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)');
+    }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -225,7 +285,7 @@ const arrived = async (req, res) => {
 const codCollected = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { amount } = req.body;
+    const { amount, paymentMethod } = req.body;
     const order = await getOrderById(orderId, req.traceContext);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.paymentType !== 'COD') {
@@ -234,15 +294,27 @@ const codCollected = async (req, res) => {
     if (order.status !== 'arrived') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be in arrived status (current: ${order.status})` });
     }
-    if (amount === undefined || amount === null) {
-      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'amount is required' });
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, error: 'INVALID_AMOUNT', message: 'amount must be greater than 0' });
+    }
+    if (!paymentMethod || !['cash', 'upi'].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PAYMENT_METHOD', message: 'paymentMethod must be cash or upi' });
     }
     const updated = await updateOrder(orderId, {
       codCollectedByDriver: true,
-      codAmountCollected: parseFloat(amount),
+      codAmountCollected: Number(amount),
+      codPaymentMethod: paymentMethod,
       codCollectedAt: new Date().toISOString()
     }, req.traceContext);
-    res.json({ success: true, data: { order: formatTimestamps(updated) } });
+    res.json({
+      success: true,
+      data: {
+        orderId,
+        codCollected: true,
+        codAmount: Number(amount),
+        codPaymentMethod: paymentMethod
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -289,9 +361,11 @@ const completeDelivery = [
         otpVerified: true
       }, req.traceContext);
 
-      updateLiveOrderStatus(orderId, 'delivered')
-        .then(() => setTimeout(() => deleteLiveOrder(orderId).catch(() => {}), 60000))
-        .catch(err => req.log?.warn({ err: err.message }, 'RTDB delivered update failed (non-fatal)'));
+      try {
+        await updateLiveOrderStatus(orderId, 'delivered');
+      } catch (rtdbErr) {
+        req.log.warn({ err: rtdbErr.message }, 'RTDB delivered update failed (non-fatal)');
+      }
 
       if (order.userId) {
         fcm.notifyDelivered(order.userId, orderId)
@@ -299,28 +373,30 @@ const completeDelivery = [
       }
 
       if (order.zoho_so_id) {
-        updateZohoShipment(order.zoho_so_id, req.traceContext).catch(err => {
-          req.log.warn({ err: err.response?.data || err.message }, 'Zoho shipment update failed (non-fatal)');
-        });
+        try {
+          await updateZohoShipment(order.zoho_so_id, req.traceContext);
+        } catch (zohoErr) {
+          req.log.warn({ err: zohoErr.response?.data || zohoErr.message }, 'Zoho shipment update failed (non-fatal)');
+        }
       }
 
       if (order.vehicleId) {
-        (async () => {
-          try {
-            const v = await getVehicleById(order.vehicleId, req.traceContext);
-            const newCount = Math.max(0, (v?.activeOrderCount ?? 1) - 1);
-            await updateVehicle(order.vehicleId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
-          } catch (e) { req.log.warn({ err: e.message }, 'Vehicle count decrement failed'); }
-        })();
+        try {
+          const v = await getVehicleById(order.vehicleId, req.traceContext);
+          const newCount = Math.max(0, (v?.activeOrderCount ?? 1) - 1);
+          await updateVehicle(order.vehicleId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
+        } catch (e) {
+          req.log.warn({ err: e.message }, 'Vehicle count decrement failed');
+        }
       }
       if (order.driverId) {
-        (async () => {
-          try {
-            const d = await getDriverById(order.driverId, req.traceContext);
-            const newCount = Math.max(0, (d?.activeOrderCount ?? 1) - 1);
-            await updateDriver(order.driverId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
-          } catch (e) { req.log.warn({ err: e.message }, 'Driver count decrement failed'); }
-        })();
+        try {
+          const d = await getDriverById(order.driverId, req.traceContext);
+          const newCount = Math.max(0, (d?.activeOrderCount ?? 1) - 1);
+          await updateDriver(order.driverId, { isAvailable: newCount < 2, activeOrderCount: newCount }, req.traceContext);
+        } catch (e) {
+          req.log.warn({ err: e.message }, 'Driver count decrement failed');
+        }
       }
 
       res.json({ success: true, data: { order: formatTimestamps(updated) } });
@@ -330,15 +406,6 @@ const completeDelivery = [
   }
 ];
 
-const STATUS_LABELS = {
-  accepted: 'Order Accepted',
-  ready_for_dispatch: 'Ready for Dispatch',
-  loading: 'Loading',
-  out_for_delivery: 'Out for Delivery',
-  arrived: 'Arrived',
-  delivered: 'Delivered',
-  declined: 'Declined'
-};
 
 // GET /api/driver/orders/today
 // Note: endpoint name kept for Flutter compatibility — now returns ALL incomplete
@@ -346,10 +413,10 @@ const STATUS_LABELS = {
 const getTodayOrders = async (req, res) => {
   try {
     const { driverId } = req.driver;
-    const allOrders = await getOrdersByDriver(driverId, null, null, req.traceContext);
-
-    const DONE = ['delivered', 'declined'];
-    const todayOrders = allOrders.filter(o => !DONE.includes(o.status));
+    const todayOrders = await getOrdersByDriver(driverId, null, null, req.traceContext, {
+      statuses: ACTIVE_DRIVER_ORDER_STATUSES,
+      limit: DEFAULT_DRIVER_HISTORY_LIMIT,
+    });
 
     todayOrders.sort((a, b) => (a.assignedAt || '').localeCompare(b.assignedAt || ''));
 
@@ -362,7 +429,7 @@ const getTodayOrders = async (req, res) => {
       return {
         orderId: o.orderId,
         status: o.status,
-        statusLabel: STATUS_LABELS[o.status] || o.status,
+        statusLabel: DRIVER_STATUS_LABELS[o.status] || o.status,
         customerName: o.customerName || '',
         customerPhone: o.customerPhone || '',
         deliveryAddress: {
@@ -396,7 +463,8 @@ const getDriverProfile = async (req, res) => {
     const driver = await getDriverById(driverId, req.traceContext);
     if (!driver) return res.status(404).json({ success: false, error: 'DRIVER_NOT_FOUND', message: 'Driver not found' });
 
-    const allDriverOrders = await getOrdersByDriver(driverId, null, null, req.traceContext);
+    const { startISO, endISO } = getUtcDayBounds();
+    const allDriverOrders = await getOrdersByDriver(driverId, startISO, endISO, req.traceContext, { limit: DEFAULT_DRIVER_HISTORY_LIMIT });
     const todayIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }).split(',')[0];
     const todayOrders = allDriverOrders.filter(o => {
       if (!o.assignedAt) return false;
@@ -443,9 +511,11 @@ const updateDriverStatus = async (req, res) => {
     }
 
     if (!isAvailable) {
-      const IN_PROGRESS = ['loading', 'out_for_delivery', 'arrived'];
-      const allOrders = await getOrdersByDriver(driverId, null, null, req.traceContext);
-      const hasActive = allOrders.some(o => IN_PROGRESS.includes(o.status));
+      const activeOrders = await getOrdersByDriver(driverId, null, null, req.traceContext, {
+        statuses: ['loading', 'out_for_delivery', 'arrived'],
+        limit: DEFAULT_DRIVER_HISTORY_LIMIT,
+      });
+      const hasActive = activeOrders.length > 0;
       if (hasActive) {
         return res.status(400).json({ success: false, error: 'ORDER_IN_PROGRESS', message: 'Cannot go offline while an order is in progress' });
       }
@@ -493,7 +563,7 @@ const getDriverOrderDetail = async (req, res) => {
         order: {
           orderId: order.orderId,
           status: order.status,
-          statusLabel: STATUS_LABELS[order.status] || order.status,
+          statusLabel: DRIVER_STATUS_LABELS[order.status] || order.status,
           customerName: order.customerName || '',
           customerPhone: order.customerPhone || '',
           deliveryAddress: {
@@ -535,10 +605,16 @@ const getDriverCodHistory = async (req, res) => {
   try {
     const { driverId } = req.driver;
     const { date, orderId } = req.query;
+    const { startISO, endISO } = date ? {
+      startISO: new Date(`${date}T00:00:00.000Z`).toISOString(),
+      endISO: new Date(new Date(`${date}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    } : { startISO: null, endISO: null };
 
     const [allOrders, handovers] = await Promise.all([
-      getOrdersByDriver(driverId, null, null, req.traceContext),
-      getAllHandoversForDriver(driverId, req.traceContext)
+      orderId
+        ? getOrderById(orderId, req.traceContext).then(order => (order && order.driverId === driverId ? [order] : []))
+        : getOrdersByDriver(driverId, startISO, endISO, req.traceContext, { limit: DEFAULT_DRIVER_HISTORY_LIMIT }),
+      getAllHandoversForDriver(driverId, req.traceContext, { date, limit: DEFAULT_DRIVER_HISTORY_LIMIT })
     ]);
 
     const orderRecords = allOrders
@@ -577,7 +653,8 @@ const getDriverCodHistory = async (req, res) => {
 const getCodSummary = async (req, res) => {
   try {
     const { driverId } = req.driver;
-    const allOrders = await getOrdersByDriver(driverId, null, null, req.traceContext);
+    const { startISO, endISO } = getUtcDayBounds();
+    const allOrders = await getOrdersByDriver(driverId, startISO, endISO, req.traceContext, { limit: DEFAULT_DRIVER_HISTORY_LIMIT });
 
     const todayIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }).split(',')[0];
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });

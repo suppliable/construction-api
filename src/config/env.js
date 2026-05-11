@@ -6,8 +6,9 @@ const path = require('path');
 
 // Load base .env (gitignored, developer file)
 dotenv.config();
-// Load .env.local if present — higher priority, overrides .env (gitignored)
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
+// Load ENV_FILE if specified (e.g. .env.local.dev), otherwise fall back to .env.local
+const envFile = process.env.ENV_FILE || '.env.local';
+dotenv.config({ path: path.resolve(process.cwd(), envFile), override: true });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -20,12 +21,18 @@ const schema = z.object({
   ZOHO_ORG_ID: z.string().min(1, 'ZOHO_ORG_ID is required'),
 
   FIREBASE_SERVICE_ACCOUNT: z.string().min(1, 'FIREBASE_SERVICE_ACCOUNT is required'),
+  EXPECTED_PROJECT_ID: z.string().optional(),
 
   ADMIN_PASSWORD: z.string().min(8, 'ADMIN_PASSWORD must be at least 8 characters'),
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
   JWT_SECRET: z.string().min(6, 'JWT_SECRET must be at least 6 characters'),
 
   // Optional
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  GRAFANA_USER: z.string().optional(),
+  GRAFANA_API_KEY: z.string().optional(),
+  OTLP_ENDPOINT: z.string().url().optional(),
   FIREBASE_DATABASE_URL: z.string().url().optional(),
   FIREBASE_STORAGE_BUCKET: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
@@ -42,9 +49,47 @@ if (!result.success) {
   const errors = result.error.issues
     .map(issue => `  ${issue.path.join('.')}: ${issue.message}`)
     .join('\n');
-  // Intentional console.error — logger is not yet initialised at this point
+  // eslint-disable-next-line no-console -- logger is not yet initialised at this point
   console.error(`[Config] Environment validation failed:\n${errors}`);
   process.exit(1);
 }
 
-module.exports = result.data;
+let firebaseProjectId;
+try {
+  const val = result.data.FIREBASE_SERVICE_ACCOUNT.trim();
+  const sa = val.startsWith('/') || val.startsWith('.')
+    ? require(require('path').resolve(val))
+    : JSON.parse(val);
+  firebaseProjectId = sa.project_id;
+} catch (err) {
+  // eslint-disable-next-line no-console -- logger is not yet initialised at this point
+  console.error('[Config] FATAL: Could not read FIREBASE_SERVICE_ACCOUNT — must be a valid JSON string or file path.');
+  process.exit(1);
+}
+
+if (!firebaseProjectId) {
+  // eslint-disable-next-line no-console
+  console.error('[Config] FATAL: FIREBASE_SERVICE_ACCOUNT is missing project_id.');
+  process.exit(1);
+}
+
+if (result.data.EXPECTED_PROJECT_ID && firebaseProjectId !== result.data.EXPECTED_PROJECT_ID) {
+  // eslint-disable-next-line no-console
+  console.error(
+    `[Config] FATAL: Firebase service account mismatch. ` +
+      `Expected project_id=${result.data.EXPECTED_PROJECT_ID}, got ${firebaseProjectId}. ` +
+      `Refusing to start.`
+  );
+  process.exit(1);
+}
+
+const appEnv = firebaseProjectId.includes('suppliable-app')
+  ? 'prod'
+  : firebaseProjectId.includes('suppliable-qa')
+    ? 'qa'
+    : 'dev';
+
+// eslint-disable-next-line no-console -- intentional boot-time signal so it's obvious which env this container is talking to
+console.log(`[Config] Booting in app_env=${appEnv} node_env=${result.data.NODE_ENV} (firebase project_id=${firebaseProjectId})`);
+
+module.exports = { ...result.data, appEnv, firebaseProjectId };

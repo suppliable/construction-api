@@ -1,8 +1,10 @@
 const axios = require('axios');
 const { createSpan } = require('../utils/spanTracer');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
 async function getRoadDistance(originLat, originLng, destinationAddress, traceContext = null) {
   const span = createSpan(traceContext, 'google_maps.api.distancematrix', {
+    'peer.service': 'google-maps',
     endpoint: '/maps/api/distancematrix/json'
   });
   try {
@@ -11,7 +13,9 @@ async function getRoadDistance(originLat, originLng, destinationAddress, traceCo
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&key=${apiKey}&units=metric`;
 
-    const response = await axios.get(url);
+    const response = await withRetry('google_maps.api.distancematrix', () =>
+      axios.get(url, { timeout: DEFAULT_TIMEOUT_MS })
+    );
     const data = response.data;
 
     if (data.status !== 'OK') {
@@ -55,10 +59,12 @@ async function getETA(destinationAddress, traceContext = null) {
 async function geocodeAddress(addressString, traceContext = null) {
   const span = createSpan(traceContext, 'google_maps.api.geocode', { endpoint: '/maps/api/geocode/json' });
   try {
-    const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
-      params: { address: addressString, key: process.env.GOOGLE_MAPS_API_KEY },
-      timeout: 8000
-    });
+    const response = await withRetry('google_maps.api.geocode', () =>
+      axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+        params: { address: addressString, key: process.env.GOOGLE_MAPS_API_KEY },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     if (response.data.status !== 'OK' || !response.data.results?.length) {
       throw new Error(`Geocode failed: ${response.data.status}`);
     }
@@ -71,19 +77,50 @@ async function geocodeAddress(addressString, traceContext = null) {
   }
 }
 
+async function reverseGeocode(lat, lng, traceContext = null) {
+  const span = createSpan(traceContext, 'google_maps.api.reverseGeocode', { endpoint: '/maps/api/geocode/json' });
+  try {
+    const response = await withRetry('google_maps.api.reverseGeocode', () =>
+      axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+        params: { latlng: `${lat},${lng}`, key: process.env.GOOGLE_MAPS_API_KEY },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    if (response.data.status !== 'OK' || !response.data.results?.length) {
+      throw new Error(`Reverse geocode failed: ${response.data.status}`);
+    }
+    const result = response.data.results[0];
+    const components = result.address_components || [];
+    const find = (type) => components.find(c => c.types.includes(type))?.long_name || null;
+    const parsed = {
+      postalCode: find('postal_code'),
+      locality: find('locality') || find('sublocality') || find('administrative_area_level_3'),
+      adminArea: find('administrative_area_level_1'),
+      formattedAddress: result.formatted_address || null,
+    };
+    span.end({ success: true, postalCode: parsed.postalCode });
+    return parsed;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
 async function getDirectionsETA(originLat, originLng, destLat, destLng, traceContext = null) {
   const span = createSpan(traceContext, 'google_maps.api.directions', { endpoint: '/maps/api/directions/json' });
   try {
-    const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
-      params: {
-        origin: `${originLat},${originLng}`,
-        destination: `${destLat},${destLng}`,
-        key: process.env.GOOGLE_MAPS_API_KEY,
-        departure_time: 'now',
-        traffic_model: 'best_guess',
-      },
-      timeout: 8000
-    });
+    const response = await withRetry('google_maps.api.directions', () =>
+      axios.get('https://maps.googleapis.com/maps/api/directions/json', {
+        params: {
+          origin: `${originLat},${originLng}`,
+          destination: `${destLat},${destLng}`,
+          key: process.env.GOOGLE_MAPS_API_KEY,
+          departure_time: 'now',
+          traffic_model: 'best_guess',
+        },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
     const data = response.data;
     if (data.status !== 'OK' || !data.routes?.length) {
       throw new Error(`Directions API error: ${data.status}`);
@@ -106,4 +143,4 @@ function formatEtaString(seconds) {
   return m > 0 ? `Arriving in ${h}h ${m}m` : `Arriving in ${h}h`;
 }
 
-module.exports = { getRoadDistance, getETA, geocodeAddress, getDirectionsETA, formatEtaString };
+module.exports = { getRoadDistance, getETA, geocodeAddress, reverseGeocode, getDirectionsETA, formatEtaString };

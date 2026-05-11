@@ -1,58 +1,74 @@
 'use strict';
 
-const { randomBytes } = require('crypto');
+const { trace, context, propagation, SpanKind, SpanStatusCode } = require('@opentelemetry/api');
 const logger = require('./logger');
 
+const tracer = trace.getTracer('construction-api.services');
+
 /**
- * Creates a child span under the given W3C trace context.
+ * Creates a child OTEL span under the current active context.
  *
- * The span carries a `traceparent` string built with its own spanId —
- * forward that header on outgoing HTTP calls so downstream services see
- * this span as their parent (W3C Trace Context Level 1, OTel-compatible).
+ * The `traceContext` parameter is accepted for backward compatibility but
+ * is unused — OTEL's context propagation (set by controllerSpan middleware)
+ * automatically provides the correct parent span via context.active().
  *
- * Log fields match OTel semantic conventions so a future migration to
- * an OTLP exporter is a drop-in: trace_id, span_id, parent_span_id,
- * span_name, kind, duration_ms.
- *
- * @param {object|null} traceContext  req.traceContext (or the traceContext
- *   param threaded through service layers). Pass null to start a root span.
- * @param {string}      name          Dot-namespaced span name, e.g. 'zoho.api.getProducts'
- * @param {object}      [attributes]  Static key/value metadata for the span
- *
- * @example
- *   const span = createSpan(traceContext, 'msg91.api.sendOtp', { phone: masked });
- *   try {
- *     const res = await axios.post(url, body, { headers: { traceparent: span.traceparent } });
- *     span.end({ success: true });
- *   } catch (err) {
- *     span.end({ success: false, error: err.message });
- *     throw err;
- *   }
+ * Returns an object with a `.end({ success, error })` method that mirrors
+ * the original API so all callers remain unchanged.
  */
 function createSpan(traceContext, name, attributes = {}) {
-  const ctx = traceContext || {};
-  const traceId = ctx.traceId || randomBytes(16).toString('hex');
-  const parentSpanId = ctx.spanId || null;
-  const spanId = randomBytes(8).toString('hex');
-  const startTime = Date.now();
+  const bag = propagation.getBaggage(context.active());
+  const baggageAttrs = {};
+  if (bag) {
+    const userId = bag.getEntry('enduser.id')?.value;
+    const phone = bag.getEntry('app.user.phone')?.value;
+    if (userId) baggageAttrs['enduser.id'] = userId;
+    if (phone) baggageAttrs['app.user.phone'] = phone;
+  }
 
-  // W3C traceparent using *this* span's ID as the parent for downstream calls
-  const traceparent = `00-${traceId}-${spanId}-01`;
+  const span = tracer.startSpan(name, {
+    kind: SpanKind.CLIENT,
+    attributes: { ...baggageAttrs, ...attributes },
+  });
+
+  const startTime = Date.now();
+  let ended = false;
 
   return {
-    traceId,
-    spanId,
-    parentSpanId,
-    name,
-    traceparent,
+    // Keep traceId/spanId/traceparent for callers that forward them as headers
+    get traceId() {
+      return span.spanContext().traceId;
+    },
+    get spanId() {
+      return span.spanContext().spanId;
+    },
+    get traceparent() {
+      const ctx = span.spanContext();
+      return `00-${ctx.traceId}-${ctx.spanId}-01`;
+    },
+
+    setAttribute(key, value) {
+      span.setAttribute(key, value);
+    },
 
     end(result = {}) {
+      if (ended) return 0;
+      ended = true;
       const durationMs = Date.now() - startTime;
       const isError = result.error != null || result.success === false;
+
+      if (isError) {
+        const err = result.error instanceof Error ? result.error : new Error(result.error || 'span failed');
+        span.recordException(err);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      } else {
+        span.setStatus({ code: SpanStatusCode.OK });
+      }
+
+      // Preserve existing pino log so log correlation continues to work
       logger[isError ? 'warn' : 'info']({
-        trace_id: traceId,
-        span_id: spanId,
-        parent_span_id: parentSpanId,
+        trace_id: span.spanContext().traceId,
+        span_id: span.spanContext().spanId,
+        parent_span_id: traceContext?.spanId || null,
         span_name: name,
         kind: 'CLIENT',
         duration_ms: durationMs,
@@ -60,32 +76,81 @@ function createSpan(traceContext, name, attributes = {}) {
         attributes,
         ...result,
       }, `span:${name}`);
+
+      span.end();
       return durationMs;
     },
   };
 }
 
 /**
- * Convenience wrapper — creates a span, runs asyncFn, ends the span.
- * Use when you don't need to enrich the result beyond success/failure.
- * The span is passed to asyncFn in case you need span.traceparent for
- * outgoing headers.
- *
- * @param {object|null} traceContext
- * @param {string}      name
- * @param {object}      attributes
- * @param {function}    asyncFn  (span) => Promise<any>
+ * Convenience wrapper — creates a span, activates it as the current context
+ * (so nested withSpan / dbOp calls are correctly parented), runs asyncFn,
+ * then ends the span.
  */
 async function withSpan(traceContext, name, attributes, asyncFn) {
-  const span = createSpan(traceContext, name, attributes);
-  try {
-    const result = await asyncFn(span);
-    span.end({ success: true });
-    return result;
-  } catch (error) {
-    span.end({ success: false, error: error.message });
-    throw error;
-  }
+  return tracer.startActiveSpan(name, { kind: SpanKind.CLIENT, attributes }, async (rawSpan) => {
+    // Merge baggage attributes just like createSpan does
+    const bag = propagation.getBaggage(context.active());
+    if (bag) {
+      const userId = bag.getEntry('enduser.id')?.value;
+      const phone = bag.getEntry('app.user.phone')?.value;
+      if (userId) rawSpan.setAttribute('enduser.id', userId);
+      if (phone) rawSpan.setAttribute('app.user.phone', phone);
+    }
+
+    const startTime = Date.now();
+    let ended = false;
+
+    // Thin facade that mirrors the createSpan public API so all callers are unchanged
+    const spanObj = {
+      get traceId() { return rawSpan.spanContext().traceId; },
+      get spanId() { return rawSpan.spanContext().spanId; },
+      get traceparent() {
+        const ctx = rawSpan.spanContext();
+        return `00-${ctx.traceId}-${ctx.spanId}-01`;
+      },
+      setAttribute(key, value) { rawSpan.setAttribute(key, value); },
+      end(result = {}) {
+        if (ended) return 0;
+        ended = true;
+        const durationMs = Date.now() - startTime;
+        const isError = result.error != null || result.success === false;
+
+        if (isError) {
+          const err = result.error instanceof Error ? result.error : new Error(result.error || 'span failed');
+          rawSpan.recordException(err);
+          rawSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        } else {
+          rawSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+
+        logger[isError ? 'warn' : 'info']({
+          trace_id: rawSpan.spanContext().traceId,
+          span_id: rawSpan.spanContext().spanId,
+          parent_span_id: traceContext?.spanId || null,
+          span_name: name,
+          kind: 'CLIENT',
+          duration_ms: durationMs,
+          timestamp: new Date(startTime).toISOString(),
+          attributes,
+          ...result,
+        }, `span:${name}`);
+
+        rawSpan.end();
+        return durationMs;
+      },
+    };
+
+    try {
+      const result = await asyncFn(spanObj);
+      spanObj.end({ success: true });
+      return result;
+    } catch (error) {
+      spanObj.end({ success: false, error: error.message });
+      throw error;
+    }
+  });
 }
 
 module.exports = { createSpan, withSpan };

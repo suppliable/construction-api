@@ -2,6 +2,8 @@
 
 const { formatTimestamps } = require('../utils/formatDoc');
 
+const { ORDER_STATUS_LABELS: STATUS_LABELS } = require('../constants');
+
 function normalizeAddress(addr) {
   if (!addr) return null;
   const lat = addr.lat ?? addr.latitude ?? addr.coordinates?.lat ?? addr.coordinates?.latitude ?? null;
@@ -10,20 +12,6 @@ function normalizeAddress(addr) {
     [addr.line1, addr.line2, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') || null;
   return { ...addr, lat, lng, fullAddress };
 }
-
-const STATUS_LABELS = {
-  pending_payment: 'Awaiting Payment',
-  payment_confirmed: 'Payment Confirmed',
-  warehouse_review: 'Order Placed',
-  accepted: 'Order Accepted',
-  packing: 'Order Accepted',
-  ready_for_dispatch: 'Ready for Pickup',
-  loading: 'Loading into Vehicle',
-  out_for_delivery: 'Out for Delivery',
-  arrived: 'Driver has Arrived',
-  delivered: 'Delivered',
-  declined: 'Order Cancelled',
-};
 
 /**
  * Maps a raw Firestore order document to a typed customer-facing shape.

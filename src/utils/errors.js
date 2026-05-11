@@ -37,4 +37,12 @@ class UnauthorizedError extends AppError {
   }
 }
 
-module.exports = { AppError, NotFoundError, ValidationError, ConflictError, ExternalServiceError, UnauthorizedError };
+class StockError extends ConflictError {
+  constructor(message = 'Stock issue', issues = [], canAddToCart = false) {
+    super(message, 'STOCK_ISSUE');
+    this.issues = issues;
+    this.canAddToCart = canAddToCart;
+  }
+}
+
+module.exports = { AppError, NotFoundError, ValidationError, ConflictError, ExternalServiceError, UnauthorizedError, StockError };

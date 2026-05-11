@@ -1,5 +1,6 @@
 'use strict';
 
+const { context, propagation } = require('@opentelemetry/api');
 const jwt = require('jsonwebtoken');
 const admin = require('../utils/firebaseAdmin');
 const logger = require('../utils/logger');
@@ -10,6 +11,12 @@ const JWT_STRUCTURAL_ERRORS = new Set([
   'TokenExpiredError',
   'NotBeforeError',
 ]);
+
+function withUserBaggage(uid, phone) {
+  const entries = { 'enduser.id': { value: uid } };
+  if (phone) entries['app.user.phone'] = { value: phone };
+  return propagation.setBaggage(context.active(), propagation.createBaggage(entries));
+}
 
 /**
  * Dual-token authentication middleware.
@@ -23,7 +30,7 @@ async function authenticate(req, res, next) {
   if (process.env.NODE_ENV !== 'production' && req.headers['x-user-id']) {
     req.user = { uid: req.headers['x-user-id'] };
     req.log = req.log.child({ userId: req.user.uid });
-    return next();
+    return context.with(withUserBaggage(req.user.uid, null), next);
   }
 
   const authHeader = req.headers.authorization;
@@ -76,7 +83,8 @@ async function authenticate(req, res, next) {
       name: decoded.name || null,
     };
     req.log = req.log.child({ userId: req.user.uid });
-    return next();
+    logger.debug({ uid: req.user.uid, phone: req.user.phone }, 'auth:baggage');
+    return context.with(withUserBaggage(req.user.uid, req.user.phone), next);
   } catch (err) {
     const log = req.log || logger;
     log.warn({ err: err.message, code: err.code }, 'Token verification failed');

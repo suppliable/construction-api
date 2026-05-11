@@ -2,6 +2,7 @@ const { getDeliveryConfig } = require('./firestoreService');
 const { getRoadDistance } = require('./googleMapsService');
 const remoteConfig = require('./remoteConfigService');
 const logger = require('../utils/logger');
+const { haversineKm } = require('../utils/geo');
 
 const WAREHOUSE = {
   latitude: parseFloat(process.env.WAREHOUSE_LAT) || 12.863326,
@@ -9,21 +10,10 @@ const WAREHOUSE = {
   pincode: '600119'
 };
 
-const DEFAULT_PINCODES = '600119,600130,603103,600097,600100,600126,600115';
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+const { DEFAULT_PINCODES } = require('../constants');
 
 async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, addressString = null, traceContext = null) {
+  logger.info({ pincode, latitude, longitude, orderValue, addressString, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY }, 'delivery_calculate_start');
   const [pincodesStr, ratePerKm, minDeliveryCharge] = await Promise.all([
     remoteConfig.getString('serviceable_pincodes', DEFAULT_PINCODES),
     remoteConfig.getNumber('rate_per_km', 50),
@@ -50,16 +40,17 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
       distanceKm = result.distanceKm;
       distanceText = result.distanceText;
       distanceSource = 'google_maps';
+      logger.warn(distanceKm, distanceText, 'Google Maps distance calculated successfully');
     } catch (err) {
-      logger.warn({ err: err.message }, 'Google Maps distance failed; falling back to Haversine');
-      distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
+      logger.warn({ err: err.message, pincode, addressString }, 'Google Maps distance failed; falling back to Haversine');
+      distanceKm = haversineKm(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
     }
   } else {
-    distanceKm = haversine(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
+    distanceKm = haversineKm(WAREHOUSE.latitude, WAREHOUSE.longitude, latitude, longitude);
   }
 
-  // Round up to nearest even km (existing logic)
-  const distance_km = Math.ceil(distanceKm / 2) * 2;
+  // Round-trip billing: one-way × 2, rounded up to whole km.
+  const distance_km = Math.ceil(distanceKm * 2);
 
   // Step 3 — Get delivery config from Firestore
   const config = await getDeliveryConfig(traceContext);
@@ -88,6 +79,23 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
   }
 
   const min_charge_applied = !is_free_delivery && (distance_km * ratePerKm) < minDeliveryCharge;
+
+  logger.info({
+    pincode,
+    addressString,
+    latitude,
+    longitude,
+    rawDistanceKm: Math.round(distanceKm * 100) / 100,
+    billableKm: distance_km,
+    distanceSource,
+    distanceText,
+    ratePerKm,
+    minDeliveryCharge,
+    orderValue,
+    delivery_charge,
+    is_free_delivery,
+    min_charge_applied,
+  }, 'delivery_calculated');
 
   return {
     serviceable: true,

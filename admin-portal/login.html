@@ -71,7 +71,7 @@
 </div>
 
 <script>
-const API_BASE = 'https://construction-api-2.onrender.com';
+const API_BASE = window.location.origin;
 
 if (sessionStorage.getItem('adminToken')) {
   window.location.href = 'orders.html';

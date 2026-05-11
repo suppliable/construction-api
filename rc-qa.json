@@ -1,0 +1,89 @@
+{
+  "parameters": {
+    "admin_user_phones": {
+      "defaultValue": {
+        "value": "9876543210,9791042008"
+      },
+      "description": "Admin Phones",
+      "valueType": "STRING"
+    },
+    "maintenance_mode": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "Used to enable maintenance page in UI",
+      "valueType": "BOOLEAN"
+    },
+    "product_cache_ttl_minutes": {
+      "defaultValue": {
+        "value": "30"
+      },
+      "valueType": "STRING"
+    },
+    "latest_app_version": {
+      "defaultValue": {
+        "value": "0.0.1"
+      },
+      "description": "Latest stable app version",
+      "valueType": "STRING"
+    },
+    "warehouse_closed_message": {
+      "defaultValue": {
+        "value": "Warehouse is now Closed"
+      },
+      "valueType": "STRING"
+    },
+    "api_base_url": {
+      "defaultValue": {
+        "value": "https://construction-api-8atz.onrender.com"
+      },
+      "description": "backend API URL ",
+      "valueType": "STRING"
+    },
+    "otp_provider": {
+      "defaultValue": {
+        "value": "firebase"
+      },
+      "description": "Name of the OTP validation provider ",
+      "valueType": "STRING"
+    },
+    "serviceable_pincodes": {
+      "defaultValue": {
+        "value": "600119,600130,603103,600097,600100,600126,600115"
+      },
+      "valueType": "STRING"
+    },
+    "rate_per_km": {
+      "defaultValue": {
+        "value": "50"
+      },
+      "valueType": "NUMBER"
+    },
+    "min_app_version": {
+      "defaultValue": {
+        "value": "0.0.1"
+      },
+      "description": "Min App version required",
+      "valueType": "STRING"
+    },
+    "min_delivery_charge": {
+      "defaultValue": {
+        "value": "100"
+      },
+      "valueType": "NUMBER"
+    },
+    "cod_threshold": {
+      "defaultValue": {
+        "value": "10000"
+      },
+      "description": "Max amount allowed for Cash On Delivery",
+      "valueType": "NUMBER"
+    },
+    "warehouse_open": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN"
+    }
+  }
+}

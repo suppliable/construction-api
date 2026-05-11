@@ -1,8 +1,10 @@
-const { getCustomer, saveCustomer, getCustomerByPhone } = require('./firestoreService');
+const { getCustomer, saveCustomer } = require('./firestoreService');
 const { createZohoContact, updateZohoContact } = require('./zohoService');
 const logger = require('../utils/logger');
+const { normalizePhone } = require('../utils/phone');
 
 async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, traceContext = null) {
+  const normalizedPhone = normalizePhone(phone) || phone;
   logger.debug({ userId, name, is_business }, 'syncCustomer called');
   const existing = await getCustomer(userId, traceContext);
   if (existing) {
@@ -24,14 +26,12 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
       existing.gstin = gstin;
       hasChanges = true;
     }
-    if (registered_address && !existing.registered_address) {
+    if (registered_address) {
       existing.registered_address = registered_address;
       hasChanges = true;
     }
 
     if (hasChanges) {
-      // If the customer doesn't have a Zoho contact yet and now has a name,
-      // create one with complete data instead of updating a non-existent record.
       if (!existing.zoho_contact_id && existing.name) {
         try {
           const zohoContact = await createZohoContact({
@@ -65,12 +65,10 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
     return existing;
   }
 
-  // Only create a Zoho contact when we have a name — identity pings (no name)
-  // save to Firestore only and get a Zoho contact on the next call with a name.
   let zohoContactId = null;
   if (name && name.trim()) {
     try {
-      const zohoContact = await createZohoContact({ phone, name, is_business, business_name, gstin, registered_address }, traceContext);
+      const zohoContact = await createZohoContact({ phone: normalizedPhone, name, is_business, business_name, gstin, registered_address }, traceContext);
       zohoContactId = zohoContact.contact_id;
     } catch (zohoErr) {
       logger.warn({ err: zohoErr.message }, 'zoho contact create failed — customer saved locally');
@@ -79,7 +77,7 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
 
   return await saveCustomer({
     userId,
-    phone,
+    phone: normalizedPhone,
     name: name || '',
     is_business: is_business || false,
     business_name: business_name || '',
@@ -90,4 +88,30 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
   }, traceContext);
 }
 
-module.exports = { syncCustomer };
+async function updateCustomerGST(userId, { gstin, business_name, registered_address }, traceContext = null) {
+  const customer = await getCustomer(userId, traceContext);
+  if (!customer) throw new Error('Customer not found');
+
+  customer.is_business = true;
+  if (gstin) customer.gstin = gstin;
+  if (business_name) customer.business_name = business_name;
+  if (registered_address) customer.registered_address = registered_address;
+
+  if (customer.zoho_contact_id) {
+    try {
+      await updateZohoContact(customer.zoho_contact_id, {
+        name: customer.name,
+        phone: customer.phone,
+        gstin,
+        business_name,
+        registered_address
+      }, traceContext);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Zoho contact GST update failed — saved locally');
+    }
+  }
+
+  return saveCustomer(customer, traceContext);
+}
+
+module.exports = { syncCustomer, updateCustomerGST };

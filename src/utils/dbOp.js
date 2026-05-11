@@ -1,25 +1,13 @@
 'use strict';
 
-const { createSpan } = require('./spanTracer');
+const { withSpan } = require('./spanTracer');
 
-function countRows(result) {
-  if (result == null) return undefined;
-  if (Array.isArray(result)) return result.length;
-  if (typeof result === 'object') return Object.keys(result).length;
-  return undefined;
-}
-
-async function dbOp(name, fn, traceContext = null) {
-  const span = createSpan(traceContext, `db.${name}`, {});
-  try {
-    const result = await fn(span);
-    const rows = countRows(result);
-    span.end({ success: true, ...(rows != null && { rows }) });
-    return result;
-  } catch (error) {
-    span.end({ success: false, error: error.message });
-    throw error;
-  }
+async function dbOp(name, fn, traceContext = null, extraAttrs = {}) {
+  return withSpan(traceContext, `db ${name}`, {
+    'db.system': 'google_cloud_firestore',
+    'peer.service': 'firestore',
+    ...extraAttrs,
+  }, fn);
 }
 
 module.exports = { dbOp };

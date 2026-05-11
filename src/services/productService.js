@@ -5,6 +5,9 @@ const {
 } = require('./zohoService');
 const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
+const { withSpan } = require('../utils/spanTracer');
+const redis = require('../cache/redis');
+const env = require('../config/env');
 
 function detectShadeBrand(brand) {
   if (!brand) return null;
@@ -31,7 +34,14 @@ const extractGST = (item) => {
 const buildImage = (name, imageUrl) =>
   imageUrl || 'https://placehold.co/400x300/png';
 
-// In-memory cache. ttlMs is seeded with the default and updated from Remote Config on each miss.
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+
+// In-memory L1 cache per instance.
 const cache = {
   products: null,
   groups: null,
@@ -41,10 +51,42 @@ const cache = {
   ttlMs: 10 * 60 * 1000,
 };
 
+// Dedup: if a refresh is already in-flight on this instance, all concurrent
+// callers await the same promise instead of each launching their own Zoho burst.
+let fetchInFlight = null;
+
+const REDIS_ZOHO_KEY = `${env.appEnv}:zoho:catalogue`;
+
 async function fetchZohoData(traceContext = null) {
-  if (cache.lastFetched && (Date.now() - cache.lastFetched) < cache.ttlMs) {
-    return { items: cache.products, groups: cache.groups, categoryMap: cache.categoryMap };
-  }
+  const cacheHit = !!(cache.lastFetched && (Date.now() - cache.lastFetched) < cache.ttlMs);
+  return withSpan(traceContext, 'products.fetchZohoData', { 'cache.hit': cacheHit }, async () => {
+    if (cacheHit) {
+      return { items: cache.products, groups: cache.groups, categoryMap: cache.categoryMap };
+    }
+
+    // Dedup concurrent callers on this instance.
+    if (fetchInFlight) return fetchInFlight;
+    fetchInFlight = _doFetchZohoData(traceContext).finally(() => { fetchInFlight = null; });
+    return fetchInFlight;
+  });
+}
+
+async function _doFetchZohoData(traceContext = null) {
+  // L2: try Redis before hitting Zoho (guards cross-instance stampede).
+  try {
+    const cached = await redis.get(REDIS_ZOHO_KEY);
+    if (cached) {
+      const { items, groups, categoryMap, imageMap, ttlMs } = cached;
+      cache.products = items;
+      cache.groups = groups;
+      cache.categoryMap = categoryMap;
+      cache.imageMap = imageMap;
+      cache.ttlMs = ttlMs;
+      cache.lastFetched = Date.now();
+      return { items, groups, categoryMap };
+    }
+  } catch (_) { /* Redis unavailable — fall through to Zoho */ }
+
   const [items, groups, zohoCategories, ttlMinutes] = await Promise.all([
     getZohoProducts(traceContext),
     getZohoItemGroups(traceContext),
@@ -68,12 +110,17 @@ async function fetchZohoData(traceContext = null) {
   const firestoreImages = await getImageMap(traceContext);
   const mergedImageMap = { ...imageMap, ...firestoreImages };
 
+  const ttlMs = ttlMinutes * 60 * 1000;
   cache.products = items;
   cache.groups = groups;
   cache.categoryMap = categoryMap;
   cache.imageMap = mergedImageMap;
-  cache.ttlMs = ttlMinutes * 60 * 1000;
+  cache.ttlMs = ttlMs;
   cache.lastFetched = Date.now();
+
+  // Populate Redis L2 so other instances skip Zoho on their next cache miss.
+  redis.set(REDIS_ZOHO_KEY, { items, groups, categoryMap, imageMap: mergedImageMap, ttlMs }, { ex: ttlMinutes * 60 }).catch(() => {});
+
   return { items, groups, categoryMap };
 }
 
@@ -83,6 +130,7 @@ function clearCache() {
   cache.categoryMap = null;
   cache.imageMap = null;
   cache.lastFetched = null;
+  redis.del(REDIS_ZOHO_KEY).catch(() => {});
 }
 
 async function getAllProducts(category = null, traceContext = null) {
@@ -106,11 +154,28 @@ async function getAllProducts(category = null, traceContext = null) {
   // Build grouped products — NO extra API calls
   const groupedProducts = groups.map(group => {
     const variants = group.items.map(v => ({
-      id: v.item_id,
-      name: v.attribute_option_name1 || v.name,
-      price: v.rate,
-      stock: v.stock_on_hand || 0,
-      available_stock: v.available_stock || v.actual_available_stock || 0
+      // Item-group variants often omit available_stock. Fall back to the full
+      // item record so cart validation doesn't treat valid items as 0 stock.
+      ...(function () {
+        const full = itemMap[v.item_id] || {};
+        const stockOnHand =
+          toNumberOrNull(v.stock_on_hand) ??
+          toNumberOrNull(full.stock_on_hand) ??
+          0;
+        const availableStock =
+          toNumberOrNull(v.available_stock) ??
+          toNumberOrNull(v.actual_available_stock) ??
+          toNumberOrNull(full.available_stock) ??
+          toNumberOrNull(full.actual_available_stock) ??
+          stockOnHand;
+        return {
+          id: v.item_id,
+          name: v.attribute_option_name1 || v.name,
+          price: toNumberOrNull(v.rate) ?? 0,
+          stock: stockOnHand,
+          available_stock: availableStock,
+        };
+      }())
     }));
 
     const prices = variants.map(v => v.price);
@@ -139,6 +204,7 @@ async function getAllProducts(category = null, traceContext = null) {
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
       shadeBrand: detectShadeBrand(group.brand || group.group_name),
+      rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
 
@@ -148,6 +214,7 @@ async function getAllProducts(category = null, traceContext = null) {
     .map(item => {
       const itemImageUrl = cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name);
       const zohoFeatured = item.custom_field_hash?.cf_featured === true || item.custom_field_hash?.cf_featured === 'true';
+      const rackNumber = item.cf_rack_number || item.custom_field_hash?.cf_rack_number || null;
       return {
         id: item.item_id,
         name: item.name,
@@ -166,6 +233,7 @@ async function getAllProducts(category = null, traceContext = null) {
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
         shadeBrand: detectShadeBrand(item.manufacturer || item.group_name || ''),
+        rackNumber,
       };
     });
 
@@ -220,6 +288,16 @@ const getProductById = async (id, traceContext = null) => {
     const variant = group.items.find(v => v.item_id === id);
     if (variant) {
       const fullItem = items.find(i => i.item_id === id);
+      const stockOnHand =
+        toNumberOrNull(variant.stock_on_hand) ??
+        toNumberOrNull(fullItem?.stock_on_hand) ??
+        0;
+      const availableStock =
+        toNumberOrNull(variant.available_stock) ??
+        toNumberOrNull(variant.actual_available_stock) ??
+        toNumberOrNull(fullItem?.available_stock) ??
+        toNumberOrNull(fullItem?.actual_available_stock) ??
+        stockOnHand;
       return {
         id: variant.item_id,
         name: `${group.group_name} ${variant.attribute_option_name1 || ''}`.trim(),
@@ -228,9 +306,9 @@ const getProductById = async (id, traceContext = null) => {
         unit: group.unit,
         description: group.description || '',
         hasVariants: false,
-        price: variant.rate,
-        stock: variant.stock_on_hand || 0,
-        available_stock: variant.available_stock || variant.actual_available_stock || 0,
+        price: toNumberOrNull(variant.rate) ?? 0,
+        stock: stockOnHand,
+        available_stock: availableStock,
         gst_percentage: fullItem ? extractGST(fullItem) : (variant.tax_percentage || extractGST(group)),
         hsn: fullItem?.hsn_or_sac || group.hsn_or_sac || '',
         image: cache.imageMap[id] || buildImage(group.group_name),

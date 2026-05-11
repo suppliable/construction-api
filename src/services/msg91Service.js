@@ -1,7 +1,8 @@
 const axios = require('axios');
 const { createSpan } = require('../utils/spanTracer');
+const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
-const BASE = 'https://control.msg91.com/api/v5/otp';
+const { MSG91_BASE_URL: BASE } = require('../constants');
 
 const AUTHKEY = () => process.env.MSG91_AUTH_KEY;
 const MASKED_KEY = () => {
@@ -29,6 +30,9 @@ function logResponse(context, httpStatus, data) {
   console.log(`[MSG91:${context}] response:`, JSON.stringify(data));
 }
 
+// MSG91 expects phone without '+' (e.g. "919876543210"), not E.164 ("+91...").
+function toMsg91Mobile(e164) { return e164.replace(/^\+/, ''); }
+
 // MSG91 returns HTTP 200 even on failure — always check res.data.type.
 function assertSuccess(data, context) {
   if (!data || data.type !== 'success') {
@@ -44,7 +48,7 @@ async function sendOtp(normalizedPhone) {
   const method = 'POST';
   const params = {
     template_id: process.env.MSG91_TEMPLATE_ID,
-    mobile: normalizedPhone,
+    mobile: toMsg91Mobile(normalizedPhone),
   };
   const headers = authHeaders();
   const body = null;
@@ -66,15 +70,17 @@ async function sendOtp(normalizedPhone) {
 }
 
 async function verifyOtp(normalizedPhone, otp, traceContext = null) {
-  const span = createSpan(traceContext, 'msg91.api.verifyOtp', { endpoint: '/api/v5/otp/verify' });
+  const span = createSpan(traceContext, 'msg91.api.verifyOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp/verify' });
   const url = `${BASE}/verify`;
-  const params = { otp, mobile: normalizedPhone };
+  const params = { otp, mobile: toMsg91Mobile(normalizedPhone) };
   const headers = authHeaders();
 
   logRequest('verify', 'GET', url, params, headers, null);
 
   try {
-    const res = await axios.get(url, { params, headers, timeout: 10000 });
+    const res = await withRetry('msg91.api.verifyOtp', () =>
+      axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
+    );
     logResponse('verify', res.status, res.data);
     span.end({ success: true, type: res.data?.type });
     return res.data;
@@ -87,15 +93,17 @@ async function verifyOtp(normalizedPhone, otp, traceContext = null) {
 }
 
 async function resendOtp(normalizedPhone, traceContext = null) {
-  const span = createSpan(traceContext, 'msg91.api.resendOtp', { endpoint: '/api/v5/otp/retry' });
+  const span = createSpan(traceContext, 'msg91.api.resendOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp/retry' });
   const url = `${BASE}/retry`;
-  const params = { retrytype: 'text', mobile: normalizedPhone };
+  const params = { retrytype: 'text', mobile: toMsg91Mobile(normalizedPhone) };
   const headers = authHeaders();
 
   logRequest('resend', 'GET', url, params, headers, null);
 
   try {
-    const res = await axios.get(url, { params, headers, timeout: 10000 });
+    const res = await withRetry('msg91.api.resendOtp', () =>
+      axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
+    );
     logResponse('resend', res.status, res.data);
     span.end({ success: true });
     assertSuccess(res.data, 'resend');
