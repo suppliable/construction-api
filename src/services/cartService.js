@@ -194,7 +194,11 @@ async function buildCartResponse(userId) {
       cartItem.shadeTier = item.shadeTier || null;
     }
 
-    if (product.rackNumber) cartItem.rackNumber = product.rackNumber;
+    const variantRack = item.zohoItemId && product.variants
+      ? product.variants.find(v => v.id === item.zohoItemId)?.rackNumber
+      : null;
+    const rackNumber = variantRack || product.rackNumber || null;
+    if (rackNumber) cartItem.rackNumber = rackNumber;
 
     return { raw: item, computed: cartItem };
   }));
