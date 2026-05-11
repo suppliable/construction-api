@@ -20,7 +20,7 @@ router.get('/:brandSlug', async (req, res) => {
       success: true,
       brandSlug,
       brandName: brand.brandName,
-      shades: shades.map(s => ({ id: s.id, code: s.code, name: s.name, tier: s.tier })),
+      shades: shades.map(s => ({ id: s.id, code: s.code, name: s.name, tier: s.tier, hex: s.hex || null })),
       total: shades.length,
     });
   } catch (err) {

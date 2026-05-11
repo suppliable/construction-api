@@ -71,6 +71,9 @@
   .pricing-grid td { padding:6px 8px; border:1px solid var(--border); text-align:center; }
   .pricing-grid td:first-child { font-weight:600; font-size:13px; width:60px; }
   .pricing-grid input { width:90px; text-align:right; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:14px; }
+  .filter-tab { background:#f3f4f6; color:var(--muted); border:1px solid var(--border) !important; }
+  .filter-tab.active { background:var(--navy); color:#fff; border-color:var(--navy) !important; }
+  .swatch { width:24px; height:24px; border-radius:50%; border:1px solid rgba(0,0,0,0.12); display:inline-block; flex-shrink:0; }
   .toast { position:fixed; bottom:24px; right:24px; background:var(--navy); color:#fff; padding:12px 20px; border-radius:10px; font-size:14px; font-weight:500; z-index:9999; display:none; }
   .toast.show { display:block; animation:slidein 0.2s ease; }
   @keyframes slidein { from { transform:translateY(10px); opacity:0; } to { transform:translateY(0); opacity:1; } }
@@ -113,33 +116,46 @@
       <div class="section-title">Shade Catalogue — Asian Paints</div>
 
       <div class="stats">
-        <div class="stat"><strong id="stat-total">—</strong>Total Shades</div>
+        <div class="stat"><strong id="stat-total">—</strong>Total Active</div>
         <div class="stat"><strong id="stat-light">—</strong>Light</div>
         <div class="stat"><strong id="stat-mid">—</strong>Mid</div>
         <div class="stat"><strong id="stat-dark">—</strong>Dark</div>
+        <div class="stat"><strong id="stat-inactive">—</strong>Inactive</div>
       </div>
 
-      <div class="form-row">
+      <div class="form-row" style="margin-bottom:12px;">
         <div class="form-group">
           <label>Search</label>
-          <input type="text" id="search-input" placeholder="Code or name…" oninput="filterShades()" style="width:220px;">
+          <input type="text" id="search-input" placeholder="Code, name, or hex…" oninput="filterShades()" style="width:240px;">
+        </div>
+        <div style="display:flex;gap:6px;align-items:flex-end;">
+          <button class="btn btn-sm filter-tab active" id="tab-active" onclick="setTab('active')">Active</button>
+          <button class="btn btn-sm filter-tab" id="tab-inactive" onclick="setTab('inactive')">Inactive</button>
+          <button class="btn btn-sm filter-tab" id="tab-all" onclick="setTab('all')">All</button>
         </div>
         <div style="flex:1"></div>
         <div class="form-group">
           <label>Code</label>
-          <input type="text" id="new-code" placeholder="e.g. 7124" style="width:100px;">
+          <input type="text" id="new-code" placeholder="e.g. 7124" style="width:90px;">
         </div>
         <div class="form-group">
           <label>Name</label>
-          <input type="text" id="new-name" placeholder="e.g. Sonnet" style="width:160px;">
+          <input type="text" id="new-name" placeholder="e.g. Sonnet" style="width:150px;">
         </div>
         <div class="form-group">
           <label>Tier</label>
           <select id="new-tier">
-            <option value="light">Light Shade</option>
-            <option value="mid">Mid Shade</option>
-            <option value="dark">Dark Shade</option>
+            <option value="light">Light</option>
+            <option value="mid">Mid</option>
+            <option value="dark">Dark</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label>Hex colour</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="text" id="new-hex" placeholder="#F7E2E0" style="width:100px;" oninput="updateHexPreview()">
+            <div id="hex-preview" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:#fff;flex-shrink:0;"></div>
+          </div>
         </div>
         <button class="btn btn-primary" onclick="addShade()">+ Add Shade</button>
       </div>
@@ -148,6 +164,7 @@
       <table id="shades-table" style="display:none">
         <thead>
           <tr>
+            <th style="width:36px"></th>
             <th>Code</th><th>Name</th><th>Tier</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
@@ -227,6 +244,7 @@ function toast(msg, ok = true) {
 
 // ── Shades ──────────────────────────────────────────────────────
 let allShades = [];
+let currentTab = 'active';
 
 async function loadShades() {
   document.getElementById('shades-loading').style.display = 'block';
@@ -234,24 +252,48 @@ async function loadShades() {
   const data = await api('GET', '/admin/shades/asian-paints');
   allShades = data.shades || [];
   updateStats();
-  renderShades(allShades);
+  filterShades();
   document.getElementById('shades-loading').style.display = 'none';
 }
 
 function updateStats() {
   const active = allShades.filter(s => s.active !== false);
+  const inactive = allShades.filter(s => s.active === false);
   document.getElementById('stat-total').textContent = active.length;
   document.getElementById('stat-light').textContent = active.filter(s => s.tier === 'light').length;
   document.getElementById('stat-mid').textContent   = active.filter(s => s.tier === 'mid').length;
   document.getElementById('stat-dark').textContent  = active.filter(s => s.tier === 'dark').length;
+  document.getElementById('stat-inactive').textContent = inactive.length;
+}
+
+function setTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.filter-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  filterShades();
 }
 
 function filterShades() {
   const q = document.getElementById('search-input').value.toLowerCase();
+
+  let pool = allShades;
+  if (currentTab === 'active')   pool = allShades.filter(s => s.active !== false);
+  if (currentTab === 'inactive') pool = allShades.filter(s => s.active === false);
+
   const filtered = q
-    ? allShades.filter(s => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
-    : allShades;
+    ? pool.filter(s =>
+        s.code.toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q) ||
+        (s.hex || '').toLowerCase().includes(q)
+      )
+    : pool;
   renderShades(filtered);
+}
+
+function updateHexPreview() {
+  const val = document.getElementById('new-hex').value.trim();
+  const el = document.getElementById('hex-preview');
+  el.style.background = /^#[0-9A-Fa-f]{6}$/.test(val) ? val : '#fff';
 }
 
 function tierBadge(tier) {
@@ -274,31 +316,45 @@ function renderShades(shades) {
   table.style.display = 'table';
   empty.style.display = 'none';
 
-  tbody.innerHTML = shades.map(s => `
+  tbody.innerHTML = shades.map(s => {
+    const hexEsc = (s.hex || '').replace(/'/g, "\\'");
+    const nameEsc = s.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const swatch = s.hex
+      ? `<span class="swatch" style="background:${s.hex}" title="${s.hex}"></span>`
+      : `<span class="swatch" style="background:#f3f4f6"></span>`;
+    return `
     <tr data-id="${s.id}">
+      <td>${swatch}</td>
       <td><code>${s.code}</code></td>
       <td>${s.name}</td>
       <td>${tierBadge(s.tier)}</td>
       <td>${s.active !== false ? '<span class="badge badge-light" style="background:#dcfce7;color:#166534">Active</span>' : '<span class="badge badge-inactive">Inactive</span>'}</td>
       <td style="display:flex;gap:6px">
-        <button class="btn btn-sm btn-success" onclick="editShade('${s.id}','${s.code}','${s.name}','${s.tier}')">Edit</button>
+        <button class="btn btn-sm btn-success" onclick="editShade('${s.id}','${s.code}','${nameEsc}','${s.tier}','${hexEsc}')">Edit</button>
         ${s.active !== false
           ? `<button class="btn btn-sm btn-danger" onclick="deactivateShade('${s.id}')">Deactivate</button>`
           : `<button class="btn btn-sm btn-primary" onclick="activateShade('${s.id}')">Activate</button>`
         }
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function addShade() {
   const code = document.getElementById('new-code').value.trim();
   const name = document.getElementById('new-name').value.trim();
   const tier = document.getElementById('new-tier').value;
+  const hex  = document.getElementById('new-hex').value.trim();
   if (!code || !name) return toast('Code and name are required', false);
-  const res = await api('POST', '/admin/shades/asian-paints', { code, name, tier });
+  if (hex && !/^#[0-9A-Fa-f]{6}$/.test(hex)) return toast('Invalid hex colour (use #RRGGBB)', false);
+  const body = { code, name, tier };
+  if (hex) body.hex = hex;
+  const res = await api('POST', '/admin/shades/asian-paints', body);
   if (!res.success) return toast(res.message || 'Failed', false);
   document.getElementById('new-code').value = '';
   document.getElementById('new-name').value = '';
+  document.getElementById('new-hex').value = '';
+  document.getElementById('hex-preview').style.background = '#fff';
   toast(`✓ Shade ${code} - ${name} added`);
   loadShades();
 }
@@ -318,14 +374,18 @@ async function activateShade(id) {
   loadShades();
 }
 
-function editShade(id, code, name, tier) {
+function editShade(id, code, name, tier, hex) {
   const newCode = prompt('Code:', code);
-  if (!newCode) return;
+  if (newCode === null) return;
   const newName = prompt('Name:', name);
-  if (!newName) return;
+  if (newName === null) return;
   const newTier = prompt('Tier (light / mid / dark):', tier);
   if (!['light','mid','dark'].includes(newTier)) return toast('Invalid tier', false);
-  api('PUT', `/admin/shades/asian-paints/${id}`, { code: newCode, name: newName, tier: newTier })
+  const newHex = prompt('Hex colour (#RRGGBB, leave blank to keep current):', hex || '');
+  if (newHex !== null && newHex !== '' && !/^#[0-9A-Fa-f]{6}$/.test(newHex)) return toast('Invalid hex colour', false);
+  const body = { code: newCode, name: newName, tier: newTier };
+  if (newHex) body.hex = newHex;
+  api('PUT', `/admin/shades/asian-paints/${id}`, body)
     .then(res => {
       if (!res.success) return toast(res.message || 'Failed', false);
       toast('✓ Shade updated');

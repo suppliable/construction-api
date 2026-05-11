@@ -177,18 +177,23 @@ router.get('/shades/:brandSlug', async (req, res) => {
 router.post('/shades/:brandSlug', async (req, res) => {
   try {
     const { brandSlug } = req.params;
-    const { code, name, tier } = req.body;
+    const { code, name, tier, hex } = req.body;
     if (!code || !name || !tier) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'code, name, and tier are required' });
     }
     if (!VALID_TIERS.includes(tier)) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: `tier must be one of: ${VALID_TIERS.join(', ')}` });
     }
+    if (hex !== undefined && !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'hex must be a valid 6-digit hex color (e.g. #F7E2E0)' });
+    }
     const existing = await getShadeByCode(brandSlug, code);
     if (existing) {
       return res.status(409).json({ success: false, error: 'DUPLICATE_CODE', message: `Shade code '${code}' already exists` });
     }
-    const shade = await addShade(brandSlug, { code, name, tier });
+    const shadeData = { code, name, tier };
+    if (hex) shadeData.hex = hex;
+    const shade = await addShade(brandSlug, shadeData);
     res.status(201).json({ success: true, shade });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -199,15 +204,19 @@ router.post('/shades/:brandSlug', async (req, res) => {
 router.put('/shades/:brandSlug/:shadeId', async (req, res) => {
   try {
     const { brandSlug, shadeId } = req.params;
-    const { code, name, tier, active } = req.body;
+    const { code, name, tier, active, hex } = req.body;
     if (tier !== undefined && !VALID_TIERS.includes(tier)) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: `tier must be one of: ${VALID_TIERS.join(', ')}` });
+    }
+    if (hex !== undefined && !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'hex must be a valid 6-digit hex color (e.g. #F7E2E0)' });
     }
     const updates = {};
     if (code !== undefined) updates.code = code;
     if (name !== undefined) updates.name = name;
     if (tier !== undefined) updates.tier = tier;
     if (active !== undefined) updates.active = active;
+    if (hex !== undefined) updates.hex = hex;
     await updateShade(brandSlug, shadeId, updates);
     res.json({ success: true });
   } catch (err) {
