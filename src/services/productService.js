@@ -174,6 +174,7 @@ async function getAllProducts(category = null, traceContext = null) {
           price: toNumberOrNull(v.rate) ?? 0,
           stock: stockOnHand,
           available_stock: availableStock,
+          rackNumber: full.cf_rack_number || full.custom_field_hash?.cf_rack_number || null,
         };
       }())
     }));
@@ -262,7 +263,8 @@ const getProductById = async (id, traceContext = null) => {
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
       stock: v.stock_on_hand || 0,
-      available_stock: v.available_stock || v.actual_available_stock || 0
+      available_stock: v.available_stock || v.actual_available_stock || 0,
+      rackNumber: itemMap[v.item_id]?.cf_rack_number || itemMap[v.item_id]?.custom_field_hash?.cf_rack_number || null,
     }));
     const prices = variants.map(v => v.price);
     return {
