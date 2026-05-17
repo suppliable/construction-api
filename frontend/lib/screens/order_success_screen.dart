@@ -94,7 +94,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Text(
+                            const Text(
                               'Your supply order has been confirmed and\nis being processed.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
@@ -133,7 +133,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                     value: order.paymentMethod,
                                   ),
                                   const SizedBox(height: 10),
-                                  _InfoRow(
+                                  const _InfoRow(
                                     label: 'Expected delivery',
                                     value: 'Today by 6:30 PM',
                                     valueColor: kOrange,

@@ -193,8 +193,8 @@ class _CartBody extends StatelessWidget {
                         ),
                       ),
                     ],
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
                       child: Divider(color: kSlate100, height: 1),
                     ),
                     SummaryRow(
@@ -213,7 +213,7 @@ class _CartBody extends StatelessWidget {
         Container(
           padding: EdgeInsets.fromLTRB(
               20, 16, 20, MediaQuery.of(context).padding.bottom + 12),
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.white,
             border: Border(top: BorderSide(color: kSlate100)),
           ),

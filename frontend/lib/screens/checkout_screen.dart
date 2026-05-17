@@ -51,7 +51,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       backgroundColor: kSlate50,
       body: Column(
         children: [
-          SuppliableAppBar(
+          const SuppliableAppBar(
             title: 'Checkout',
             subtitle: 'Review your order',
           ),
@@ -276,8 +276,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               ? const Color(0xFF16A34A)
                               : null,
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
                           child: Divider(color: kSlate100, height: 1),
                         ),
                         SummaryRow(
@@ -297,7 +297,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           Container(
             padding: EdgeInsets.fromLTRB(
                 20, 16, 20, MediaQuery.of(context).padding.bottom + 12),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: kSlate100)),
             ),
@@ -341,7 +341,7 @@ class _PaymentOption extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? kPrimary.withOpacity(0.05) : kSlate50,
+          color: selected ? kPrimary.withValues(alpha: 0.05) : kSlate50,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? kPrimary : kSlate100,
@@ -355,7 +355,7 @@ class _PaymentOption extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: selected
-                    ? kPrimary.withOpacity(0.1)
+                    ? kPrimary.withValues(alpha: 0.1)
                     : Colors.white,
                 borderRadius: BorderRadius.circular(10),
               ),

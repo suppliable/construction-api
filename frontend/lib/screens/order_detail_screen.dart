@@ -247,10 +247,10 @@ class OrderDetailScreen extends StatelessWidget {
                                   size: 22, color: kOrange),
                             ),
                             const SizedBox(width: 12),
-                            Column(
+                            const Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'ESTIMATED ARRIVAL (ETA)',
                                   style: TextStyle(
                                     fontSize: 9,
@@ -259,8 +259,8 @@ class OrderDetailScreen extends StatelessWidget {
                                     letterSpacing: 1.5,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                const Text(
+                                SizedBox(height: 2),
+                                Text(
                                   'Today, 6:30 PM',
                                   style: TextStyle(
                                     fontSize: 14,
@@ -380,8 +380,8 @@ class OrderDetailScreen extends StatelessWidget {
                               ? 'FREE'
                               : '₹${_shipping.toStringAsFixed(0)}',
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
                           child: Divider(color: kSlate100, height: 1),
                         ),
                         SummaryRow(
@@ -401,7 +401,7 @@ class OrderDetailScreen extends StatelessWidget {
           Container(
             padding: EdgeInsets.fromLTRB(
                 20, 16, 20, MediaQuery.of(context).padding.bottom + 12),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: kSlate100)),
             ),
@@ -458,7 +458,7 @@ class _TimelineStep extends StatelessWidget {
               Container(
                 width: 2,
                 height: 28,
-                color: isDone ? kPrimary.withOpacity(0.3) : kSlate100,
+                color: isDone ? kPrimary.withValues(alpha: 0.3) : kSlate100,
               ),
           ],
         ),

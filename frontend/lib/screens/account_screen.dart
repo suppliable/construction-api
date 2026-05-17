@@ -36,7 +36,7 @@ class AccountScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(24),
                           boxShadow: [
                             BoxShadow(
-                              color: kPrimary.withOpacity(0.3),
+                              color: kPrimary.withValues(alpha: 0.3),
                               blurRadius: 16,
                               offset: const Offset(0, 6),
                             ),
@@ -68,7 +68,7 @@ class AccountScreen extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: kPrimary.withOpacity(0.08),
+                          color: kPrimary.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
@@ -237,7 +237,7 @@ class _MenuGroup extends StatelessWidget {
               border: Border.all(color: kSlate100),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -250,7 +250,7 @@ class _MenuGroup extends StatelessWidget {
                   children: [
                     e.value,
                     if (!isLast)
-                      Divider(
+                      const Divider(
                         height: 1,
                         indent: 72,
                         color: kSlate50,
@@ -289,7 +289,7 @@ class _MenuItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        splashColor: kPrimary.withOpacity(0.06),
+        splashColor: kPrimary.withValues(alpha: 0.06),
         highlightColor: kSlate50,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -300,12 +300,12 @@ class _MenuItem extends StatelessWidget {
                 height: 46,
                 decoration: BoxDecoration(
                   color: highlight
-                      ? kPrimary.withOpacity(0.08)
+                      ? kPrimary.withValues(alpha: 0.08)
                       : kSlate50,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color: highlight
-                        ? kPrimary.withOpacity(0.2)
+                        ? kPrimary.withValues(alpha: 0.2)
                         : kSlate100,
                   ),
                 ),

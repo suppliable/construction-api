@@ -9,7 +9,7 @@ class TermsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kSlate50,
-      appBar: SuppliableAppBar(
+      appBar: const SuppliableAppBar(
         title: 'Terms & Conditions',
         subtitle: 'LAST UPDATED: APRIL 2026',
       ),

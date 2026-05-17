@@ -251,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withValues(alpha: 0.2),
                         blurRadius: 16,
                         offset: const Offset(0, 4),
                       ),
@@ -310,7 +310,7 @@ class _HomeHeader extends StatelessWidget {
             Row(
               children: [
                 // Branded logo
-                SuppliableLogo(size: 20, onLight: true),
+                const SuppliableLogo(size: 20, onLight: true),
                 const Spacer(),
                 // Tappable address chip
                 GestureDetector(
@@ -483,7 +483,7 @@ class _BulkBanner extends StatelessWidget {
                   'Lower prices for\nlarge orders',
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.white.withOpacity(0.5),
+                    color: Colors.white.withValues(alpha: 0.5),
                     height: 1.4,
                   ),
                 ),
@@ -550,7 +550,7 @@ class _ProductCard extends StatelessWidget {
           border: Border.all(color: kSlate200),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -770,7 +770,7 @@ class _VariantPicker extends StatelessWidget {
                     horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? kPrimary.withOpacity(0.06)
+                      ? kPrimary.withValues(alpha: 0.06)
                       : Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
@@ -921,7 +921,7 @@ class _AddressPickerSheetState extends State<_AddressPickerSheet> {
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: isSelected ? kPrimary.withOpacity(0.05) : kSlate50,
+                  color: isSelected ? kPrimary.withValues(alpha: 0.05) : kSlate50,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: isSelected ? kPrimary : kSlate100,
@@ -935,7 +935,7 @@ class _AddressPickerSheetState extends State<_AddressPickerSheet> {
                       height: 40,
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? kPrimary.withOpacity(0.1)
+                            ? kPrimary.withValues(alpha: 0.1)
                             : Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: kSlate100),
