@@ -58,6 +58,7 @@ async function sendOtp(req, res) {
     checkOtpSendLimit(normalized);
     checkResendCooldown(normalized);
   } catch (err) {
+    req.log.warn({ phone: normalized, reason: err.message }, 'send otp rate limited');
     return res.status(err.status || 429).json({ success: false, message: err.message });
   }
 
@@ -69,7 +70,7 @@ async function sendOtp(req, res) {
     req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp sent');
     return res.json({ success: true, message: 'OTP sent successfully' });
   } catch (err) {
-    req.log.error({ err: err.response?.data || err.message }, 'msg91 send failure');
+    req.log.error({ err: err.response?.data || err.message, phone: normalized }, 'msg91 send failure');
     return res.status(500).json({ success: false, message: 'Unable to send OTP' });
   }
 }
@@ -90,6 +91,7 @@ async function verifyOtp(req, res) {
   try {
     checkVerifyLockout(normalized);
   } catch (err) {
+    req.log.warn({ phone: normalized, reason: err.message }, 'verify otp locked out');
     return res.status(err.status || 429).json({ success: false, message: err.message });
   }
 
@@ -98,10 +100,11 @@ async function verifyOtp(req, res) {
     msg91Res = await msg91.verifyOtp(normalized, otp, req.traceContext);
   } catch (err) {
     const data = err.response?.data;
-    req.log.error({ err: data || err.message }, 'msg91 verify failure');
+    req.log.error({ err: data || err.message, phone: normalized }, 'msg91 verify failure');
     // MSG91 returns 4xx for wrong OTP
     if (err.response?.status === 400 || data?.type === 'error') {
       recordFailedVerify(normalized);
+      req.log.warn({ phone: normalized }, 'otp verify rejected: invalid or expired');
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
     return res.status(500).json({ success: false, message: 'OTP verification failed. Please try again.' });
@@ -110,6 +113,7 @@ async function verifyOtp(req, res) {
   // MSG91 returns { type: 'success' } on valid OTP
   if (!msg91Res || msg91Res.type !== 'success') {
     recordFailedVerify(normalized);
+    req.log.warn({ phone: normalized, msg91Type: msg91Res?.type }, 'otp verify rejected: non-success response');
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
@@ -144,6 +148,7 @@ async function resendOtp(req, res) {
     checkOtpSendLimit(normalized);
     checkResendCooldown(normalized);
   } catch (err) {
+    req.log.warn({ phone: normalized, reason: err.message }, 'resend otp rate limited');
     return res.status(err.status || 429).json({ success: false, message: err.message });
   }
 
@@ -154,7 +159,7 @@ async function resendOtp(req, res) {
     recordOtpSend(normalized);
     return res.json({ success: true, message: 'OTP resent successfully' });
   } catch (err) {
-    req.log.error({ err: err.response?.data || err.message }, 'msg91 resend failure');
+    req.log.error({ err: err.response?.data || err.message, phone: normalized }, 'msg91 resend failure');
     return res.status(500).json({ success: false, message: 'Unable to resend OTP' });
   }
 }

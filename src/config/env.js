@@ -41,6 +41,22 @@ const schema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
+
+  // Payments
+  PAYMENT_GATEWAY: z.enum(['none', 'cashfree']).default('none'),
+  PAYMENT_RETURN_URL_BASE: z.string().url().optional(),
+  CASHFREE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  CASHFREE_APP_ID: z.string().optional(),
+  CASHFREE_SECRET_KEY: z.string().optional(),
+  CASHFREE_WEBHOOK_SECRET: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.PAYMENT_GATEWAY === 'cashfree') {
+    for (const key of ['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY', 'CASHFREE_WEBHOOK_SECRET', 'PAYMENT_RETURN_URL_BASE']) {
+      if (!data[key]) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required when PAYMENT_GATEWAY=cashfree` });
+      }
+    }
+  }
 });
 
 const result = schema.safeParse(process.env);
