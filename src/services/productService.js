@@ -11,7 +11,13 @@ const env = require('../config/env');
 
 function shadeBrandFromTintable(tintable, brand) {
   if (!tintable || !brand) return null;
-  return brand.toLowerCase().trim().replace(/\s+/g, '-') || null;
+  const b = brand.toLowerCase().trim();
+  if (b.includes('asian paints') || b.includes('asian paint')) return 'asian-paints';
+  if (b.includes('berger'))  return 'berger';
+  if (b.includes('dulux'))   return 'dulux';
+  if (b.includes('nerolac')) return 'nerolac';
+  if (b.includes('jsw'))     return 'jsw';
+  return b.replace(/\s+/g, '-') || null;
 }
 
 // Extract GST from Zoho item tax preferences
