@@ -9,15 +9,9 @@ const { withSpan } = require('../utils/spanTracer');
 const redis = require('../cache/redis');
 const env = require('../config/env');
 
-function detectShadeBrand(brand) {
-  if (!brand) return null;
-  const b = brand.toLowerCase().trim();
-  if (b.includes('asian paints') || b.includes('asian paint')) return 'asian-paints';
-  if (b.includes('berger'))  return 'berger';
-  if (b.includes('dulux'))   return 'dulux';
-  if (b.includes('nerolac')) return 'nerolac';
-  if (b.includes('jsw'))     return 'jsw';
-  return null;
+function shadeBrandFromTintable(tintable, brand) {
+  if (!tintable || !brand) return null;
+  return brand.toLowerCase().trim().replace(/\s+/g, '-') || null;
 }
 
 // Extract GST from Zoho item tax preferences
@@ -39,6 +33,7 @@ const toNumberOrNull = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+
 
 
 // In-memory L1 cache per instance.
@@ -204,7 +199,8 @@ async function getAllProducts(category = null, traceContext = null) {
       imageUrl: groupImageUrl,
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
-      shadeBrand: detectShadeBrand(group.brand || group.group_name),
+      tintable: !!(firstVariantItem?.cf_tintable),
+      shadeBrand: shadeBrandFromTintable(!!(firstVariantItem?.cf_tintable), group.brand || group.group_name),
       rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
@@ -233,7 +229,8 @@ async function getAllProducts(category = null, traceContext = null) {
         imageUrl: itemImageUrl,
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
-        shadeBrand: detectShadeBrand(item.manufacturer || item.group_name || ''),
+        tintable: !!(item.cf_tintable),
+        shadeBrand: shadeBrandFromTintable(!!(item.cf_tintable), item.manufacturer || item.group_name || ''),
         rackNumber,
       };
     });
