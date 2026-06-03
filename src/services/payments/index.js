@@ -10,11 +10,14 @@ function getGateway() {
     case 'cashfree':
       cached = require('./cashfreeGateway');
       return cached;
+    case 'razorpay':
+      cached = require('./razorpayGateway');
+      return cached;
     case 'none':
     default:
       throw new Error(
         `PAYMENT_GATEWAY=${env.PAYMENT_GATEWAY} — no active payment gateway is configured. ` +
-          `Set PAYMENT_GATEWAY=cashfree (and Cashfree creds) to enable online payments.`
+          `Set PAYMENT_GATEWAY=cashfree or PAYMENT_GATEWAY=razorpay (and the corresponding creds) to enable online payments.`
       );
   }
 }

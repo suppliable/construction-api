@@ -12,6 +12,7 @@ const {
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
 const fcm = require('../services/fcmService');
 const { invalidateDriverOrders, invalidateOrder } = require('../cache/invalidate');
+const { confirmOnlinePayment } = require('../services/orderService');
 
 const { DEFAULT_ADMIN_LIST_LIMIT, MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, NEW_ORDER_THRESHOLD_MS } = require('../constants');
 const { normalizePhone } = require('../utils/phone');
@@ -267,6 +268,35 @@ const declineOrder = async (req, res) => {
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/orders/:orderId/mark-payment-received
+// Manual override for "webhook never arrived" cases. Warehouse admin confirms
+// they have out-of-band proof (bank SMS, accountant call) that the customer
+// paid online. Funnels through the same idempotent confirmOnlinePayment helper
+// as webhook + verify — single source of truth for "payment confirmed".
+const markPaymentReceived = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.paymentType !== 'ONLINE') {
+      return res.status(400).json({ success: false, error: 'NOT_ONLINE_ORDER', message: 'Order is not an online payment order' });
+    }
+    if (order.paymentStatus === 'confirmed') {
+      return res.json({ success: true, data: { order: formatTimestamps(order) }, message: 'Already confirmed' });
+    }
+    const result = await confirmOnlinePayment(orderId, {
+      status: 'paid',
+      rawProviderStatus: 'admin_manual',
+      source: 'admin_manual',
+      actor: req.user?.uid || null,
+    }, req.traceContext);
+    res.json({ success: true, data: { order: formatTimestamps(result) } });
+  } catch (err) {
+    req.log.error({ err: err.message, orderId: req.params.orderId }, 'markPaymentReceived failed');
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 };
@@ -1300,6 +1330,7 @@ module.exports = {
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  markPaymentReceived,
   markPacked,
   forceCompleteOrder,
   cancelOrder,

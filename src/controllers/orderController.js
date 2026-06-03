@@ -17,13 +17,14 @@ const createOrder = async (req, res) => {
     const order = await createOrderService(req.body, req.traceContext, req.log);
 
     if (order.paymentType === 'ONLINE') {
+      // Return the full order DTO + payment flags so the client can both render
+      // the order details immediately and know to kick off the payment flow.
       return res.json({
         success: true,
         data: {
-          orderId: order.orderId,
+          order: toOrderDTO(order),
           paymentRequired: true,
           paymentStatus: 'pending',
-          message: 'Online payment coming soon. Your order is saved.'
         }
       });
     }

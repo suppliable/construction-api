@@ -5,6 +5,7 @@ const { getETA, geocodeAddress, getDirectionsETA, formatEtaString } = require('.
 const { writeLiveOrder, updateLiveOrderStatus } = require('../services/realtimeDBService');
 const { uploadToFirebase } = require('../services/storageService');
 const { updateZohoShipment } = require('../services/zohoOrderService');
+const { convertPendingToCod } = require('../services/orderService');
 const { formatTimestamps } = require('../utils/formatDoc');
 const fcm = require('../services/fcmService');
 
@@ -264,7 +265,7 @@ const arrived = async (req, res) => {
     if (order.status !== 'out_for_delivery') {
       return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be out_for_delivery (current: ${order.status})` });
     }
-    const updated = await updateOrder(orderId, {
+    let updated = await updateOrder(orderId, {
       status: 'arrived',
       arrivedAt: new Date().toISOString()
     }, req.traceContext);
@@ -273,6 +274,22 @@ const arrived = async (req, res) => {
       await updateLiveOrderStatus(orderId, 'arrived');
     } catch (rtdbErr) {
       req.log.warn({ err: rtdbErr.message }, 'RTDB updateLiveOrderStatus failed (non-fatal)');
+    }
+
+    // Auto-convert to COD if the online payment never confirmed. The driver's
+    // existing COD-collection UI takes over from here. Done BEFORE responding
+    // so the driver app gets the updated order shape in this same response.
+    if (updated.paymentStatus === 'pending_proceeding') {
+      try {
+        const converted = await convertPendingToCod(orderId, 'auto_cod_at_arrived', req.traceContext);
+        if (converted._converted) {
+          updated = converted;
+          req.log.info({ orderId }, 'payment.auto_cod_at_arrived');
+        }
+      } catch (convErr) {
+        // Non-fatal — driver can still attempt completion; admin can fix later.
+        req.log.warn({ err: convErr.message, orderId }, 'payment.auto_cod_at_arrived.failed');
+      }
     }
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
