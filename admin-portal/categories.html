@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Suppliable Admin — Category Images</title>
+<title>Suppliable Admin — Categories & Banners</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -88,6 +88,50 @@
   .btn-cancel-del { flex:1; padding:11px; background:#f3f4f6; color:var(--text); border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; }
   .btn-cancel-del:hover { background:#e5e7eb; }
 
+  /* SECTION HEADER */
+  .section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .section-title { font-size:18px; font-weight:700; }
+  .section-sub { font-size:13px; color:var(--muted); margin-top:2px; }
+  .btn-add { padding:9px 18px; background:var(--blue); color:#fff; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+  .btn-add:hover { background:#1251a3; }
+
+  /* DIVIDER */
+  .section-divider { border:none; border-top:2px solid var(--border); margin:32px 0; }
+
+  /* BANNER LIST */
+  .banner-list { display:flex; flex-direction:column; gap:14px; }
+  .banner-row { background:#fff; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,0.08); display:flex; align-items:center; gap:16px; padding:12px 16px; transition:box-shadow 0.2s; }
+  .banner-row:hover { box-shadow:0 4px 16px rgba(0,0,0,0.12); }
+  .banner-thumb { width:120px; height:60px; object-fit:cover; border-radius:7px; flex-shrink:0; background:#f3f4f6; }
+  .banner-thumb-placeholder { width:120px; height:60px; border-radius:7px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--muted); font-size:20px; }
+  .banner-meta { flex:1; min-width:0; }
+  .banner-title-text { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .banner-link-text { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .banner-order-badge { font-size:11px; color:var(--muted); margin-top:4px; }
+  .banner-actions { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .toggle-wrap { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--muted); }
+  .toggle { position:relative; width:40px; height:22px; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle-slider { position:absolute; inset:0; background:#d1d5db; border-radius:22px; transition:background 0.2s; cursor:pointer; }
+  .toggle-slider::before { content:''; position:absolute; width:16px; height:16px; background:#fff; border-radius:50%; left:3px; top:3px; transition:transform 0.2s; }
+  .toggle input:checked + .toggle-slider { background:var(--green); }
+  .toggle input:checked + .toggle-slider::before { transform:translateX(18px); }
+  .btn-edit-banner { padding:7px 12px; background:#f3f4f6; color:var(--text); border:none; border-radius:7px; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; }
+  .btn-edit-banner:hover { background:#e5e7eb; }
+  .btn-del-banner { padding:7px 12px; background:#fee2e2; color:#dc2626; border:none; border-radius:7px; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; }
+  .btn-del-banner:hover { background:#fecaca; }
+
+  /* BANNER MODAL */
+  .modal-label { font-size:13px; font-weight:600; margin-bottom:5px; margin-top:14px; display:block; }
+  .modal-input { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; outline:none; transition:border-color 0.15s; }
+  .modal-input:focus { border-color:var(--blue); }
+  .modal-file-label { display:block; width:100%; padding:10px; border:2px dashed var(--border); border-radius:8px; text-align:center; cursor:pointer; font-size:13px; color:var(--muted); transition:border-color 0.15s; margin-top:5px; }
+  .modal-file-label:hover { border-color:var(--blue); color:var(--blue); }
+  .modal-preview { width:100%; height:120px; object-fit:cover; border-radius:8px; margin-top:8px; display:none; }
+  .btn-modal-submit { width:100%; padding:12px; background:var(--blue); color:#fff; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; cursor:pointer; margin-top:18px; transition:background 0.15s; }
+  .btn-modal-submit:hover { background:#1251a3; }
+  .btn-modal-submit:disabled { background:#9ca3af; cursor:not-allowed; }
+
   /* TOAST */
   #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
   #toast.show { transform:translateY(0); opacity:1; }
@@ -121,14 +165,36 @@
 <div class="main">
   <div class="topbar">
     <div class="topbar-left">
-      <div class="topbar-title">📂 Category Images</div>
-      <div class="topbar-sub">Upload images for each category shown on the home screen</div>
+      <div class="topbar-title">📂 Categories & Banners</div>
+      <div class="topbar-sub">Manage home screen banners and category images</div>
     </div>
     <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
   <div class="content">
+
+    <!-- BANNERS SECTION -->
+    <div class="section-header">
+      <div>
+        <div class="section-title">🖼️ Home Screen Banners</div>
+        <div class="section-sub">Banners appear at the top of the home screen. Lower order number = shown first.</div>
+      </div>
+      <button class="btn-add" onclick="openBannerModal()">+ Add Banner</button>
+    </div>
+    <div id="bannerList">
+      <div class="skeleton skel-card" style="height:84px;border-radius:12px;"></div>
+      <div class="skeleton skel-card" style="height:84px;border-radius:12px;margin-top:14px;"></div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- CATEGORIES SECTION -->
+    <div class="section-header">
+      <div>
+        <div class="section-title">📂 Category Images</div>
+        <div class="section-sub">Images shown on the home screen for each product category.</div>
+      </div>
+    </div>
     <div class="category-grid" id="categoryGrid">
-      <!-- Skeleton placeholders while loading -->
       <div class="skeleton skel-card"></div>
       <div class="skeleton skel-card"></div>
       <div class="skeleton skel-card"></div>
@@ -136,6 +202,25 @@
       <div class="skeleton skel-card"></div>
       <div class="skeleton skel-card"></div>
     </div>
+
+  </div>
+</div>
+
+<!-- BANNER ADD/EDIT MODAL -->
+<div class="modal-overlay" id="bannerModal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title" id="bannerModalTitle">Add Banner</div>
+    <label class="modal-file-label" for="bannerFileInput" id="bannerFileLabel">📁 Click to choose image (jpeg/png/webp, max 5MB)</label>
+    <input type="file" id="bannerFileInput" accept="image/jpeg,image/png,image/webp" style="display:none">
+    <img id="bannerPreview" class="modal-preview" alt="preview">
+    <label class="modal-label" for="bannerTitle">Title (optional)</label>
+    <input class="modal-input" type="text" id="bannerTitle" placeholder="e.g. Summer Sale">
+    <label class="modal-label" for="bannerLink">Link (optional)</label>
+    <input class="modal-input" type="text" id="bannerLink" placeholder="e.g. /category/cement">
+    <label class="modal-label" for="bannerOrder">Display Order</label>
+    <input class="modal-input" type="number" id="bannerOrder" placeholder="0" value="0" min="0">
+    <button class="btn-modal-submit" id="bannerSubmitBtn" onclick="submitBanner()">Upload Banner</button>
+    <button class="btn-cancel-del" style="width:100%;margin-top:8px;" onclick="closeBannerModal()">Cancel</button>
   </div>
 </div>
 
@@ -168,7 +253,241 @@ async function apiFetch(url, opts = {}) {
   return res;
 }
 function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+}
 
+// ──────────────────────────────────────────
+//  BANNERS
+// ──────────────────────────────────────────
+let banners = [];
+let editingBannerId = null;
+let bannerFile = null;
+
+async function loadBanners() {
+  try {
+    const res = await apiFetch('/api/v1/admin/banners');
+    const data = await res.json();
+    banners = data.data?.banners || [];
+    renderBanners();
+  } catch(e) {
+    document.getElementById('bannerList').innerHTML = `<div style="color:#ef4444;font-size:13px;">Failed to load banners: ${e.message}</div>`;
+  }
+}
+
+function renderBanners() {
+  const list = document.getElementById('bannerList');
+  if (!banners.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:20px 0;">No banners yet. Click "Add Banner" to create one.</div>`;
+    return;
+  }
+  list.innerHTML = banners.map(b => bannerRowHTML(b)).join('');
+}
+
+function bannerRowHTML(b) {
+  const thumb = b.imageUrl
+    ? `<img class="banner-thumb" src="${escHtml(b.imageUrl)}" alt="banner">`
+    : `<div class="banner-thumb-placeholder">🖼️</div>`;
+  return `<div class="banner-row" id="bnr-${b.bannerId}">
+    ${thumb}
+    <div class="banner-meta">
+      <div class="banner-title-text">${b.title ? escHtml(b.title) : '<span style="color:var(--muted);font-style:italic;">No title</span>'}</div>
+      <div class="banner-link-text">${b.link ? escHtml(b.link) : 'No link'}</div>
+      <div class="banner-order-badge">Order: ${b.sortOrder}</div>
+    </div>
+    <div class="banner-actions">
+      <label class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" ${b.active ? 'checked' : ''} onchange="toggleBanner('${b.bannerId}', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        ${b.active ? 'Active' : 'Hidden'}
+      </label>
+      <button class="btn-edit-banner" onclick="openBannerModal('${b.bannerId}')">Edit</button>
+      <button class="btn-del-banner" onclick="openDeleteBannerModal('${b.bannerId}')">Delete</button>
+    </div>
+  </div>`;
+}
+
+function openBannerModal(bannerId = null) {
+  editingBannerId = bannerId;
+  bannerFile = null;
+  const modal = document.getElementById('bannerModal');
+  const title = document.getElementById('bannerModalTitle');
+  const preview = document.getElementById('bannerPreview');
+  const fileLabel = document.getElementById('bannerFileLabel');
+
+  if (bannerId) {
+    const b = banners.find(x => x.bannerId === bannerId);
+    title.textContent = 'Edit Banner';
+    document.getElementById('bannerTitle').value = b?.title || '';
+    document.getElementById('bannerLink').value = b?.link || '';
+    document.getElementById('bannerOrder').value = b?.sortOrder ?? 0;
+    if (b?.imageUrl) { preview.src = b.imageUrl; preview.style.display = 'block'; fileLabel.textContent = '📁 Click to change image'; }
+    else { preview.style.display = 'none'; fileLabel.textContent = '📁 Click to choose image (jpeg/png/webp, max 5MB)'; }
+    document.getElementById('bannerSubmitBtn').textContent = 'Save Changes';
+  } else {
+    title.textContent = 'Add Banner';
+    document.getElementById('bannerTitle').value = '';
+    document.getElementById('bannerLink').value = '';
+    document.getElementById('bannerOrder').value = banners.length;
+    preview.style.display = 'none';
+    fileLabel.textContent = '📁 Click to choose image (jpeg/png/webp, max 5MB)';
+    document.getElementById('bannerSubmitBtn').textContent = 'Upload Banner';
+  }
+  document.getElementById('bannerFileInput').value = '';
+  modal.classList.add('open');
+}
+
+function closeBannerModal() {
+  document.getElementById('bannerModal').classList.remove('open');
+  editingBannerId = null; bannerFile = null;
+}
+document.getElementById('bannerModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeBannerModal(); });
+
+document.getElementById('bannerFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('Image must be under 5MB', 'error'); return; }
+  bannerFile = file;
+  const preview = document.getElementById('bannerPreview');
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = 'block';
+  document.getElementById('bannerFileLabel').textContent = '✅ ' + file.name;
+});
+
+document.getElementById('bannerFileLabel').addEventListener('click', () => {
+  document.getElementById('bannerFileInput').click();
+});
+
+async function submitBanner() {
+  const title = document.getElementById('bannerTitle').value.trim();
+  const link = document.getElementById('bannerLink').value.trim();
+  const sortOrder = parseInt(document.getElementById('bannerOrder').value, 10) || 0;
+  const btn = document.getElementById('bannerSubmitBtn');
+
+  if (!editingBannerId && !bannerFile) {
+    showToast('Please choose an image', 'error'); return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    if (editingBannerId) {
+      // If new image selected, upload first
+      if (bannerFile) {
+        const fd = new FormData();
+        fd.append('image', bannerFile);
+        if (title) fd.append('title', title);
+        if (link) fd.append('link', link);
+        fd.append('sortOrder', sortOrder);
+        // Delete old + create new (simplest approach)
+        await apiFetch(`/api/v1/admin/banners/${editingBannerId}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/api/v1/admin/banners`, { method: 'POST', headers: authHeaders(), body: fd });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Failed');
+        showToast('Banner updated', 'success');
+      } else {
+        const res = await apiFetch(`/api/v1/admin/banners/${editingBannerId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: title || null, link: link || null, sortOrder })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Failed');
+        showToast('Banner updated', 'success');
+      }
+    } else {
+      const fd = new FormData();
+      fd.append('image', bannerFile);
+      if (title) fd.append('title', title);
+      if (link) fd.append('link', link);
+      fd.append('sortOrder', sortOrder);
+      const res = await fetch(`${API_BASE}/api/v1/admin/banners`, { method: 'POST', headers: authHeaders(), body: fd });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Failed');
+      showToast('Banner added', 'success');
+    }
+    closeBannerModal();
+    await loadBanners();
+  } catch(err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleBanner(bannerId, active) {
+  try {
+    const res = await apiFetch(`/api/v1/admin/banners/${bannerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const b = banners.find(x => x.bannerId === bannerId);
+      if (b) { b.active = active; renderBanners(); }
+      showToast(active ? 'Banner activated' : 'Banner hidden', 'success');
+    } else {
+      showToast(data.message || 'Failed', 'error');
+      await loadBanners();
+    }
+  } catch(err) {
+    showToast('Error: ' + err.message, 'error');
+    await loadBanners();
+  }
+}
+
+let deletingBannerId = null;
+function openDeleteBannerModal(bannerId) {
+  deletingBannerId = bannerId;
+  document.getElementById('removeModalBody').textContent = 'Delete this banner? This cannot be undone.';
+  document.getElementById('removeModal').classList.add('open');
+}
+
+async function confirmRemove() {
+  if (deletingBannerId) {
+    // Banner delete
+    const id = deletingBannerId;
+    deletingBannerId = null;
+    closeRemoveModal();
+    try {
+      const res = await apiFetch(`/api/v1/admin/banners/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) { showToast('Banner deleted', 'success'); await loadBanners(); }
+      else showToast(data.message || 'Delete failed', 'error');
+    } catch(err) { showToast('Error: ' + err.message, 'error'); }
+    return;
+  }
+  if (!pendingRemoveId) return;
+  const id  = pendingRemoveId;
+  const cat = categories.find(c => c.id === id);
+  closeRemoveModal();
+  try {
+    const res  = await apiFetch(`/api/v1/admin/categories/${encodeURIComponent(id)}/image`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      if (cat) { cat.imageUrl = null; updateCard(cat); }
+      showToast('Image removed', 'success');
+    } else {
+      showToast(data.message || 'Remove failed', 'error');
+    }
+  } catch(err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+// ──────────────────────────────────────────
+//  CATEGORIES
+// ──────────────────────────────────────────
 let categories = [];
 let pendingUploadId = null;
 let pendingRemoveId = null;
@@ -181,9 +500,9 @@ async function loadCategories() {
       categories = data.data.categories || [];
       renderGrid();
     } else {
-      showError('Failed to load categories');
+      showCatError('Failed to load categories');
     }
-  } catch(e) { showError(e.message); }
+  } catch(e) { showCatError(e.message); }
 }
 
 function renderGrid() {
@@ -202,7 +521,7 @@ function cardHTML(cat) {
 
   const actions = cat.imageUrl
     ? `<button class="btn-change" onclick="triggerUpload('${cat.id}', '${escHtml(cat.name)}')">📷 Change</button>
-       <button class="btn-remove" onclick="openRemoveModal('${cat.id}', '${escHtml(cat.name)}')">🗑️ Remove</button>`
+       <button class="btn-remove" onclick="openRemoveCatModal('${cat.id}', '${escHtml(cat.name)}')">🗑️ Remove</button>`
     : `<button class="btn-upload" onclick="triggerUpload('${cat.id}', '${escHtml(cat.name)}')">📷 Upload Image</button>`;
 
   return `<div class="cat-card" id="card-${cat.id}">
@@ -218,16 +537,10 @@ function cardHTML(cat) {
   </div>`;
 }
 
-function escHtml(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+function showCatError(msg) {
+  document.getElementById('categoryGrid').innerHTML = `<div class="empty-state"><span class="icon">⚠️</span>${msg}</div>`;
 }
 
-function showError(msg) {
-  const grid = document.getElementById('categoryGrid');
-  grid.innerHTML = `<div class="empty-state"><span class="icon">⚠️</span>${msg}</div>`;
-}
-
-// UPLOAD
 function triggerUpload(categoryId, categoryName) {
   pendingUploadId = { id: categoryId, name: categoryName };
   const input = document.getElementById('fileInput');
@@ -238,33 +551,21 @@ function triggerUpload(categoryId, categoryName) {
 document.getElementById('fileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file || !pendingUploadId) return;
-
   const { id, name } = pendingUploadId;
   pendingUploadId = null;
-
-  if (file.size > 5 * 1024 * 1024) {
-    showToast('Image must be under 5MB', 'error');
-    return;
-  }
-
+  if (file.size > 5 * 1024 * 1024) { showToast('Image must be under 5MB', 'error'); return; }
   const spinner = document.getElementById('spinner-' + id);
   if (spinner) spinner.classList.add('show');
-
   const formData = new FormData();
   formData.append('image', file);
   formData.append('categoryName', name);
-
   try {
     const res = await fetch(`${API_BASE}/api/v1/admin/categories/${encodeURIComponent(id)}/image`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: formData
+      method: 'POST', headers: authHeaders(), body: formData
     });
     if (res.status === 401) { window.location.href = 'login.html'; return; }
     const data = await res.json();
-
     if (data.success) {
-      // Update category in local state and re-render card
       const cat = categories.find(c => c.id === id);
       if (cat) { cat.imageUrl = data.imageUrl; updateCard(cat); }
       showToast(`Image uploaded for ${name}`, 'success');
@@ -284,41 +585,23 @@ function updateCard(cat) {
   card.outerHTML = cardHTML(cat);
 }
 
-// REMOVE
-function openRemoveModal(categoryId, categoryName) {
+function openRemoveCatModal(categoryId, categoryName) {
   pendingRemoveId = categoryId;
+  deletingBannerId = null;
   document.getElementById('removeModalBody').textContent = `Remove image for "${categoryName}" category?`;
   document.getElementById('removeModal').classList.add('open');
 }
-function closeRemoveModal() { document.getElementById('removeModal').classList.remove('open'); pendingRemoveId = null; }
+
+function openRemoveModal(categoryId, categoryName) { openRemoveCatModal(categoryId, categoryName); }
+
+function closeRemoveModal() {
+  document.getElementById('removeModal').classList.remove('open');
+  pendingRemoveId = null; deletingBannerId = null;
+}
 document.getElementById('removeModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRemoveModal(); });
 
-async function confirmRemove() {
-  if (!pendingRemoveId) return;
-  const id  = pendingRemoveId;
-  const cat = categories.find(c => c.id === id);
-  closeRemoveModal();
-  try {
-    const res  = await apiFetch(`/api/v1/admin/categories/${encodeURIComponent(id)}/image`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      if (cat) { cat.imageUrl = null; updateCard(cat); }
-      showToast('Image removed', 'success');
-    } else {
-      showToast(data.message || 'Remove failed', 'error');
-    }
-  } catch(err) {
-    showToast('Error: ' + err.message, 'error');
-  }
-}
-
-function showToast(msg, type = '') {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.className = ''; }, 4000);
-}
-
+// Init
+loadBanners();
 loadCategories();
 </script>
 </body>

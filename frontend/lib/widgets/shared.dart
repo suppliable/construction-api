@@ -94,7 +94,7 @@ class AppCard extends StatelessWidget {
         border: Border.all(color: borderColor ?? kSlate100),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -327,7 +327,7 @@ class QtyButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(compact ? 12 : 16),
         boxShadow: [
           BoxShadow(
-            color: kOrange.withOpacity(0.3),
+            color: kOrange.withValues(alpha: 0.3),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -432,7 +432,7 @@ class StatusChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: fg.withOpacity(0.3)),
+        border: Border.all(color: fg.withValues(alpha: 0.3)),
       ),
       child: Text(
         status.toUpperCase(),

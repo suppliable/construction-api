@@ -35,7 +35,7 @@
     },
     "api_base_url": {
       "defaultValue": {
-        "value": "http://192.168.68.108:3000"
+        "value": "https://construction-api-ledm.onrender.com"
       },
       "description": "backend API URL ",
       "valueType": "STRING"
@@ -84,6 +84,48 @@
         "value": "true"
       },
       "valueType": "BOOLEAN"
+    },
+    "whatsapp_quote": {
+      "defaultValue": {
+        "value": "918778627926"
+      },
+      "description": "WhatsApp number for bulk-order enquiries (E.164 without +)",
+      "valueType": "STRING"
+    },
+    "whatsapp_support": {
+      "defaultValue": {
+        "value": "918778627926"
+      },
+      "description": "WhatsApp number for customer support",
+      "valueType": "STRING"
+    },
+    "sentry_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "Master kill-switch for Sentry SDK (dev: off by default)",
+      "valueType": "BOOLEAN"
+    },
+    "sentry_traces_sample_rate": {
+      "defaultValue": {
+        "value": "1.0"
+      },
+      "description": "Fraction of transactions sampled for Sentry performance traces (dev: 100%)",
+      "valueType": "NUMBER"
+    },
+    "Google_Places_API": {
+      "defaultValue": {
+        "value": "AIzaSyCVQmyR-aMKb6QyS9y5qUrXWDcChfZT8v4"
+      },
+      "description": "Google Places API key (dev: same key as Maps; restricted by API on the GCP console)",
+      "valueType": "STRING"
+    },
+    "force_update_version_code": {
+      "defaultValue": {
+        "value": "0"
+      },
+      "description": "Min installed versionCode that triggers immediate update (0 = none)",
+      "valueType": "NUMBER"
     }
   }
 }

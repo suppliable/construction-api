@@ -30,49 +30,49 @@ final List<Product> kProducts = [
 
   // ── CEMENT (7) ─────────────────────────────────────────────────────────────
 
-  Product(
+  const Product(
     id: 'c1', name: 'Ramco OPC 53 Grade Cement', brand: 'RAMCO',
     category: 'cement', imageUrl: _imgCement, price: 420, stock: 500,
     description:
         'Ramco OPC 53 Grade Cement offers high early strength ideal for RCC structures, '
         'bridges, and high-rise buildings. Superior fineness for smooth surface finish.',
   ),
-  Product(
+  const Product(
     id: 'c2', name: 'UltraTech PPC Cement', brand: 'ULTRATECH',
     category: 'cement', imageUrl: _imgCement, price: 465, stock: 400,
     description:
         'UltraTech PPC is India\'s No. 1 cement. Excellent workability and long-term '
         'strength. Best for masonry, plastering and block work.',
   ),
-  Product(
+  const Product(
     id: 'c3', name: 'ACC Gold PPC Cement', brand: 'ACC',
     category: 'cement', imageUrl: _imgCement, price: 450, stock: 350,
     description:
         'ACC Gold premium Portland Pozzolana Cement — superior strength, durability and '
         'resistance to sulfates and chlorides. Ideal for foundations.',
   ),
-  Product(
+  const Product(
     id: 'c4', name: 'Ambuja Plus Cement', brand: 'AMBUJA',
     category: 'cement', imageUrl: _imgCement, price: 460, stock: 300,
     description:
         'Ambuja Plus cement with moisture-free technology for stronger walls. '
         'Higher fineness than ordinary cement; excellent setting time.',
   ),
-  Product(
+  const Product(
     id: 'c5', name: 'Birla Gold Cement', brand: 'BIRLA',
     category: 'cement', imageUrl: _imgCement, price: 455, stock: 250,
     description:
         'Birla Gold PPC cement — superior blaine value, better workability and excellent '
         'sulfate resistance. Suitable for residential construction.',
   ),
-  Product(
+  const Product(
     id: 'c6', name: 'Dalmia DSP Cement', brand: 'DALMIA',
     category: 'cement', imageUrl: _imgCement, price: 440, stock: 200,
     description:
         'Dalmia DSP Super Cement — 10% extra strength vs ordinary cement. Premium '
         'performance for demanding structures and coastal areas.',
   ),
-  Product(
+  const Product(
     id: 'c7', name: 'JK Super Cement', brand: 'JK CEMENT',
     category: 'cement', imageUrl: _imgCement, price: 435, stock: 220,
     description:
@@ -82,7 +82,7 @@ final List<Product> kProducts = [
 
   // ── STEEL / TMT BARS (4 × 4 variants) ─────────────────────────────────────
 
-  Product(
+  const Product(
     id: 's1', name: 'ARS TMT Steel Bars', brand: 'ARS STEEL',
     category: 'steel', imageUrl: _imgSteel1,
     description:
@@ -95,7 +95,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 's1v4', name: '25mm', price: 2850, stock: 400),
     ],
   ),
-  Product(
+  const Product(
     id: 's2', name: 'JSW Neosteel TMT Bars', brand: 'JSW STEEL',
     category: 'steel', imageUrl: _imgSteel2,
     description:
@@ -108,7 +108,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 's2v4', name: '25mm', price: 2780, stock: 300),
     ],
   ),
-  Product(
+  const Product(
     id: 's3', name: 'Kamdhenu TMT Bars', brand: 'KAMDHENU',
     category: 'steel', imageUrl: _imgSteel1,
     description:
@@ -121,7 +121,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 's3v4', name: '25mm', price: 2700, stock: 200),
     ],
   ),
-  Product(
+  const Product(
     id: 's4', name: 'TATA Tiscon TMT Bars', brand: 'TATA STEEL',
     category: 'steel', imageUrl: _imgSteel2,
     description:
@@ -137,7 +137,7 @@ final List<Product> kProducts = [
 
   // ── WATERPROOFING (4) ──────────────────────────────────────────────────────
 
-  Product(
+  const Product(
     id: 'w1', name: 'Dr. Fixit LW+ Waterproofing', brand: 'PIDILITE',
     category: 'waterproofing', imageUrl: _imgWater,
     description:
@@ -149,7 +149,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'w1v3', name: '5L',    price: 1850, stock: 80),
     ],
   ),
-  Product(
+  const Product(
     id: 'w2', name: 'Dr. Fixit Pidicrete URP', brand: 'PIDILITE',
     category: 'waterproofing', imageUrl: _imgWater,
     description:
@@ -160,7 +160,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'w2v2', name: '5L', price: 2200, stock: 60),
     ],
   ),
-  Product(
+  const Product(
     id: 'w3', name: 'Fosroc Brushbond RFX', brand: 'FOSROC',
     category: 'waterproofing', imageUrl: _imgWater,
     description:
@@ -171,7 +171,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'w3v2', name: '5L', price: 2900, stock: 40),
     ],
   ),
-  Product(
+  const Product(
     id: 'w4', name: 'Asian Paints SmartCare Damp Proof', brand: 'ASIAN PAINTS',
     category: 'waterproofing', imageUrl: _imgWater,
     description:
@@ -185,7 +185,7 @@ final List<Product> kProducts = [
 
   // ── PAINTS (5) ─────────────────────────────────────────────────────────────
 
-  Product(
+  const Product(
     id: 'p1', name: 'Asian Paints Tractor Emulsion', brand: 'ASIAN PAINTS',
     category: 'paints', imageUrl: _imgPaint,
     description:
@@ -197,7 +197,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'p1v3', name: '20L', price: 14500, stock: 30),
     ],
   ),
-  Product(
+  const Product(
     id: 'p2', name: 'Asian Paints Apex Exterior', brand: 'ASIAN PAINTS',
     category: 'paints', imageUrl: _imgPaint,
     description:
@@ -209,7 +209,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'p2v3', name: '20L', price: 15800, stock: 25),
     ],
   ),
-  Product(
+  const Product(
     id: 'p3', name: 'Berger WeatherCoat Long Life', brand: 'BERGER',
     category: 'paints', imageUrl: _imgPaint,
     description:
@@ -220,7 +220,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'p3v2', name: '20L', price: 16500, stock: 20),
     ],
   ),
-  Product(
+  const Product(
     id: 'p4', name: 'Nerolac Excel Total Ext.', brand: 'NEROLAC',
     category: 'paints', imageUrl: _imgPaint,
     description:
@@ -231,7 +231,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'p4v2', name: '20L', price: 15600, stock: 22),
     ],
   ),
-  Product(
+  const Product(
     id: 'p5', name: 'Dulux WeatherShield Power', brand: 'DULUX',
     category: 'paints', imageUrl: _imgPaint,
     description:
@@ -245,7 +245,7 @@ final List<Product> kProducts = [
 
   // ── PIPES (6) ──────────────────────────────────────────────────────────────
 
-  Product(
+  const Product(
     id: 'pi1', name: 'Astral CPVC Pipe 1"', brand: 'ASTRAL',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -257,7 +257,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'pi1v3', name: '6m',  price: 1450, stock: 200),
     ],
   ),
-  Product(
+  const Product(
     id: 'pi2', name: 'Astral CPVC Pipe 2"', brand: 'ASTRAL',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -269,7 +269,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'pi2v3', name: '6m', price: 2300, stock: 150),
     ],
   ),
-  Product(
+  const Product(
     id: 'pi3', name: 'Supreme UPVC Pipe 1"', brand: 'SUPREME',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -280,7 +280,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'pi3v2', name: '6m', price: 1250, stock: 180),
     ],
   ),
-  Product(
+  const Product(
     id: 'pi4', name: 'Supreme UPVC Pipe 2"', brand: 'SUPREME',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -291,7 +291,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'pi4v2', name: '6m', price: 2050, stock: 130),
     ],
   ),
-  Product(
+  const Product(
     id: 'pi5', name: 'Finolex UPVC Pipe 1"', brand: 'FINOLEX',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -302,7 +302,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'pi5v2', name: '6m', price: 1200, stock: 160),
     ],
   ),
-  Product(
+  const Product(
     id: 'pi6', name: 'Finolex UPVC Pipe 2"', brand: 'FINOLEX',
     category: 'pipes', imageUrl: _imgPipe,
     description:
@@ -316,7 +316,7 @@ final List<Product> kProducts = [
 
   // ── ELECTRICAL (4) ─────────────────────────────────────────────────────────
 
-  Product(
+  const Product(
     id: 'e1', name: 'Havells FRLS FR Cable', brand: 'HAVELLS',
     category: 'electrical', imageUrl: _imgElec,
     description:
@@ -328,7 +328,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'e1v3', name: '4 sq mm – 90m',   price: 4200, stock: 100),
     ],
   ),
-  Product(
+  const Product(
     id: 'e2', name: 'Polycab FRLS Wire', brand: 'POLYCAB',
     category: 'electrical', imageUrl: _imgElec,
     description:
@@ -340,7 +340,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'e2v3', name: '4 sq mm – 100m',   price: 4800, stock: 90),
     ],
   ),
-  Product(
+  const Product(
     id: 'e3', name: 'Finolex FR PVC Wire', brand: 'FINOLEX',
     category: 'electrical', imageUrl: _imgElec,
     description:
@@ -352,7 +352,7 @@ final List<Product> kProducts = [
       ProductVariant(id: 'e3v3', name: '4 sq mm – 90m',   price: 4400, stock: 85),
     ],
   ),
-  Product(
+  const Product(
     id: 'e4', name: 'Anchor Roma Switch Board', brand: 'ANCHOR',
     category: 'electrical', imageUrl: _imgElec,
     description:

@@ -214,8 +214,8 @@
 
     <!-- PENDING TAB -->
     <div id="tab-pending">
-      <!-- Main table: collected by driver -->
-      <div class="table-card">
+      <!-- Section: Collected by driver, awaiting admin reconciliation -->
+      <div class="table-card" id="section-collected">
         <div class="table-header">
           <span class="table-title">COD Collected by Driver</span>
           <span class="table-count" id="main-count">0 orders</span>
@@ -223,12 +223,28 @@
         <table>
           <thead>
             <tr>
-              <th>Order</th><th>Customer</th><th>Amount</th>
-              <th>Method</th><th>Collected</th><th>Zoho</th><th>Date</th><th>Action</th>
+              <th>Order</th><th>Customer</th><th>Driver</th><th>Amount</th>
+              <th>Method</th><th>Date</th><th>Action</th>
             </tr>
           </thead>
           <tbody id="codTableBody"></tbody>
         </table>
+      </div>
+
+      <!-- Section: Reconciled, pending Zoho recording -->
+      <div id="section-reconciled" style="display:none;margin-top:20px;">
+        <div class="section-title" style="margin-bottom:12px;">✅ Reconciled — Pending Zoho <span id="reconciled-count-badge" style="font-size:12px;font-weight:500;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;"></span></div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th><th>Customer</th><th>Driver</th><th>Amount</th>
+                <th>Method</th><th>Date</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="reconciledTableBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Awaiting collection section -->
@@ -363,11 +379,13 @@ function filterByDate(orders) {
 function renderPending() {
   const orders = filterByDate(allOrders);
 
-  const collected = orders.filter(o => o.codCollectedByDriver || o.codCollected);
-  const awaiting  = orders.filter(o => !o.codCollectedByDriver && !o.codCollected);
+  const needsReconcile = orders.filter(o => o.codCollectedByDriver && !o.codCollected && !o.zohoPaymentRecorded);
+  const needsZoho      = orders.filter(o => o.codCollected && !o.zohoPaymentRecorded);
+  const awaiting       = orders.filter(o => !o.codCollectedByDriver && !o.codCollected);
 
   renderStats(orders);
-  renderMainTable(collected);
+  renderMainTable(needsReconcile);
+  renderReconciledTable(needsZoho);
   renderAwaitingTable(awaiting);
 }
 
@@ -412,23 +430,43 @@ function actionCell(o) {
   return `<span class="awaiting-text">⏳ Awaiting driver</span>`;
 }
 
+function customerName(o) { return o.customerName || o.customer?.name || o.userId || '—'; }
+function driverName(o)   { return o.driverName || o.vehicle?.driverName || '—'; }
+
 function renderMainTable(orders) {
   const tbody = document.getElementById('codTableBody');
   document.getElementById('main-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
   if (!orders.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="icon">✅</span>All collected orders processed!</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">✅</span>All collected — nothing awaiting reconciliation.</div></td></tr>`;
     return;
   }
   tbody.innerHTML = orders.map(o => `
     <tr id="row-${o.orderId}">
       <td><span class="order-id">${o.orderId}</span></td>
-      <td>${o.customer?.name || o.userId || '—'}</td>
+      <td>${customerName(o)}</td>
+      <td style="font-size:12px;color:var(--muted)">${driverName(o)}</td>
       <td><span class="amount">₹${(o.codAmountCollected || o.grand_total || 0).toLocaleString('en-IN')}</span></td>
       <td>${methodBadge(o.codPaymentMethod)}</td>
-      <td><span style="font-size:12px">${o.codCollectedByDriver ? '✅ Yes' : '—'}</span></td>
-      <td>${zohoBadge(o)}</td>
       <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt || o.createdAt)}</td>
       <td>${actionCell(o)}</td>
+    </tr>`).join('');
+}
+
+function renderReconciledTable(orders) {
+  const section = document.getElementById('section-reconciled');
+  const tbody   = document.getElementById('reconciledTableBody');
+  document.getElementById('reconciled-count-badge').textContent = orders.length;
+  if (!orders.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  tbody.innerHTML = orders.map(o => `
+    <tr id="row-${o.orderId}">
+      <td><span class="order-id">${o.orderId}</span></td>
+      <td>${customerName(o)}</td>
+      <td style="font-size:12px;color:var(--muted)">${driverName(o)}</td>
+      <td><span class="amount">₹${(o.codAmountCollected || o.grand_total || 0).toLocaleString('en-IN')}</span></td>
+      <td>${methodBadge(o.codPaymentMethod)}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt || o.createdAt)}</td>
+      <td><button class="btn-record" id="btn-${o.orderId}" onclick="openModal('${o.orderId}')">📒 Record Payment</button></td>
     </tr>`).join('');
 }
 
@@ -444,7 +482,7 @@ function renderAwaitingTable(orders) {
     const idleStr = idleMs ? formatDuration(idleMs) : '—';
     return `<tr>
       <td><span class="order-id">${o.orderId}</span></td>
-      <td>${o.customer?.name || o.userId || '—'}</td>
+      <td>${customerName(o)}</td>
       <td><span class="amount">₹${(o.grand_total || 0).toLocaleString('en-IN')}</span></td>
       <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt)}</td>
       <td style="color:var(--orange);font-size:12px;font-weight:600">${idleStr}</td>

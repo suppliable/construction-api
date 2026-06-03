@@ -4,6 +4,7 @@ const router = express.Router();
 const { getAllProducts } = require('../services/productService');
 const { cacheFor } = require('../cache/middleware');
 const { CACHE_TTL_CATALOGUE_S } = require('../constants');
+const { dbOp } = require('../utils/dbOp');
 
 function toCategoryId(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -12,13 +13,29 @@ function toCategoryId(name) {
 // GET /api/home
 router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, res) => {
   try {
-    const [products, catSnap] = await Promise.all([
+    const [products, catSnap, bannerSnap] = await Promise.all([
       getAllProducts(null, req.traceContext),
-      admin.firestore().collection('categories').get()
+      dbOp(
+        'categories.list',
+        () => admin.firestore().collection('categories').get(),
+        req.traceContext,
+        { 'db.collection': 'categories' },
+      ),
+      dbOp(
+        'banners.list',
+        () => admin.firestore().collection('banners').orderBy('sortOrder', 'asc').get(),
+        req.traceContext,
+        { 'db.collection': 'banners' },
+      ),
     ]);
 
     const categoryImages = {};
     catSnap.docs.forEach(d => { categoryImages[d.id] = d.data().imageUrl || null; });
+
+    const banners = bannerSnap.docs
+      .map(d => { const b = d.data(); return { bannerId: d.id, imageUrl: b.imageUrl, title: b.title || null, link: b.link || null, sortOrder: b.sortOrder, active: b.active }; })
+      .filter(b => b.active !== false)
+      .map(({ active, ...rest }) => rest);
 
     const catMap = {};
     products.forEach(p => {
@@ -39,7 +56,7 @@ router.get('/', cacheFor(CACHE_TTL_CATALOGUE_S, () => 'home:data'), async (req, 
       preview[cat.name] = products.filter(p => p.category === cat.name).slice(0, 5);
     });
 
-    res.json({ success: true, data: { categories, featured, preview } });
+    res.json({ success: true, data: { banners, categories, featured, preview } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

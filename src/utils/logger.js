@@ -82,7 +82,12 @@ function simpleFormat(log, messageKey) {
     const duration = log.responseTime != null ? `${log.responseTime}ms` : '';
     // span ID = parent for all child spans spawned during this request
     const spanTag = spanId ? `span:${spanId.slice(0, 8)}` : '';
-    return [tag + `${method} ${url}`, spanTag, httpStatus, duration]
+    const debugParts = [];
+    if (log.reqHeaders) debugParts.push(`reqH=${JSON.stringify(log.reqHeaders)}`);
+    if (log.reqBody) debugParts.push(`reqB=${JSON.stringify(log.reqBody)}`);
+    if (log.resHeaders) debugParts.push(`resH=${JSON.stringify(log.resHeaders)}`);
+    if (log.resBody !== undefined) debugParts.push(`resB=${JSON.stringify(log.resBody)}`);
+    return [tag + `${method} ${url}`, spanTag, httpStatus, duration, ...debugParts]
       .filter(s => s !== '')
       .join('  |  ');
   }
@@ -95,6 +100,7 @@ function simpleFormat(log, messageKey) {
 // Fields to suppress when using simple format (shown inline via simpleFormat instead)
 const SPAN_FIELDS = 'trace_id,span_id,parent_span_id,span_name,kind,duration_ms,timestamp,attributes,success,error,rows';
 const HTTP_FIELDS = 'req,res,responseTime,reqId,clientTraceId,traceparent';
+const DEBUG_PAYLOAD_FIELDS = 'reqHeaders,resHeaders,reqBody,resBody';
 const COMMON_FIELDS = 'pid,hostname,service';
 
 // Build the human-readable dev stream (runs inline so messageFormat can be a function).
@@ -106,15 +112,16 @@ if (env.NODE_ENV !== 'production') {
     ? pretty({
         colorize: true,
         translateTime: 'SYS:HH:MM:ss',
-        ignore: [COMMON_FIELDS, SPAN_FIELDS, HTTP_FIELDS].join(','),
+        singleLine: true,
+        ignore: [COMMON_FIELDS, SPAN_FIELDS, HTTP_FIELDS, DEBUG_PAYLOAD_FIELDS].join(','),
         messageFormat: simpleFormat,
       })
-    : pretty({ colorize: true, translateTime: 'SYS:HH:MM:ss', ignore: 'pid,hostname' });
+    : pretty({ colorize: true, translateTime: 'SYS:HH:MM:ss', singleLine: true, ignore: 'pid,hostname' });
 }
 
 const streams = devStream
   ? pino.multistream([{ stream: devStream }, { stream: otelDest }])
-  : pino.multistream([{ stream: process.stdout }, { stream: otelDest }]);
+  : pino.multistream([{ stream: otelDest }]);
 
 const logger = pino(
   {
@@ -125,7 +132,12 @@ const logger = pino(
       const span = trace.getActiveSpan();
       if (span?.isRecording()) {
         const ctx = span.spanContext();
-        return { trace_id: ctx.traceId, span_id: ctx.spanId };
+        return {
+          traceId: ctx.traceId,
+          spanId: ctx.spanId,
+          trace_id: ctx.traceId,
+          span_id: ctx.spanId,
+        };
       }
       return {};
     },

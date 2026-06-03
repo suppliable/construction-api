@@ -2,8 +2,36 @@
 
 const { trace, context, propagation, SpanKind, SpanStatusCode } = require('@opentelemetry/api');
 const logger = require('./logger');
+const { getRequestCtx } = require('../observability/requestContext');
 
 const tracer = trace.getTracer('construction-api.services');
+
+/**
+ * Resolves the parent OTEL Context to use for a new span.
+ *
+ * Resolution order:
+ *   1. Explicit OTEL Context passed in
+ *   2. req.otelCtx set by controllerSpan middleware
+ *   3. The request-scoped ALS seeded by controllerSpan (works even when the
+ *      caller never received `req` — repositories, services, etc.)
+ *   4. context.active() — fallback for code paths outside an HTTP request
+ *
+ * The ALS at step 3 is the load-bearing one: it lets all 76+ existing
+ * createSpan/withSpan/dbOp callers stay unchanged and still produce spans
+ * parented under the request's controllerSpan, even when OTEL's global
+ * active context has been overwritten by Express trampolines or other
+ * instrumentations.
+ */
+function resolveParentCtx(parentRef) {
+  if (parentRef && typeof parentRef === 'object') {
+    if (parentRef.otelCtx) return parentRef.otelCtx;          // req with stashed ctx
+    // OTEL Context objects expose `getValue` — duck-type check
+    if (typeof parentRef.getValue === 'function') return parentRef;
+  }
+  const reqCtx = getRequestCtx();
+  if (reqCtx) return reqCtx;
+  return context.active();
+}
 
 /**
  * Creates a child OTEL span under the current active context.
@@ -15,8 +43,9 @@ const tracer = trace.getTracer('construction-api.services');
  * Returns an object with a `.end({ success, error })` method that mirrors
  * the original API so all callers remain unchanged.
  */
-function createSpan(traceContext, name, attributes = {}) {
-  const bag = propagation.getBaggage(context.active());
+function createSpan(parentRef, name, attributes = {}) {
+  const parentCtx = resolveParentCtx(parentRef);
+  const bag = propagation.getBaggage(parentCtx);
   const baggageAttrs = {};
   if (bag) {
     const userId = bag.getEntry('enduser.id')?.value;
@@ -28,7 +57,7 @@ function createSpan(traceContext, name, attributes = {}) {
   const span = tracer.startSpan(name, {
     kind: SpanKind.CLIENT,
     attributes: { ...baggageAttrs, ...attributes },
-  });
+  }, parentCtx);
 
   const startTime = Date.now();
   let ended = false;
@@ -68,7 +97,7 @@ function createSpan(traceContext, name, attributes = {}) {
       logger[isError ? 'warn' : 'info']({
         trace_id: span.spanContext().traceId,
         span_id: span.spanContext().spanId,
-        parent_span_id: traceContext?.spanId || null,
+        parent_span_id: trace.getSpan(parentCtx)?.spanContext().spanId || null,
         span_name: name,
         kind: 'CLIENT',
         duration_ms: durationMs,
@@ -88,10 +117,12 @@ function createSpan(traceContext, name, attributes = {}) {
  * (so nested withSpan / dbOp calls are correctly parented), runs asyncFn,
  * then ends the span.
  */
-async function withSpan(traceContext, name, attributes, asyncFn) {
-  return tracer.startActiveSpan(name, { kind: SpanKind.CLIENT, attributes }, async (rawSpan) => {
-    // Merge baggage attributes just like createSpan does
-    const bag = propagation.getBaggage(context.active());
+async function withSpan(parentRef, name, attributes, asyncFn) {
+  const parentCtx = resolveParentCtx(parentRef);
+  return tracer.startActiveSpan(name, { kind: SpanKind.CLIENT, attributes }, parentCtx, async (rawSpan) => {
+    // Merge baggage attributes just like createSpan does. Use the parent ctx
+    // we already resolved so this is independent of context.active() drift.
+    const bag = propagation.getBaggage(parentCtx);
     if (bag) {
       const userId = bag.getEntry('enduser.id')?.value;
       const phone = bag.getEntry('app.user.phone')?.value;
@@ -128,7 +159,7 @@ async function withSpan(traceContext, name, attributes, asyncFn) {
         logger[isError ? 'warn' : 'info']({
           trace_id: rawSpan.spanContext().traceId,
           span_id: rawSpan.spanContext().spanId,
-          parent_span_id: traceContext?.spanId || null,
+          parent_span_id: trace.getSpan(parentCtx)?.spanContext().spanId || null,
           span_name: name,
           kind: 'CLIENT',
           duration_ms: durationMs,

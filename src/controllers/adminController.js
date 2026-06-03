@@ -12,6 +12,7 @@ const {
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
 const fcm = require('../services/fcmService');
 const { invalidateDriverOrders, invalidateOrder } = require('../cache/invalidate');
+const { confirmOnlinePayment } = require('../services/orderService');
 
 const { DEFAULT_ADMIN_LIST_LIMIT, MAX_ACTIVE_ORDERS_PER_ASSIGNMENT, NEW_ORDER_THRESHOLD_MS } = require('../constants');
 const { normalizePhone } = require('../utils/phone');
@@ -267,6 +268,35 @@ const declineOrder = async (req, res) => {
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/orders/:orderId/mark-payment-received
+// Manual override for "webhook never arrived" cases. Warehouse admin confirms
+// they have out-of-band proof (bank SMS, accountant call) that the customer
+// paid online. Funnels through the same idempotent confirmOnlinePayment helper
+// as webhook + verify — single source of truth for "payment confirmed".
+const markPaymentReceived = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await getOrderById(orderId, req.traceContext);
+    if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.paymentType !== 'ONLINE') {
+      return res.status(400).json({ success: false, error: 'NOT_ONLINE_ORDER', message: 'Order is not an online payment order' });
+    }
+    if (order.paymentStatus === 'confirmed') {
+      return res.json({ success: true, data: { order: formatTimestamps(order) }, message: 'Already confirmed' });
+    }
+    const result = await confirmOnlinePayment(orderId, {
+      status: 'paid',
+      rawProviderStatus: 'admin_manual',
+      source: 'admin_manual',
+      actor: req.user?.uid || null,
+    }, req.traceContext);
+    res.json({ success: true, data: { order: formatTimestamps(result) } });
+  } catch (err) {
+    req.log.error({ err: err.message, orderId: req.params.orderId }, 'markPaymentReceived failed');
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 };
@@ -565,8 +595,9 @@ const fixInvoice = async (req, res) => {
 const getPendingCOD = async (req, res) => {
   try {
     const limit = parsePositiveInt(req.query.limit, DEFAULT_ADMIN_LIST_LIMIT);
-    const orders = await findOrders({ status: 'delivered', paymentType: 'COD', limit }, req.traceContext);
+    const orders = await findOrders({ status: 'delivered', limit }, req.traceContext);
     const pending = orders.filter(o =>
+      o.paymentType === 'COD' &&
       o.status === 'delivered' &&
       (o.codCollected !== true || o.zohoPaymentRecorded !== true)
     );
@@ -708,7 +739,7 @@ const listCodHistory = async (req, res) => {
     const [allOrders, handovers] = await Promise.all([
       orderId
         ? getOrderById(orderId, req.traceContext).then(order => (order ? [order] : []))
-        : findOrders({ status: 'delivered', paymentType: 'COD', driverId, date, limit }, req.traceContext),
+        : findOrders({ status: 'delivered', driverId, date, limit }, req.traceContext).then(orders => orders.filter(o => o.paymentType === 'COD')),
       getAllHandovers(status || null, req.traceContext, { driverId, date, limit })
     ]);
 
@@ -718,6 +749,7 @@ const listCodHistory = async (req, res) => {
       .map(o => ({
         type: 'order',
         orderId: o.orderId,
+        customerName: o.customerName || o.customer?.name || null,
         driverName: o.driverName || '',
         driverId: o.driverId || '',
         amount: o.codAmountCollected || o.codAmount || 0,
@@ -811,6 +843,21 @@ const getCustomerByPhoneNumber = async (req, res) => {
     if (!normalizedPhone) return res.status(400).json({ success: false, error: 'INVALID_PHONE', message: 'Valid Indian mobile number required' });
     const customer = await getCustomerByPhone(normalizedPhone, req.traceContext);
     if (!customer) return res.status(404).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'No customer found with that phone number' });
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// GET /api/admin/customers/:userId
+const getCustomerByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId || !userId.trim()) {
+      return res.status(400).json({ success: false, error: 'INVALID_USER_ID', message: 'userId is required' });
+    }
+    const customer = await getCustomer(userId.trim(), req.traceContext);
+    if (!customer) return res.status(404).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'No customer found with that userId' });
     res.json({ success: true, data: { customer } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -1175,6 +1222,81 @@ const deleteCategoryImage = async (req, res) => {
   }
 };
 
+// GET /api/admin/banners
+const listBanners = async (req, res) => {
+  try {
+    const snap = await getTrackedDb().collection('banners').orderBy('sortOrder', 'asc').get();
+    const banners = snap.docs.map(d => ({ bannerId: d.id, ...d.data() }));
+    res.json({ success: true, data: { banners } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// POST /api/admin/banners
+const uploadBanner = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_FILE', message: 'image file is required' });
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FILE_TYPE', message: 'Only jpeg, png, webp images are allowed' });
+    }
+
+    const imageUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'banners');
+    const bannerId = 'BNR' + Date.now();
+    const sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    const banner = {
+      bannerId,
+      imageUrl,
+      title: req.body.title || null,
+      link: req.body.link || null,
+      sortOrder,
+      active: true,
+      createdAt: new Date().toISOString()
+    };
+
+    await getTrackedDb().collection('banners').doc(bannerId).set(banner);
+    res.json({ success: true, data: { banner } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// PATCH /api/admin/banners/:bannerId
+const updateBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+
+    const updates = {};
+    if (req.body.title !== undefined) updates.title = req.body.title || null;
+    if (req.body.link !== undefined) updates.link = req.body.link || null;
+    if (req.body.sortOrder !== undefined) updates.sortOrder = parseInt(req.body.sortOrder, 10) || 0;
+    if (req.body.active !== undefined) updates.active = req.body.active === true || req.body.active === 'true';
+    updates.updatedAt = new Date().toISOString();
+
+    await getTrackedDb().collection('banners').doc(bannerId).update(updates);
+    res.json({ success: true, data: { bannerId, ...updates } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+// DELETE /api/admin/banners/:bannerId
+const deleteBanner = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const doc = await getTrackedDb().collection('banners').doc(bannerId).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Banner not found' });
+    await getTrackedDb().collection('banners').doc(bannerId).delete();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // PUT /api/admin/products/:id/featured
 const toggleFeatured = async (req, res) => {
   const { id } = req.params;
@@ -1208,10 +1330,12 @@ module.exports = {
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  markPaymentReceived,
   markPacked,
   forceCompleteOrder,
   cancelOrder,
   getCustomerByPhoneNumber,
+  getCustomerByUserId,
   getCustomerOrders,
   assignVehicle,
   getPickingList,
@@ -1235,5 +1359,9 @@ module.exports = {
   toggleFeatured,
   listCategories,
   uploadCategoryImage,
-  deleteCategoryImage
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 };

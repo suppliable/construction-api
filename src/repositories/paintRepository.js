@@ -30,7 +30,7 @@ async function listAllPaintPricing(traceContext = null) {
 
 async function getShadesByBrand(brandSlug, searchQuery, includeInactive = false, traceContext = null) {
   return dbOp('getShadesByBrand', async () => {
-    let query = db.collection('shades').doc(brandSlug).collection('colours').limit(200);
+    let query = db.collection('shades').doc(brandSlug).collection('colours');
     if (!includeInactive) query = query.where('active', '==', true);
     const snap = await query.get();
 

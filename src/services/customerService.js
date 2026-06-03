@@ -26,7 +26,7 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
       existing.gstin = gstin;
       hasChanges = true;
     }
-    if (registered_address && !existing.registered_address) {
+    if (registered_address) {
       existing.registered_address = registered_address;
       hasChanges = true;
     }
@@ -88,4 +88,30 @@ async function syncCustomer(userId, phone, name, is_business, business_name, gst
   }, traceContext);
 }
 
-module.exports = { syncCustomer };
+async function updateCustomerGST(userId, { gstin, business_name, registered_address }, traceContext = null) {
+  const customer = await getCustomer(userId, traceContext);
+  if (!customer) throw new Error('Customer not found');
+
+  customer.is_business = true;
+  if (gstin) customer.gstin = gstin;
+  if (business_name) customer.business_name = business_name;
+  if (registered_address) customer.registered_address = registered_address;
+
+  if (customer.zoho_contact_id) {
+    try {
+      await updateZohoContact(customer.zoho_contact_id, {
+        name: customer.name,
+        phone: customer.phone,
+        gstin,
+        business_name,
+        registered_address
+      }, traceContext);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Zoho contact GST update failed — saved locally');
+    }
+  }
+
+  return saveCustomer(customer, traceContext);
+}
+
+module.exports = { syncCustomer, updateCustomerGST };

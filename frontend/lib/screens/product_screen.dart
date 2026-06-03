@@ -219,7 +219,7 @@ class _ProductScreenState extends State<ProductScreen> {
                                     horizontal: 16, vertical: 14),
                                 decoration: BoxDecoration(
                                   color: isSelected
-                                      ? kPrimary.withOpacity(0.05)
+                                      ? kPrimary.withValues(alpha: 0.05)
                                       : Colors.white,
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
@@ -351,10 +351,10 @@ class _ProductScreenState extends State<ProductScreen> {
                 20, 16, 20, MediaQuery.of(context).padding.bottom + 12),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border(top: BorderSide(color: kSlate100)),
+              border: const Border(top: BorderSide(color: kSlate100)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
+                  color: Colors.black.withValues(alpha: 0.06),
                   blurRadius: 12,
                   offset: const Offset(0, -4),
                 ),

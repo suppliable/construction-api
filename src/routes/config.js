@@ -19,10 +19,7 @@ router.put('/cod-threshold', requireAdmin, async (req, res, next) => {
   next();
 }, updateCodThreshold);
 
-router.get('/warehouse-status', cacheFor(CACHE_TTL_CONFIG_S, () => 'config:warehouse-status'), getWarehouseStatus);
-router.put('/warehouse-status', requireAdmin, async (req, res, next) => {
-  await invalidateConfig('warehouse-status').catch(() => {});
-  next();
-}, updateWarehouseStatus);
+router.get('/warehouse-status', getWarehouseStatus);
+router.put('/warehouse-status', requireAdmin, updateWarehouseStatus);
 
 module.exports = router;

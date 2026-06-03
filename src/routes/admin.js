@@ -3,7 +3,8 @@ const axios = require('axios');
 const multer = require('multer');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-const { invalidateProducts, invalidateOrder } = require('../cache/invalidate');
+const { invalidateProducts, invalidateOrder, invalidateAfterZohoMutation } = require('../cache/invalidate');
+const remoteConfig = require('../services/remoteConfigService');
 const {
   getPaintPricing, setPaintPricing, listAllPaintPricing,
   getShadesByBrand, addShade, updateShade, getShadeByCode, VALID_TIERS, VALID_SIZES,
@@ -17,9 +18,11 @@ const {
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  markPaymentReceived,
   forceCompleteOrder,
   cancelOrder,
   getCustomerByPhoneNumber,
+  getCustomerByUserId,
   getCustomerOrders,
   markPacked,
   assignVehicle,
@@ -44,7 +47,11 @@ const {
   recordCodPayment,
   listCategories,
   uploadCategoryImage,
-  deleteCategoryImage
+  deleteCategoryImage,
+  listBanners,
+  uploadBanner,
+  updateBanner,
+  deleteBanner
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -97,6 +104,7 @@ router.get('/orders/:orderId', getOrderDetail);
 // Order actions — invalidate cached order detail after each state change
 router.post('/orders/:orderId/accept', invalidateOrderAfterMutation, acceptOrder);
 router.post('/orders/:orderId/decline', invalidateOrderAfterMutation, declineOrder);
+router.post('/orders/:orderId/mark-payment-received', invalidateOrderAfterMutation, markPaymentReceived);
 router.post('/orders/:orderId/packed', invalidateOrderAfterMutation, markPacked);
 router.post('/orders/:orderId/assign-vehicle', invalidateOrderAfterMutation, assignVehicle);
 router.post('/orders/:orderId/force-complete', invalidateOrderAfterMutation, forceCompleteOrder);
@@ -118,6 +126,13 @@ router.delete('/categories/:categoryId/image', async (req, res, next) => {
   next();
 }, deleteCategoryImage);
 
+// Banners
+const invalidateBannersCache = async () => { await invalidateProducts().catch(() => {}); };
+router.get('/banners', listBanners);
+router.post('/banners', upload.single('image'), async (req, res, next) => { await invalidateBannersCache(); next(); }, uploadBanner);
+router.patch('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, updateBanner);
+router.delete('/banners/:bannerId', async (req, res, next) => { await invalidateBannersCache(); next(); }, deleteBanner);
+
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);
 
@@ -129,6 +144,7 @@ router.put('/products/:id/featured', async (req, res, next) => {
 // Customer lookup by phone (support panel)
 router.get('/customers/phone/:phone', getCustomerByPhoneNumber);
 router.get('/customers/:userId/orders', getCustomerOrders);
+router.get('/customers/:userId', getCustomerByUserId);
 
 // Vehicles
 router.get('/vehicles', listVehicles);
@@ -166,18 +182,23 @@ router.get('/shades/:brandSlug', async (req, res) => {
 router.post('/shades/:brandSlug', async (req, res) => {
   try {
     const { brandSlug } = req.params;
-    const { code, name, tier } = req.body;
+    const { code, name, tier, hex } = req.body;
     if (!code || !name || !tier) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'code, name, and tier are required' });
     }
     if (!VALID_TIERS.includes(tier)) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: `tier must be one of: ${VALID_TIERS.join(', ')}` });
     }
+    if (hex !== undefined && !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'hex must be a valid 6-digit hex color (e.g. #F7E2E0)' });
+    }
     const existing = await getShadeByCode(brandSlug, code);
     if (existing) {
       return res.status(409).json({ success: false, error: 'DUPLICATE_CODE', message: `Shade code '${code}' already exists` });
     }
-    const shade = await addShade(brandSlug, { code, name, tier });
+    const shadeData = { code, name, tier };
+    if (hex) shadeData.hex = hex;
+    const shade = await addShade(brandSlug, shadeData);
     res.status(201).json({ success: true, shade });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -188,15 +209,19 @@ router.post('/shades/:brandSlug', async (req, res) => {
 router.put('/shades/:brandSlug/:shadeId', async (req, res) => {
   try {
     const { brandSlug, shadeId } = req.params;
-    const { code, name, tier, active } = req.body;
+    const { code, name, tier, active, hex } = req.body;
     if (tier !== undefined && !VALID_TIERS.includes(tier)) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: `tier must be one of: ${VALID_TIERS.join(', ')}` });
+    }
+    if (hex !== undefined && !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'hex must be a valid 6-digit hex color (e.g. #F7E2E0)' });
     }
     const updates = {};
     if (code !== undefined) updates.code = code;
     if (name !== undefined) updates.name = name;
     if (tier !== undefined) updates.tier = tier;
     if (active !== undefined) updates.active = active;
+    if (hex !== undefined) updates.hex = hex;
     await updateShade(brandSlug, shadeId, updates);
     res.json({ success: true });
   } catch (err) {
@@ -253,6 +278,22 @@ router.post('/paint-pricing/:productId', async (req, res) => {
     }
     await setPaintPricing(productId, { productName, brandSlug, tiers, updatedAt: new Date().toISOString() });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Manual cache invalidation — flush Zoho-derived caches (products, home, search, categories)
+// after editing items directly in Zoho so users see fresh data without waiting for TTL.
+// Multi-instance caveat: Redis keys are cleared globally, but per-instance in-memory caches
+// (productService, remoteConfig) only clear on the Cloud Run instance handling this request.
+// Other warm instances continue serving from their own in-memory state until TTL expires
+// (10 min default), after which they refill from Redis.
+router.post('/cache/invalidate-zoho', async (req, res) => {
+  try {
+    await invalidateAfterZohoMutation('manual', '/admin/cache/invalidate-zoho');
+    remoteConfig.clearCache();
+    res.json({ success: true, message: 'Zoho caches cleared' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

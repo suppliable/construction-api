@@ -76,14 +76,14 @@ class OrdersScreen extends StatelessWidget {
         children: [
           Container(
             color: Colors.white,
-            child: SafeArea(
+            child: const SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'SUPPLY HISTORY',
                       style: TextStyle(
                         fontSize: 20,
@@ -92,7 +92,7 @@ class OrdersScreen extends StatelessWidget {
                         letterSpacing: -0.5,
                       ),
                     ),
-                    const Text(
+                    Text(
                       'TRACKING & PAST INVOICES',
                       style: TextStyle(
                         fontSize: 10,
@@ -150,7 +150,7 @@ class _OrderCard extends StatelessWidget {
           border: Border.all(color: kSlate100),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -184,7 +184,7 @@ class _OrderCard extends StatelessWidget {
                 ],
               ),
             ),
-            Divider(color: kSlate50, height: 1),
+            const Divider(color: kSlate50, height: 1),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -224,8 +224,8 @@ class _OrderCard extends StatelessWidget {
                           color: kSlate900,
                         ),
                       ),
-                      Row(
-                        children: const [
+                      const Row(
+                        children: [
                           Text(
                             'Details',
                             style: TextStyle(

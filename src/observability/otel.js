@@ -88,6 +88,13 @@ const sdk = new NodeSDK({
     // controllerSpan is the trace root — HTTP and Express auto-spans are redundant noise.
     '@opentelemetry/instrumentation-express': { enabled: false },
     '@opentelemetry/instrumentation-http': { enabled: false },
+    // Redis and undici auto-instrumentation overwrite the active OTEL context
+    // when their spans end, so subsequent manual createSpan/withSpan calls
+    // start as new trace roots instead of children of controllerSpan. We get
+    // equivalent visibility from manual cache.get/set and zoho.api.* spans.
+    '@opentelemetry/instrumentation-redis': { enabled: false },
+    '@opentelemetry/instrumentation-ioredis': { enabled: false },
+    '@opentelemetry/instrumentation-undici': { enabled: false },
   })],
 });
 

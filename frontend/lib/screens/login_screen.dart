@@ -55,7 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const SizedBox(height: 48),
               // Brand
-              SuppliableLogo(size: 24, onLight: true),
+              const SuppliableLogo(size: 24, onLight: true),
               const SizedBox(height: 56),
               // Headline
               const Text(
@@ -69,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
+              const Text(
                 'Sign in to manage your construction supply orders.',
                 style: TextStyle(
                   fontSize: 14,
@@ -81,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 48),
 
               // Phone field
-              _FieldLabel('Mobile Number'),
+              const _FieldLabel('Mobile Number'),
               const SizedBox(height: 8),
               Container(
                 decoration: BoxDecoration(
@@ -91,11 +91,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
                         '+91',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w900,
                           color: kSlate900,
@@ -138,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               if (_otpSent) ...[
                 const SizedBox(height: 20),
-                _FieldLabel('Enter OTP'),
+                const _FieldLabel('Enter OTP'),
                 const SizedBox(height: 8),
                 Container(
                   decoration: BoxDecoration(
@@ -205,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
 
               // Terms note
-              Center(
+              const Center(
                 child: Text(
                   'By continuing, you agree to our Terms & Privacy Policy',
                   textAlign: TextAlign.center,

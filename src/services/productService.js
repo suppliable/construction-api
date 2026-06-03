@@ -31,6 +31,7 @@ const toNumberOrNull = (value) => {
 };
 
 
+
 // In-memory L1 cache per instance.
 const cache = {
   products: null,
@@ -164,6 +165,7 @@ async function getAllProducts(category = null, traceContext = null) {
           price: toNumberOrNull(v.rate) ?? 0,
           stock: stockOnHand,
           available_stock: availableStock,
+          rackNumber: full.cf_rack_number || full.custom_field_hash?.cf_rack_number || null,
         };
       }())
     }));
@@ -194,6 +196,7 @@ async function getAllProducts(category = null, traceContext = null) {
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
       shadeBrand: !!(firstVariantItem?.cf_tintable) ? 'asian-paints' : null,
+      rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
 
@@ -203,6 +206,7 @@ async function getAllProducts(category = null, traceContext = null) {
     .map(item => {
       const itemImageUrl = cache.imageMap[item.item_id] || cache.imageMap[item.id] || buildImage(item.name);
       const zohoFeatured = item.custom_field_hash?.cf_featured === true || item.custom_field_hash?.cf_featured === 'true';
+      const rackNumber = item.cf_rack_number || item.custom_field_hash?.cf_rack_number || null;
       return {
         id: item.item_id,
         name: item.name,
@@ -221,6 +225,7 @@ async function getAllProducts(category = null, traceContext = null) {
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
         shadeBrand: !!(item.cf_tintable) ? 'asian-paints' : null,
+        rackNumber,
       };
     });
 
@@ -249,7 +254,8 @@ const getProductById = async (id, traceContext = null) => {
       name: v.attribute_option_name1 || v.name,
       price: v.rate,
       stock: v.stock_on_hand || 0,
-      available_stock: v.available_stock || v.actual_available_stock || 0
+      available_stock: v.available_stock || v.actual_available_stock || 0,
+      rackNumber: itemMap[v.item_id]?.cf_rack_number || itemMap[v.item_id]?.custom_field_hash?.cf_rack_number || null,
     }));
     const prices = variants.map(v => v.price);
     return {

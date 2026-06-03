@@ -258,6 +258,17 @@
       </table>
     </div>
 
+    <!-- SECTION: ZOHO CACHE -->
+    <div class="settings-card">
+      <div class="card-head">
+        <div class="card-title">🔄 Zoho Cache</div>
+        <div class="card-desc">Clear cached product, category, banner, and home-screen data sourced from Zoho. Use this after editing items in Zoho so customers see fresh data immediately instead of waiting for the cache TTL.</div>
+      </div>
+      <div class="card-body">
+        <button class="btn btn-navy" id="clearZohoCacheBtn" onclick="clearZohoCache()">Clear Zoho Cache Now</button>
+      </div>
+    </div>
+
     <!-- SECTION 4: COD THRESHOLD -->
     <div class="settings-card">
       <div class="card-head">
@@ -543,6 +554,20 @@ async function saveThreshold() {
     } else { showToast(data.message || 'Failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Changes'; }
+}
+
+// ── ZOHO CACHE ────────────────────────────────────────────
+async function clearZohoCache() {
+  if (!confirm('Clear cached Zoho data (products, categories, banners, home)? Customers will see fresh data on their next request.')) return;
+  const btn = document.getElementById('clearZohoCacheBtn');
+  btn.disabled = true; btn.textContent = 'Clearing...';
+  try {
+    const res = await apiFetch('/api/v1/admin/cache/invalidate-zoho', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) showToast('✅ Zoho caches cleared', 'success');
+    else showToast(data.message || 'Failed', 'error');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Clear Zoho Cache Now'; }
 }
 
 // ── ENV INFO ──────────────────────────────────────────────

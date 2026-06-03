@@ -47,7 +47,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
       backgroundColor: kSlate50,
       body: Column(
         children: [
-          SuppliableAppBar(
+          const SuppliableAppBar(
             title: 'Delivery Sites',
             subtitle: 'Manage addresses',
           ),
@@ -201,7 +201,7 @@ class _AddressTile extends StatelessWidget {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: isSelected ? kPrimary.withOpacity(0.08) : kSlate50,
+                color: isSelected ? kPrimary.withValues(alpha: 0.08) : kSlate50,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(

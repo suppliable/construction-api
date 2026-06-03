@@ -82,6 +82,10 @@ async function isAllowlistedAdminPhone(phone) {
   return allowlist.includes(normalized);
 }
 
+function clearCache() {
+  cache = { params: null, fetchedAt: 0 };
+}
+
 module.exports = {
   getString,
   getNumber,
@@ -89,4 +93,5 @@ module.exports = {
   normalizePhone,
   getAdminUserPhoneAllowlist,
   isAllowlistedAdminPhone,
+  clearCache,
 };

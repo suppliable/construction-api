@@ -8,6 +8,8 @@ const {
   SpanStatusCode,
 } = require('@opentelemetry/api');
 
+const { runWithRequestCtx } = require('../observability/requestContext');
+
 const tracer = trace.getTracer('construction-api.controllers');
 
 function controllerSpan(req, res, next) {
@@ -31,6 +33,8 @@ function controllerSpan(req, res, next) {
       'url.scheme': req.protocol || 'http',
       'network.protocol.version': req.httpVersion,
       'app.trace_id': req.traceContext?.traceId || '',
+      'app.client_trace_id': req.traceContext?.clientTraceId || '',
+      'app.parent_span_id': req.traceContext?.parentSpanId || '',
     },
   }, parentCtx);
 
@@ -67,8 +71,20 @@ function controllerSpan(req, res, next) {
   res.on('finish', onFinish);
   res.on('close', onClose);
 
+  // Activate this span on the OTEL context for the rest of the request.
+  // `context.with(ctx, next)` only covers next()'s synchronous execution; if
+  // Express schedules downstream middleware via setImmediate/queueMicrotask,
+  // the AsyncLocalStorage scope unwinds and child spans become new trace roots.
+  // `context.bind(ctx, next)` returns a wrapped next() that re-enters ctx every
+  // time it's invoked, including from queued callbacks.
   const ctx = trace.setSpan(parentCtx, span);
-  return context.with(ctx, next);
+  // Stash OTEL ctx on req AND in our request-scoped ALS so child spans can
+  // discover it without every caller threading req through their signatures.
+  // OTEL's global active context is unreliable across Express's trampoline +
+  // some auto-instrumentations; our own ALS is untouched by them.
+  req.otelCtx = ctx;
+  const boundNext = context.bind(ctx, next);
+  return runWithRequestCtx(ctx, () => context.with(ctx, boundNext));
 }
 
 module.exports = controllerSpan;

@@ -30,12 +30,13 @@ async function addToCart(userId, productId, quantity, price, shadeInfo = null, v
     const existingQty = existingItem ? existingItem.quantity : 0;
     const totalRequestedQty = existingQty + quantity;
     if (totalRequestedQty > product.available_stock) {
-      const availableToAdd = product.available_stock - existingQty;
       const maxAllowedQty = Math.max(0, product.available_stock);
       throw new StockError(
-        availableToAdd <= 0
+        product.available_stock <= 0
           ? `Sorry, ${product.name} is out of stock`
-          : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+          : existingQty >= product.available_stock
+            ? `Only ${product.available_stock} units of ${product.name} available — you already have ${existingQty} in your cart`
+            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
         [{
           productId,
           productName: product.name,
@@ -94,12 +95,11 @@ async function updateCartItem(userId, productId, quantity, cartItemId = null) {
       if (quantity > product.available_stock) {
         const existingItem = findItem(cart.items);
         const existingQty = existingItem ? existingItem.quantity : 0;
-        const availableToAdd = product.available_stock - existingQty;
         const maxAllowedQty = Math.max(0, product.available_stock);
         throw new StockError(
-          availableToAdd <= 0
+          product.available_stock <= 0
             ? `Sorry, ${product.name} is out of stock`
-            : `Only ${product.available_stock} units available for ${product.name}. You already have ${existingQty} in cart.`,
+            : `Only ${product.available_stock} units of ${product.name} available`,
           [{
             productId,
             productName: product.name,
@@ -193,6 +193,12 @@ async function buildCartResponse(userId) {
       cartItem.shadeName = item.shadeName || null;
       cartItem.shadeTier = item.shadeTier || null;
     }
+
+    const variantRack = item.zohoItemId && product.variants
+      ? product.variants.find(v => v.id === item.zohoItemId)?.rackNumber
+      : null;
+    const rackNumber = variantRack || product.rackNumber || null;
+    if (rackNumber) cartItem.rackNumber = rackNumber;
 
     return { raw: item, computed: cartItem };
   }));

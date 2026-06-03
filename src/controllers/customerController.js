@@ -1,5 +1,6 @@
 const { getCustomer, saveCustomer, getCustomerByPhone } = require('../services/firestoreService');
 const { toCustomerDTO } = require('../models/customerDTO');
+const { updateCustomerGST } = require('../services/customerService');
 
 async function getCustomerHandler(req, res) {
   const customer = await getCustomer(req.params.userId, req.traceContext);
@@ -52,4 +53,19 @@ async function getCustomerByPhoneHandler(req, res) {
   res.json({ success: true, user: toCustomerDTO(customer) });
 }
 
-module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };
+async function updateGSTDetails(req, res) {
+  try {
+    const { gstin, business_name, registered_address } = req.body;
+    if (!gstin && !business_name) {
+      return res.status(400).json({ success: false, message: 'gstin or business_name is required' });
+    }
+    const customer = await updateCustomerGST(req.params.userId, { gstin, business_name, registered_address }, req.traceContext);
+    const dto = toCustomerDTO(customer);
+    res.json({ success: true, data: { customer: dto }, user: dto });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, updateGSTDetails, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };

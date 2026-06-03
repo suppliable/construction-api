@@ -53,7 +53,7 @@ class _AddGstScreenState extends State<AddGstScreen> {
       backgroundColor: kSlate50,
       body: Column(
         children: [
-          SuppliableAppBar(
+          const SuppliableAppBar(
             title: 'GST Details',
             subtitle: 'Tax records for invoices',
           ),
@@ -66,10 +66,10 @@ class _AddGstScreenState extends State<AddGstScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: kPrimary.withOpacity(0.05),
+                      color: kPrimary.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                          color: kPrimary.withOpacity(0.15)),
+                          color: kPrimary.withValues(alpha: 0.15)),
                     ),
                     child: Row(
                       children: [
@@ -145,8 +145,8 @@ class _AddGstScreenState extends State<AddGstScreen> {
                         color: const Color(0xFFFEF2F2),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Row(
-                        children: const [
+                      child: const Row(
+                        children: [
                           Icon(Icons.info_outline,
                               size: 14, color: Color(0xFFEF4444)),
                           SizedBox(width: 6),
@@ -169,8 +169,8 @@ class _AddGstScreenState extends State<AddGstScreen> {
                         color: const Color(0xFFF0FDF4),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Row(
-                        children: const [
+                      child: const Row(
+                        children: [
                           Icon(Icons.check_circle_outline,
                               size: 14, color: Color(0xFF16A34A)),
                           SizedBox(width: 6),

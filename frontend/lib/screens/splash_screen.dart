@@ -69,7 +69,7 @@ class _SplashScreenState extends State<SplashScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Logo
-                SuppliableLogo(size: 36),
+                const SuppliableLogo(size: 36),
                 const SizedBox(height: 16),
                 const SizedBox(height: 8),
                 Text(
@@ -77,7 +77,7 @@ class _SplashScreenState extends State<SplashScreen>
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white.withOpacity(0.65),
+                    color: Colors.white.withValues(alpha: 0.65),
                     letterSpacing: 0.5,
                   ),
                 ),
