@@ -9,16 +9,6 @@ const { withSpan } = require('../utils/spanTracer');
 const redis = require('../cache/redis');
 const env = require('../config/env');
 
-function detectShadeBrand(brand) {
-  if (!brand) return null;
-  const b = brand.toLowerCase().trim();
-  if (b.includes('asian paints') || b.includes('asian paint')) return 'asian-paints';
-  if (b.includes('berger'))  return 'berger';
-  if (b.includes('dulux'))   return 'dulux';
-  if (b.includes('nerolac')) return 'nerolac';
-  if (b.includes('jsw'))     return 'jsw';
-  return null;
-}
 
 // Extract GST from Zoho item tax preferences
 const extractGST = (item) => {
@@ -203,7 +193,7 @@ async function getAllProducts(category = null, traceContext = null) {
       imageUrl: groupImageUrl,
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
-      shadeBrand: detectShadeBrand(group.brand || group.group_name),
+      shadeBrand: !!(firstVariantItem?.cf_tintable) ? 'asian-paints' : null,
     };
   });
 
@@ -230,7 +220,7 @@ async function getAllProducts(category = null, traceContext = null) {
         imageUrl: itemImageUrl,
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
-        shadeBrand: detectShadeBrand(item.manufacturer || item.group_name || ''),
+        shadeBrand: !!(item.cf_tintable) ? 'asian-paints' : null,
       };
     });
 
