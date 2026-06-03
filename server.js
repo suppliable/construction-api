@@ -124,7 +124,13 @@ function createApp() {
   }));
   app.use(compression()); // Enable gzip compression for all responses
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({
+    // Preserve raw body for routes that need signature verification (Cashfree webhook).
+    // No effect on other routes — they read req.body as before.
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
   // When DEBUG_PAYLOADS=true, intercept res.json() to capture the response body for logging
   if (debugPayloads) {
     app.use((req, res, next) => {

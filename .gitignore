@@ -147,4 +147,13 @@ postman/postman/*
 /.claude
 /.continue
 skills-lock.json
-*.dart_tool*
+*/.dart_tool/*
+*.dart
+frontend/.dart_tool/dartpad/web_plugin_registrant.dart
+frontend/.dart_tool/extension_discovery/devtools.json
+frontend/.dart_tool/extension_discovery/README.md
+frontend/.dart_tool/extension_discovery/vs_code.json
+frontend/.dart_tool/package_config.json
+frontend/.dart_tool/package_graph.json
+frontend/.dart_tool/version
+frontend/.flutter-plugins-dependencies
