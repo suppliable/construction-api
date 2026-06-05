@@ -28,7 +28,22 @@ function toOrderDTO(doc) {
     status: o.status || null,
     statusLabel: STATUS_LABELS[o.status] || o.status || null,
     paymentType: o.paymentType || null,
+    // 'pending' | 'pending_proceeding' | 'confirmed' | 'failed'.
+    // `pending_proceeding` = order moved past pending_payment while the online
+    // payment is still settling. See orderService helpers
+    // proceedAsPendingPayment / convertPendingToCod / confirmOnlinePayment.
     paymentStatus: o.paymentStatus || null,
+    // ISO timestamp set when an originally-ONLINE order was auto-converted to
+    // COD at `arrived` because the payment never confirmed. Surfaced to the
+    // driver so they know to expect a "this was originally online" context.
+    convertedFromOnlineAt: o.convertedFromOnlineAt || null,
+    payment: o.payment
+      ? {
+          gateway: o.payment.gateway || null,
+          providerOrderId: o.payment.providerOrderId || null,
+          attempts: Array.isArray(o.payment.attempts) ? o.payment.attempts : [],
+        }
+      : null,
     items: o.items || [],
     subtotal: Number(o.subtotal ?? 0),
     gstTotal: Number(o.gst_total ?? 0),

@@ -132,7 +132,12 @@ const logger = pino(
       const span = trace.getActiveSpan();
       if (span?.isRecording()) {
         const ctx = span.spanContext();
-        return { trace_id: ctx.traceId, span_id: ctx.spanId };
+        return {
+          traceId: ctx.traceId,
+          spanId: ctx.spanId,
+          trace_id: ctx.traceId,
+          span_id: ctx.spanId,
+        };
       }
       return {};
     },
