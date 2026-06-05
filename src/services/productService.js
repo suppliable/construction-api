@@ -195,7 +195,7 @@ async function getAllProducts(category = null, traceContext = null) {
       imageUrl: groupImageUrl,
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
-      shadeBrand: !!(firstVariantItem?.cf_tintable) ? 'asian-paints' : null,
+      shadeBrand: (firstVariantItem?.cf_tintable === true || firstVariantItem?.cf_tintable === 'true') ? 'asian-paints' : null,
       rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
@@ -224,7 +224,7 @@ async function getAllProducts(category = null, traceContext = null) {
         imageUrl: itemImageUrl,
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
-        shadeBrand: !!(item.cf_tintable) ? 'asian-paints' : null,
+        shadeBrand: (item.cf_tintable === true || item.cf_tintable === 'true') ? 'asian-paints' : null,
         rackNumber,
       };
     });
