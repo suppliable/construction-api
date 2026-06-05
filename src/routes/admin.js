@@ -18,6 +18,7 @@ const {
   getOrderDetail,
   acceptOrder,
   declineOrder,
+  markPaymentReceived,
   forceCompleteOrder,
   cancelOrder,
   getCustomerByPhoneNumber,
@@ -103,6 +104,7 @@ router.get('/orders/:orderId', getOrderDetail);
 // Order actions — invalidate cached order detail after each state change
 router.post('/orders/:orderId/accept', invalidateOrderAfterMutation, acceptOrder);
 router.post('/orders/:orderId/decline', invalidateOrderAfterMutation, declineOrder);
+router.post('/orders/:orderId/mark-payment-received', invalidateOrderAfterMutation, markPaymentReceived);
 router.post('/orders/:orderId/packed', invalidateOrderAfterMutation, markPacked);
 router.post('/orders/:orderId/assign-vehicle', invalidateOrderAfterMutation, assignVehicle);
 router.post('/orders/:orderId/force-complete', invalidateOrderAfterMutation, forceCompleteOrder);
