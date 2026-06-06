@@ -270,6 +270,7 @@ const getProductById = async (id, traceContext = null) => {
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
+      rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
       image: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       fallbackImage: buildImage(group.group_name)
@@ -304,6 +305,7 @@ const getProductById = async (id, traceContext = null) => {
         available_stock: availableStock,
         gst_percentage: fullItem ? extractGST(fullItem) : (variant.tax_percentage || extractGST(group)),
         hsn: fullItem?.hsn_or_sac || group.hsn_or_sac || '',
+        rackNumber: fullItem?.cf_rack_number || fullItem?.custom_field_hash?.cf_rack_number || null,
         image: cache.imageMap[id] || buildImage(group.group_name),
         imageUrl: cache.imageMap[id] || buildImage(group.group_name),
         fallbackImage: buildImage(group.group_name)
@@ -327,6 +329,7 @@ const getProductById = async (id, traceContext = null) => {
     available_stock: item.available_stock || 0,
     gst_percentage: extractGST(item),
     hsn: item.hsn_or_sac || '',
+    rackNumber: item.cf_rack_number || item.custom_field_hash?.cf_rack_number || null,
     image: cache.imageMap[item.item_id] || buildImage(item.name),
     imageUrl: cache.imageMap[item.item_id] || buildImage(item.name),
     fallbackImage: buildImage(item.name)
