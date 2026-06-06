@@ -3,6 +3,7 @@ const { getRoadDistance } = require('./googleMapsService');
 const remoteConfig = require('./remoteConfigService');
 const logger = require('../utils/logger');
 const { haversineKm } = require('../utils/geo');
+const admin = require('../utils/firebaseAdmin');
 
 const WAREHOUSE = {
   latitude: parseFloat(process.env.WAREHOUSE_LAT) || 12.863326,
@@ -111,4 +112,13 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
   };
 }
 
-module.exports = { calculateDelivery };
+async function isFreeDeliveryEligible(userId) {
+  const db = admin.firestore();
+  const snap = await db.collection('orders')
+    .where('userId', '==', userId)
+    .where('status', '==', 'delivered')
+    .get();
+  return snap.size < 3;
+}
+
+module.exports = { calculateDelivery, isFreeDeliveryEligible };
