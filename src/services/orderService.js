@@ -7,6 +7,7 @@ const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
+const { isFreeDeliveryEligible } = require('./deliveryService');
 
 async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
@@ -99,7 +100,9 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
 
   const subtotal = parseFloat(lineItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));
   const gst_total = parseFloat(lineItems.reduce((sum, i) => sum + i.gstAmount, 0).toFixed(2));
-  const deliveryCharge = Number(cart.deliveryCharge || cart.delivery_charge || 0);
+  let deliveryCharge = Number(cart.deliveryCharge || cart.delivery_charge || 0);
+  const freeDeliveryApplied = await isFreeDeliveryEligible(userId);
+  if (freeDeliveryApplied) deliveryCharge = 0;
   const grand_total = parseFloat((subtotal + gst_total + deliveryCharge).toFixed(2));
 
   // ONLINE orders are saved immediately; Zoho SO is created only after payment confirmation.
@@ -113,6 +116,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       subtotal, gst_total, delivery_charge: deliveryCharge,
       grand_total, paymentType, paymentStatus: 'pending',
       status: 'pending_payment',
+      freeDeliveryApplied,
       createdAt: new Date().toISOString()
     };
     await saveOrder(order, traceContext);
@@ -140,6 +144,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     status: 'warehouse_review',
     customerName: customer.name || '',
     customerPhone: customer.phone || '',
+    freeDeliveryApplied,
     createdAt: new Date().toISOString()
   };
   await saveOrder(order, traceContext);
