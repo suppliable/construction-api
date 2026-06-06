@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
+const { isFreeDeliveryEligible } = require('./deliveryService');
 
 async function addToCart(userId, productId, quantity, price, shadeInfo = null, variantId = null) {
   if (!price || price <= 0) throw new ValidationError('price is required and must be greater than 0', 'INVALID_PARAM');
@@ -137,7 +138,8 @@ async function removeFromCart(userId, productId, cartItemId = null) {
 
 async function setDeliveryCharge(userId, deliveryCharge, addressId) {
   const cart = await getCart(userId);
-  cart.deliveryCharge = deliveryCharge;
+  const eligible = await isFreeDeliveryEligible(userId);
+  cart.deliveryCharge = eligible ? 0 : deliveryCharge;
   cart.deliveryAddressId = addressId || null;
   await saveCart(userId, cart);
   return await buildCartResponse(userId);

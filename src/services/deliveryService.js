@@ -116,7 +116,7 @@ async function isFreeDeliveryEligible(userId) {
   const db = admin.firestore();
   const snap = await db.collection('orders')
     .where('userId', '==', userId)
-    .where('status', '==', 'delivered')
+    .where('status', 'not-in', ['pending_payment', 'cancelled'])
     .get();
   return snap.size < 3;
 }
