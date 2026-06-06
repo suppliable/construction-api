@@ -70,6 +70,11 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     const gstAmount = parseFloat(((unitPrice * qty) - totalWithoutGST).toFixed(2));
     const grandTotal = parseFloat((unitPrice * qty).toFixed(2));
 
+    const variantRack = cartItem.zohoItemId && product.variants
+      ? product.variants.find(v => v.id === cartItem.zohoItemId)?.rackNumber
+      : null;
+    const rackNumber = variantRack || product.rackNumber || null;
+
     const lineItem = {
       productId: cartItem.productId,
       zohoItemId: cartItem.zohoItemId || cartItem.variantId || cartItem.productId,
@@ -82,6 +87,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       gstRate,
       gstAmount,
       grandTotal,
+      rackNumber: rackNumber || null,
       cartItemId: cartItem.cartItemId || null,
     };
 
