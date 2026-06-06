@@ -215,7 +215,8 @@ async function buildCartResponse(userId) {
   }
   const subtotal = Math.round(subtotalRaw * 100) / 100;
   const gstTotal = Math.round(gstTotalRaw * 100) / 100;
-  const deliveryCharge = Number(cart.deliveryCharge || 0);
+  const eligible = await isFreeDeliveryEligible(userId);
+  const deliveryCharge = eligible ? 0 : Number(cart.deliveryCharge || 0);
   const grandTotal = Math.round((subtotal + gstTotal + deliveryCharge) * 100) / 100;
 
   return {
