@@ -1014,8 +1014,7 @@ async function loadProducts() {
   try {
     const res = await fetch(API_BASE + '/api/v1/products');
     const data = await res.json();
-    allProducts = data.products || data.data?.products || data || [];
-    if (Array.isArray(data)) allProducts = data;
+    allProducts = Array.isArray(data.data) ? data.data : (Array.isArray(data.products) ? data.products : (Array.isArray(data) ? data : []));
     // Extract unique categories
     const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
     const tabsEl = document.getElementById('categoryTabs');
