@@ -585,7 +585,7 @@
           <!-- Product Browser -->
           <div class="product-browser">
             <div class="category-tabs" id="categoryTabs">
-              <button class="cat-tab active" data-cat="all" onclick="filterCategory('all',this)">All</button>
+              <button class="cat-tab active" data-cat="all">All</button>
             </div>
             <div class="search-box">
               <span class="search-icon">🔍</span>
@@ -599,6 +599,7 @@
                 <div>Loading products...</div>
               </div>
             </div>
+            <div id="productPageControls"></div>
           </div>
 
           <!-- Cart Panel -->
@@ -782,8 +783,11 @@ let quotationData = null;       // { zohoQuotationId, zohoQuotationNumber, zohoQ
 
 // Products cache
 let allProducts = [];
+let productMap = {};
 let currentCategory = 'all';
 let productSearch = '';
+let productPage = 0;
+const PAGE_SIZE = 20;
 
 // Delivery debounce
 let deliveryDebounceTimer = null;
@@ -1015,11 +1019,22 @@ async function loadProducts() {
     const res = await fetch(API_BASE + '/api/v1/products');
     const data = await res.json();
     allProducts = Array.isArray(data.data) ? data.data : (Array.isArray(data.products) ? data.products : (Array.isArray(data) ? data : []));
+    productMap = {};
+    allProducts.forEach(p => { productMap[p.id] = p; });
     // Extract unique categories
     const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
     const tabsEl = document.getElementById('categoryTabs');
-    tabsEl.innerHTML = `<button class="cat-tab active" data-cat="all" onclick="filterCategory('all',this)">All</button>` +
-      cats.map(c => `<button class="cat-tab" data-cat="${escHtml(c)}" onclick="filterCategory('${escHtml(c)}',this)">${escHtml(c)}</button>`).join('');
+    tabsEl.innerHTML = `<button class="cat-tab active" data-cat="all">All</button>` +
+      cats.map(c => `<button class="cat-tab" data-cat="${escHtml(c)}">${escHtml(c)}</button>`).join('');
+    tabsEl.addEventListener('click', e => {
+      const btn = e.target.closest('.cat-tab');
+      if (!btn) return;
+      tabsEl.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentCategory = btn.dataset.cat;
+      productPage = 0;
+      renderProductGrid();
+    });
     renderProductGrid();
   } catch(e) {
     document.getElementById('productGrid').innerHTML =
@@ -1027,59 +1042,85 @@ async function loadProducts() {
   }
 }
 
-function filterCategory(cat, btn) {
-  currentCategory = cat;
-  document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderProductGrid();
-}
-
 function filterProducts(q) {
   productSearch = q;
+  productPage = 0;
   renderProductGrid();
 }
 
-function renderProductGrid() {
-  const grid = document.getElementById('productGrid');
+function getFilteredProducts() {
   let products = allProducts;
   if (currentCategory !== 'all') {
     products = products.filter(p => p.category === currentCategory);
   }
   const q = productSearch.toLowerCase().trim();
   if (q) {
-    products = products.filter(p => p.name.toLowerCase().includes(q));
+    products = products.filter(p => (p.name || '').toLowerCase().includes(q));
   }
-  if (!products.length) {
+  return products;
+}
+
+function renderProductGrid() {
+  const grid = document.getElementById('productGrid');
+  const filtered = getFilteredProducts();
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const page = Math.min(productPage, Math.max(0, totalPages - 1));
+  productPage = page;
+  const pageProducts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  if (!filtered.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">No products found</div>';
+    renderPageControls(0, 0, 0);
     return;
   }
-  grid.innerHTML = products.map(p => buildProductCard(p)).join('');
+  grid.innerHTML = pageProducts.map(p => buildProductCard(p)).join('');
+  renderPageControls(page, totalPages, filtered.length);
+}
+
+function renderPageControls(page, totalPages, total) {
+  const el = document.getElementById('productPageControls');
+  if (!el) return;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  const start = page * PAGE_SIZE + 1;
+  const end = Math.min((page + 1) * PAGE_SIZE, total);
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;font-size:13px;color:var(--muted)">
+      <span>Showing ${start}–${end} of ${total} products</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page === 0 ? 'disabled' : ''} onclick="setProductPage(${page - 1})">← Prev</button>
+        <span style="padding:6px 10px;font-size:12px;font-weight:600">Page ${page + 1} / ${totalPages}</span>
+        <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="setProductPage(${page + 1})">Next →</button>
+      </div>
+    </div>`;
+}
+
+function setProductPage(n) {
+  productPage = n;
+  renderProductGrid();
+  document.getElementById('productGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function buildProductCard(p) {
   const isTintable = !!p.shadeBrand;
-  let priceHtml = '';
-  let variantHtml = '';
-  let footerHtml = '';
+  const pid = escHtml(p.id);
 
+  let priceHtml, footerHtml = '';
   if (p.hasVariants && p.variants && p.variants.length) {
-    const firstV = p.variants[0];
     priceHtml = `<div class="product-card-price range">${escHtml(p.priceRange || '')}</div>`;
     const opts = p.variants.map(v =>
-      `<option value="${escHtml(v.id)}" data-price="${v.price}">${escHtml(v.name)} — ${fmtMoney(v.price)}</option>`
+      `<option value="${escHtml(v.id)}" data-price="${Number(v.price)||0}">${escHtml(v.name)} — ${fmtMoney(v.price)}</option>`
     ).join('');
-    variantHtml = `<select class="variant-select" id="vs_${escHtml(p.id)}">${opts}</select>`;
-    footerHtml = variantHtml;
+    footerHtml = `<select class="variant-select" id="vs_${pid}">${opts}</select>`;
   } else {
     priceHtml = `<div class="product-card-price">${fmtMoney(p.price)}</div>`;
   }
 
   const shadeHtml = isTintable
-    ? `<div id="shade_chip_${escHtml(p.id)}" style="margin-bottom:4px"></div>
-       <button class="btn-shade-picker" onclick="openShadeModal('${escHtml(p.id)}','${escHtml(p.name)}')">🎨 Pick Shade</button>`
+    ? `<div id="shade_chip_${pid}" style="margin-bottom:4px"></div>
+       <button class="btn-shade-picker pos-shade-btn" data-pid="${pid}">🎨 Pick Shade</button>`
     : '';
 
-  return `<div class="product-card" id="pcard_${escHtml(p.id)}">
+  return `<div class="product-card" data-pid="${pid}">
     <img class="product-card-img" src="${escHtml(p.imageUrl || p.image || '')}" alt="" loading="lazy" onerror="this.src='https://placehold.co/400x300/png'">
     <div class="product-card-body">
       <div class="product-card-name">${escHtml(p.name)}</div>
@@ -1089,13 +1130,13 @@ function buildProductCard(p) {
     <div class="product-card-footer">
       ${footerHtml}
       ${shadeHtml}
-      <button class="btn-add-to-cart" onclick="addToCart('${escHtml(p.id)}')">➕ Add to Cart</button>
+      <button class="btn-add-to-cart pos-add-btn" data-pid="${pid}">➕ Add to Cart</button>
     </div>
   </div>`;
 }
 
 function addToCart(productId) {
-  const product = allProducts.find(p => p.id === productId);
+  const product = productMap[productId];
   if (!product) return;
 
   let variantId = null, zohoItemId = productId, unitPrice = product.price || 0, variantName = null;
@@ -1554,6 +1595,18 @@ function closeShadeModal() {
 // Close modal on backdrop click
 document.getElementById('shadeModal').addEventListener('click', function(e) {
   if (e.target === this) closeShadeModal();
+});
+
+// Event delegation for product grid — avoids inline onclick with unsafe strings
+document.getElementById('productGrid').addEventListener('click', function(e) {
+  const addBtn = e.target.closest('.pos-add-btn');
+  if (addBtn) { addToCart(addBtn.dataset.pid); return; }
+  const shadeBtn = e.target.closest('.pos-shade-btn');
+  if (shadeBtn) {
+    const pid = shadeBtn.dataset.pid;
+    const product = productMap[pid];
+    if (product) openShadeModal(pid, product.name);
+  }
 });
 </script>
 </body>
