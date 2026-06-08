@@ -1261,10 +1261,11 @@ async function confirmOrder() {
         <div class="confirm-success-order">${escHtml(order.orderId)}</div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <a href="orders.html?highlight=${encodeURIComponent(order.orderId)}"
+            onclick="loadDrafts()"
             style="padding:10px 22px;background:var(--blue2);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">
             📦 View in Orders
           </a>
-          <button onclick="resetWizard()"
+          <button onclick="loadDrafts(); resetWizard()"
             style="padding:10px 22px;background:#fff;color:var(--text);border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
             ➕ New POS Order
           </button>
@@ -1273,6 +1274,8 @@ async function confirmOrder() {
     document.getElementById('confirmResultArea').classList.remove('hidden');
     updateStepIndicator(4);
     showToast('Order created: '+order.orderId, 'success');
+    loadDrafts();
+    switchTab('drafts');
   } catch(e) {
     showToast('Error: '+e.message, 'error');
     btn.disabled=false; btn.innerHTML='✅ Confirm Order';
