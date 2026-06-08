@@ -9,28 +9,23 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --navy:#1e2235; --navy-light:#2a3050; --navy-hover:#323a5c;
+    --navy:#1e2235; --navy-light:#2a3050;
     --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
     --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
-    --amber:#f59e0b; --blue2:#3b82f6; --purple:#8b5cf6;
-    --orange:#f97316; --green:#10b981; --red2:#ef4444;
+    --blue2:#3b82f6; --purple:#8b5cf6; --green:#10b981; --red2:#ef4444;
   }
   body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
 
   /* SIDEBAR */
-  .sidebar {
-    width:220px; min-height:100vh; background:var(--navy);
-    display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40;
-  }
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
   .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
   .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
   .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
   .sidebar-nav { flex:1; padding:12px 0; }
   .nav-item {
-    display:flex; align-items:center; gap:10px;
-    padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
-    cursor:pointer; text-decoration:none; transition:background 0.15s;
-    border-left:3px solid transparent;
+    display:flex; align-items:center; gap:10px; padding:11px 16px;
+    color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
+    cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent;
   }
   .nav-item:hover { background:var(--navy-light); color:#fff; }
   .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
@@ -40,41 +35,21 @@
 
   /* MAIN */
   .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
-
-  /* TOP BAR */
   .topbar {
     height:60px; background:#fff; border-bottom:1px solid var(--border);
     display:flex; align-items:center; justify-content:space-between;
-    padding:0 24px; position:sticky; top:0; z-index:30;
-    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+    padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06);
   }
-  .topbar-title { font-size:18px; font-weight:700; color:var(--text); }
-  .topbar-right { display:flex; align-items:center; gap:12px; }
-  .btn-logout {
-    background:none; border:none; color:var(--muted); font-size:13px;
-    font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px;
-    border-radius:6px; transition:background 0.15s;
-  }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
   .btn-logout:hover { background:var(--bg); color:var(--text); }
-
-  /* CONTENT */
   .content { padding:24px; flex:1; }
 
-  /* STEP INDICATOR */
-  .steps-bar {
-    display:flex; align-items:center; background:#fff;
-    border-radius:12px; padding:20px 28px; margin-bottom:24px;
-    box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border);
-    gap:0;
-  }
+  /* STEPS */
+  .steps-bar { display:flex; align-items:center; background:#fff; border-radius:12px; padding:20px 28px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); }
   .step-item { display:flex; align-items:center; flex:1; }
   .step-item:last-child { flex:0; }
-  .step-circle {
-    width:36px; height:36px; border-radius:50%; border:2px solid var(--border);
-    display:flex; align-items:center; justify-content:center;
-    font-size:14px; font-weight:700; color:var(--muted); background:#fff;
-    flex-shrink:0; transition:all 0.25s;
-  }
+  .step-circle { width:36px; height:36px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:var(--muted); background:#fff; flex-shrink:0; transition:all 0.25s; }
   .step-circle.active { border-color:var(--blue2); background:var(--blue2); color:#fff; }
   .step-circle.done { border-color:var(--green); background:var(--green); color:#fff; }
   .step-label { margin-left:10px; }
@@ -86,216 +61,135 @@
   .step-connector.done { background:var(--green); }
 
   /* WIZARD CARD */
-  .wizard-card {
-    background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06);
-    border:1px solid var(--border); overflow:hidden;
-  }
-  .wizard-header {
-    padding:18px 24px; border-bottom:1px solid var(--border);
-    display:flex; align-items:center; justify-content:space-between;
-  }
+  .wizard-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
+  .wizard-header { padding:18px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
   .wizard-title { font-size:16px; font-weight:700; }
   .wizard-body { padding:24px; }
-  .wizard-footer {
-    padding:16px 24px; border-top:1px solid var(--border);
-    display:flex; justify-content:space-between; align-items:center;
-  }
+  .wizard-footer { padding:16px 24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
 
   /* BUTTONS */
-  .btn-primary {
-    padding:10px 22px; border-radius:8px; border:none;
-    background:var(--blue2); color:#fff;
-    font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
-    cursor:pointer; transition:background 0.15s; display:inline-flex; align-items:center; gap:6px;
-  }
+  .btn-primary { padding:10px 22px; border-radius:8px; border:none; background:var(--blue2); color:#fff; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.15s; display:inline-flex; align-items:center; gap:6px; }
   .btn-primary:hover:not(:disabled) { background:#2563eb; }
   .btn-primary:disabled { opacity:0.45; cursor:not-allowed; }
-  .btn-secondary {
-    padding:10px 22px; border-radius:8px; border:1.5px solid var(--border);
-    background:#fff; color:var(--text);
-    font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
-    cursor:pointer; transition:all 0.15s; display:inline-flex; align-items:center; gap:6px;
-  }
-  .btn-secondary:hover { background:var(--bg); border-color:#aaa; }
-  .btn-green-full {
-    width:100%; padding:13px; border-radius:8px; border:none;
-    background:var(--green); color:#fff;
-    font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
-    cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;
-  }
+  .btn-secondary { padding:10px 22px; border-radius:8px; border:1.5px solid var(--border); background:#fff; color:var(--text); font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.15s; display:inline-flex; align-items:center; gap:6px; }
+  .btn-secondary:hover:not(:disabled) { background:var(--bg); border-color:#aaa; }
+  .btn-secondary:disabled { opacity:0.45; cursor:not-allowed; }
+  .btn-green-full { width:100%; padding:13px; border-radius:8px; border:none; background:var(--green); color:#fff; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:6px; }
   .btn-green-full:hover:not(:disabled) { background:#059669; }
   .btn-green-full:disabled { opacity:0.45; cursor:not-allowed; }
-  .btn-navy-full {
-    width:100%; padding:13px; border-radius:8px; border:none;
-    background:var(--navy); color:#fff;
-    font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
-    cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;
-  }
+  .btn-navy-full { width:100%; padding:13px; border-radius:8px; border:none; background:var(--navy); color:#fff; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:6px; }
   .btn-navy-full:hover:not(:disabled) { background:var(--navy-light); }
   .btn-navy-full:disabled { opacity:0.45; cursor:not-allowed; }
 
-  /* FORM FIELDS */
+  /* FORM */
   .field-label { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
-  .field-input {
-    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px;
-    font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text);
-    outline:none; transition:border-color 0.2s; background:#fff;
-  }
+  .field-input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text); outline:none; transition:border-color 0.2s; background:#fff; }
   .field-input:focus { border-color:var(--blue2); }
   .field-group { margin-bottom:14px; }
   .field-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .field-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-
-  /* SEARCH */
   .search-box { position:relative; margin-bottom:12px; }
   .search-box .field-input { padding-left:36px; }
   .search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); font-size:14px; color:var(--muted); pointer-events:none; }
 
-  /* CUSTOMER RESULTS */
+  /* CUSTOMER */
   .customer-results { border:1.5px solid var(--border); border-radius:8px; overflow:hidden; margin-top:4px; }
-  .customer-result-item {
-    padding:12px 14px; cursor:pointer; border-bottom:1px solid var(--border);
-    transition:background 0.12s; display:flex; align-items:center; justify-content:space-between;
-  }
+  .customer-result-item { padding:12px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.12s; display:flex; align-items:center; justify-content:space-between; }
   .customer-result-item:last-child { border-bottom:none; }
-  .customer-result-item:hover, .customer-result-item.selected { background:#eff6ff; }
+  .customer-result-item:hover { background:#eff6ff; }
   .cust-name { font-size:14px; font-weight:600; }
   .cust-meta { font-size:12px; color:var(--muted); margin-top:2px; }
-
-  /* ADDRESS LIST */
-  .address-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
-  .address-card {
-    border:1.5px solid var(--border); border-radius:8px; padding:12px 14px;
-    cursor:pointer; transition:all 0.15s; display:flex; align-items:center; gap:12px;
-  }
-  .address-card:hover { border-color:var(--blue2); background:#eff6ff; }
-  .address-card.selected { border-color:var(--blue2); background:#eff6ff; }
-  .address-radio { width:18px; height:18px; flex-shrink:0; accent-color:var(--blue2); }
-  .address-label { font-size:12px; font-weight:700; color:var(--blue2); text-transform:uppercase; margin-bottom:2px; }
-  .address-text { font-size:13px; color:var(--text); }
-
-  /* INLINE FORM */
-  .inline-form { background:#f8f9fc; border:1px solid var(--border); border-radius:8px; padding:16px; margin-top:8px; }
-  .inline-form-title { font-size:13px; font-weight:700; margin-bottom:12px; color:var(--text); }
-
-  /* SECTION DIVIDER */
-  .section-label {
-    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border);
-  }
-
-  /* SELECTED CUSTOMER CHIP */
-  .selected-customer {
-    display:flex; align-items:center; justify-content:space-between;
-    background:#eff6ff; border:1.5px solid var(--blue2); border-radius:8px; padding:12px 14px;
-    margin-bottom:12px;
-  }
+  .selected-customer { display:flex; align-items:center; justify-content:space-between; background:#eff6ff; border:1.5px solid var(--blue2); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
   .selected-customer-info { display:flex; flex-direction:column; gap:2px; }
   .selected-customer-name { font-size:14px; font-weight:700; color:var(--blue2); }
   .selected-customer-phone { font-size:12px; color:var(--muted); }
-  .btn-change-customer {
-    font-size:12px; font-weight:600; color:var(--muted); cursor:pointer;
-    background:none; border:1px solid var(--border); border-radius:6px; padding:5px 10px;
-    transition:all 0.15s;
-  }
+  .btn-change-customer { font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; background:none; border:1px solid var(--border); border-radius:6px; padding:5px 10px; transition:all 0.15s; }
   .btn-change-customer:hover { background:#fff; color:var(--text); }
 
-  /* CART LAYOUT */
-  .cart-layout { display:grid; grid-template-columns:1fr 380px; gap:20px; min-height:500px; }
+  /* ADDRESS */
+  .address-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+  .address-card { border:1.5px solid var(--border); border-radius:8px; padding:12px 14px; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; gap:12px; }
+  .address-card:hover { border-color:var(--blue2); background:#eff6ff; }
+  .address-card.selected { border-color:var(--blue2); background:#eff6ff; }
+  .address-radio { width:18px; height:18px; flex-shrink:0; accent-color:var(--blue2); }
+  .address-lbl { font-size:12px; font-weight:700; color:var(--blue2); text-transform:uppercase; margin-bottom:2px; }
+  .address-text { font-size:13px; color:var(--text); }
+  .inline-form { background:#f8f9fc; border:1px solid var(--border); border-radius:8px; padding:16px; margin-top:8px; }
+  .inline-form-title { font-size:13px; font-weight:700; margin-bottom:12px; }
+  .section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
 
-  /* PRODUCT BROWSER */
+  /* CART LAYOUT */
+  .cart-layout { display:grid; grid-template-columns:1fr 360px; gap:20px; align-items:start; }
   .product-browser { display:flex; flex-direction:column; gap:12px; }
   .category-tabs { display:flex; gap:6px; flex-wrap:wrap; }
-  .cat-tab {
-    padding:5px 12px; border-radius:20px; font-size:12px; font-weight:500;
-    border:1.5px solid var(--border); background:#fff; color:var(--muted);
-    cursor:pointer; white-space:nowrap; transition:all 0.15s;
-  }
+  .cat-tab { padding:5px 14px; border-radius:20px; font-size:13px; font-weight:500; border:1.5px solid var(--border); background:#fff; color:var(--muted); cursor:pointer; white-space:nowrap; transition:all 0.15s; }
   .cat-tab:hover { border-color:#aaa; color:var(--text); }
   .cat-tab.active { background:var(--navy); color:#fff; border-color:var(--navy); }
 
-  .product-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; max-height:520px; overflow-y:auto; padding-right:2px; }
-  .product-card {
-    border:1.5px solid var(--border); border-radius:10px; background:#fff;
-    overflow:hidden; display:flex; flex-direction:column;
-    transition:box-shadow 0.15s, border-color 0.15s;
-  }
+  /* PRODUCT GRID */
+  .product-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .product-card { border:1.5px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; display:flex; flex-direction:column; transition:box-shadow 0.15s, border-color 0.15s; }
   .product-card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.08); border-color:#cbd5e1; }
-  .product-card-img { width:100%; height:110px; object-fit:cover; background:#f8f9fc; }
-  .product-card-body { padding:10px 12px; flex:1; display:flex; flex-direction:column; gap:6px; }
-  .product-card-name { font-size:13px; font-weight:600; line-height:1.3; color:var(--text); }
+  .product-card-img { width:100%; height:110px; object-fit:cover; background:#f8f9fc; display:block; }
+  .product-card-body { padding:10px 12px; flex:1; display:flex; flex-direction:column; gap:4px; }
+  .product-card-name { font-size:13px; font-weight:600; line-height:1.35; }
   .product-card-cat { font-size:11px; color:var(--muted); }
   .product-card-price { font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--blue2); }
   .product-card-price.range { font-size:12px; }
   .product-card-footer { padding:8px 12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
-  .variant-select {
-    width:100%; padding:6px 8px; border:1.5px solid var(--border); border-radius:6px;
-    font-family:'DM Sans',sans-serif; font-size:12px; background:#fff; outline:none;
-  }
+  .variant-select { width:100%; padding:6px 8px; border:1.5px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:12px; background:#fff; outline:none; }
   .variant-select:focus { border-color:var(--blue2); }
-  .btn-add-to-cart {
-    width:100%; padding:7px; border-radius:6px; border:none;
-    background:var(--blue2); color:#fff;
-    font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600;
-    cursor:pointer; transition:background 0.15s;
-  }
+  .btn-add-to-cart { width:100%; padding:7px; border-radius:6px; border:none; background:var(--blue2); color:#fff; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:background 0.15s; }
   .btn-add-to-cart:hover { background:#2563eb; }
-  .btn-shade-picker {
-    width:100%; padding:6px; border-radius:6px;
-    border:1.5px solid var(--purple); color:var(--purple); background:#fff;
-    font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600;
-    cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:4px;
-  }
+  .btn-shade-picker { width:100%; padding:6px; border-radius:6px; border:1.5px solid var(--purple); color:var(--purple); background:#fff; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600; cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:4px; }
   .btn-shade-picker:hover { background:#ede9fe; }
+  .shade-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 8px; background:#eff6ff; border:1.5px solid var(--blue2); border-radius:6px; font-size:11px; font-weight:600; color:var(--blue2); cursor:pointer; }
+  .shade-chip-dot { width:12px; height:12px; border-radius:3px; border:1px solid rgba(0,0,0,0.12); flex-shrink:0; }
+
+  /* INLINE SHADE PICKER */
+  .shade-picker-inline { border:1.5px solid #c4b5fd; border-radius:8px; background:#faf5ff; padding:10px; }
+  .spi-header { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+  .spi-label { font-size:11px; font-weight:700; color:var(--purple); flex-shrink:0; }
+  .spi-search { flex:1; padding:5px 8px; font-size:11px; border:1.5px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; outline:none; min-width:0; background:#fff; }
+  .spi-search:focus { border-color:var(--purple); }
+  .spi-close { background:none; border:1px solid var(--border); border-radius:4px; width:20px; height:20px; cursor:pointer; font-size:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+  .spi-close:hover { background:#f3f4f6; }
+  .spi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(46px,1fr)); gap:5px; max-height:150px; overflow-y:auto; }
+  .spi-swatch { border:2px solid transparent; border-radius:6px; padding:3px; cursor:pointer; text-align:center; transition:all 0.12s; }
+  .spi-swatch:hover { border-color:var(--blue2); }
+  .spi-swatch.selected { border-color:var(--blue2); background:#eff6ff; }
+  .spi-dot { width:32px; height:32px; border-radius:4px; margin:0 auto 2px; border:1px solid rgba(0,0,0,0.1); }
+  .spi-code { font-size:8px; font-weight:700; font-family:'JetBrains Mono',monospace; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* PAGE CONTROLS */
+  .page-controls { display:flex; align-items:center; justify-content:space-between; padding:10px 0; font-size:13px; color:var(--muted); }
 
   /* CART PANEL */
-  .cart-panel {
-    border:1.5px solid var(--border); border-radius:10px; background:#fff;
-    display:flex; flex-direction:column; overflow:hidden;
-  }
-  .cart-panel-header {
-    padding:12px 16px; background:#f8f9fc; border-bottom:1px solid var(--border);
-    font-size:14px; font-weight:700;
-  }
-  .cart-items-list { flex:1; overflow-y:auto; padding:8px 0; min-height:200px; }
+  .cart-panel { border:1.5px solid var(--border); border-radius:10px; background:#fff; display:flex; flex-direction:column; overflow:hidden; position:sticky; top:80px; }
+  .cart-panel-header { padding:12px 16px; background:#f8f9fc; border-bottom:1px solid var(--border); font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:space-between; }
+  .cart-items-list { overflow-y:auto; max-height:320px; min-height:80px; }
   .cart-empty { padding:40px; text-align:center; color:var(--muted); font-size:13px; }
-  .cart-item {
-    padding:10px 14px; border-bottom:1px solid var(--border);
-    display:flex; align-items:flex-start; gap:10px;
-  }
+  .cart-item { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; gap:10px; }
   .cart-item:last-child { border-bottom:none; }
   .cart-item-info { flex:1; min-width:0; }
   .cart-item-name { font-size:13px; font-weight:600; line-height:1.3; }
   .cart-item-meta { font-size:11px; color:var(--muted); margin-top:2px; }
-  .cart-item-price { font-size:12px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); margin-top:4px; }
-  .qty-stepper { display:flex; align-items:center; gap:0; flex-shrink:0; }
-  .qty-btn {
-    width:26px; height:26px; border:1px solid var(--border); background:#fff;
-    font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center;
-    transition:background 0.15s; color:var(--text);
-  }
+  .cart-item-price { font-size:12px; font-weight:700; font-family:'JetBrains Mono',monospace; margin-top:4px; }
+  .qty-stepper { display:flex; align-items:center; flex-shrink:0; }
+  .qty-btn { width:26px; height:26px; border:1px solid var(--border); background:#fff; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s; }
   .qty-btn:first-child { border-radius:6px 0 0 6px; }
   .qty-btn:last-child { border-radius:0 6px 6px 0; }
   .qty-btn:hover { background:var(--bg); }
-  .qty-num {
-    width:32px; text-align:center; font-size:13px; font-weight:700;
-    border:1px solid var(--border); border-left:none; border-right:none;
-    padding:4px 0; font-family:'JetBrains Mono',monospace;
-  }
-  .btn-remove-cart {
-    background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px;
-    padding:2px 4px; border-radius:4px; transition:color 0.15s; flex-shrink:0;
-  }
+  .qty-num { width:32px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 0; font-family:'JetBrains Mono',monospace; }
+  .btn-remove-cart { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 4px; border-radius:4px; transition:color 0.15s; flex-shrink:0; }
   .btn-remove-cart:hover { color:var(--red2); }
-
-  /* CART TOTALS */
   .cart-totals { padding:12px 14px; border-top:1px solid var(--border); background:#f8f9fc; }
-  .totals-row { display:flex; justify-content:space-between; font-size:13px; padding:3px 0; color:var(--muted); }
+  .totals-row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:3px 0; color:var(--muted); }
   .totals-row .amt { font-family:'JetBrains Mono',monospace; }
   .totals-row.grand { font-size:15px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:8px; margin-top:4px; }
-  .totals-loading { font-size:12px; color:var(--muted); font-style:italic; padding:4px 0; }
+  .totals-loading { font-size:12px; color:var(--muted); font-style:italic; }
+  .pill-cod { display:inline-flex; align-items:center; padding:2px 8px; background:#fff3e0; color:#e65100; border-radius:10px; font-size:11px; font-weight:700; }
 
-  /* SUMMARY */
+  /* SUMMARY / STEP 3-4 */
   .summary-section { background:#f8f9fc; border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px; }
   .summary-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:12px; }
   .p-row { display:flex; align-items:flex-start; gap:8px; margin-bottom:8px; font-size:14px; }
@@ -310,93 +204,23 @@
   .total-row { display:flex; justify-content:flex-end; gap:24px; padding:4px 0; font-size:13px; color:var(--muted); }
   .total-row.grand { font-size:16px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:10px; margin-top:6px; }
   .total-row .amt { font-family:'JetBrains Mono',monospace; min-width:80px; text-align:right; }
-
-  /* QUOTATION SUCCESS */
-  .quote-success {
-    background:#d1fae5; border:1px solid #a7f3d0; border-radius:8px;
-    padding:14px 16px; display:flex; flex-direction:column; gap:8px;
-  }
+  .quote-success { background:#d1fae5; border:1px solid #a7f3d0; border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
   .quote-success-num { font-size:18px; font-weight:700; font-family:'JetBrains Mono',monospace; color:#065f46; }
-  .quote-success-label { font-size:12px; color:#047857; }
-
-  /* CONFIRM SUCCESS */
-  .confirm-success {
-    text-align:center; padding:40px 20px;
-  }
+  .confirm-success { text-align:center; padding:40px 20px; }
   .confirm-success-icon { font-size:56px; display:block; margin-bottom:16px; }
   .confirm-success-title { font-size:20px; font-weight:700; margin-bottom:8px; }
   .confirm-success-order { font-size:24px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--blue2); margin-bottom:20px; }
 
-  /* SPINNER */
+  /* MISC */
   .spinner { display:inline-block; width:18px; height:18px; border:2.5px solid rgba(255,255,255,0.4); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; }
   .spinner.dark { border-color:rgba(0,0,0,0.15); border-top-color:var(--blue2); }
   @keyframes spin { to { transform:rotate(360deg); } }
-
-  /* INFO BOX */
-  .info-box { padding:12px 14px; border-radius:8px; font-size:13px; }
-  .info-box.warning { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
-  .info-box.error { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
-  .info-box.success { background:#d1fae5; color:#065f46; border:1px solid #a7f3d0; }
-
-  /* SHADE MODAL */
-  .modal-backdrop {
-    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45);
-    z-index:200; align-items:center; justify-content:center;
-  }
-  .modal-backdrop.show { display:flex; }
-  .modal-box {
-    background:#fff; border-radius:12px; width:540px; max-width:95vw;
-    max-height:90vh; display:flex; flex-direction:column;
-    box-shadow:0 20px 60px rgba(0,0,0,0.3);
-  }
-  .modal-header {
-    padding:16px 20px; border-bottom:1px solid var(--border);
-    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
-  }
-  .modal-header h2 { font-size:16px; font-weight:700; }
-  .modal-close {
-    background:none; border:1px solid var(--border); border-radius:6px;
-    width:30px; height:30px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center;
-  }
-  .modal-close:hover { background:var(--bg); }
-  .modal-body { flex:1; overflow-y:auto; padding:16px; }
-  .modal-footer { padding:14px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; flex-shrink:0; }
-
-  .shade-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(80px,1fr)); gap:8px; margin-top:8px; max-height:340px; overflow-y:auto; }
-  .shade-swatch {
-    border:2px solid transparent; border-radius:8px; padding:6px; cursor:pointer;
-    text-align:center; transition:all 0.15s;
-  }
-  .shade-swatch:hover { border-color:var(--blue2); }
-  .shade-swatch.selected { border-color:var(--blue2); background:#eff6ff; }
-  .shade-dot { width:40px; height:40px; border-radius:6px; margin:0 auto 4px; border:1px solid rgba(0,0,0,0.1); }
-  .shade-code { font-size:10px; font-weight:700; font-family:'JetBrains Mono',monospace; }
-  .shade-name { font-size:9px; color:var(--muted); margin-top:1px; }
-  .shade-selected-chip {
-    display:inline-flex; align-items:center; gap:6px; padding:4px 8px;
-    background:#eff6ff; border:1.5px solid var(--blue2); border-radius:6px;
-    font-size:11px; font-weight:600; color:var(--blue2);
-  }
-  .shade-dot-small { width:14px; height:14px; border-radius:3px; border:1px solid rgba(0,0,0,0.15); flex-shrink:0; }
-
-  /* PILL */
-  .pill { display:inline-flex; align-items:center; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600; }
-  .pill-cod { background:#fff3e0; color:#e65100; }
-
-  /* TOAST */
-  #toast {
-    position:fixed; bottom:24px; right:24px; z-index:999;
-    background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px;
-    font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25);
-    transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none;
-  }
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
   #toast.show { transform:translateY(0); opacity:1; }
   #toast.error { background:var(--red2); }
   #toast.success { background:var(--green); }
-
-  .mono { font-family:'JetBrains Mono',monospace; }
-  .text-muted { color:var(--muted); }
   .hidden { display:none !important; }
+  .mono { font-family:'JetBrains Mono',monospace; }
 </style>
 </head>
 <body>
@@ -435,49 +259,34 @@
 
   <div class="content">
 
-    <!-- STEP INDICATOR -->
+    <!-- STEPS BAR -->
     <div class="steps-bar">
       <div class="step-item">
         <div class="step-circle active" id="sc1">1</div>
-        <div class="step-label">
-          <div class="step-num">Step 1</div>
-          <div class="step-name active" id="sn1">Customer</div>
-        </div>
+        <div class="step-label"><div class="step-num">Step 1</div><div class="step-name active" id="sn1">Customer</div></div>
       </div>
       <div class="step-connector" id="conn1"></div>
       <div class="step-item">
         <div class="step-circle" id="sc2">2</div>
-        <div class="step-label">
-          <div class="step-num">Step 2</div>
-          <div class="step-name" id="sn2">Cart</div>
-        </div>
+        <div class="step-label"><div class="step-num">Step 2</div><div class="step-name" id="sn2">Cart</div></div>
       </div>
       <div class="step-connector" id="conn2"></div>
       <div class="step-item">
         <div class="step-circle" id="sc3">3</div>
-        <div class="step-label">
-          <div class="step-num">Step 3</div>
-          <div class="step-name" id="sn3">Quotation</div>
-        </div>
+        <div class="step-label"><div class="step-num">Step 3</div><div class="step-name" id="sn3">Quotation</div></div>
       </div>
       <div class="step-connector" id="conn3"></div>
       <div class="step-item">
         <div class="step-circle" id="sc4">4</div>
-        <div class="step-label">
-          <div class="step-num">Step 4</div>
-          <div class="step-name" id="sn4">Confirm</div>
-        </div>
+        <div class="step-label"><div class="step-num">Step 4</div><div class="step-name" id="sn4">Confirm</div></div>
       </div>
     </div>
 
     <!-- STEP 1: CUSTOMER -->
     <div id="step1" class="wizard-card">
-      <div class="wizard-header">
-        <div class="wizard-title">👤 Customer &amp; Address</div>
-      </div>
+      <div class="wizard-header"><div class="wizard-title">👤 Customer &amp; Address</div></div>
       <div class="wizard-body">
 
-        <!-- Selected customer chip (hidden initially) -->
         <div id="selectedCustomerChip" class="hidden">
           <div class="selected-customer">
             <div class="selected-customer-info">
@@ -488,15 +297,12 @@
           </div>
         </div>
 
-        <!-- Search section (hidden when customer selected) -->
         <div id="customerSearchSection">
           <div class="field-group">
             <div class="field-label">Search Customer</div>
             <div class="search-box">
               <span class="search-icon">🔍</span>
-              <input type="text" class="field-input" id="customerSearchInput"
-                placeholder="Name or phone number..."
-                oninput="onCustomerSearch(this.value)">
+              <input type="text" class="field-input" id="customerSearchInput" placeholder="Name or phone number..." oninput="onCustomerSearch(this.value)">
             </div>
           </div>
           <div id="customerSearchResults"></div>
@@ -517,24 +323,21 @@
                 <div class="field-label">Email <span style="color:var(--muted);font-weight:400">(optional)</span></div>
                 <input type="email" class="field-input" id="newCustEmail" placeholder="email@example.com">
               </div>
-              <button class="btn-primary" onclick="createCustomer()" id="createCustBtn">➕ Create Customer</button>
+              <button class="btn-primary" id="createCustBtn" onclick="createCustomer()">➕ Create Customer</button>
             </div>
           </div>
         </div>
 
-        <!-- Address section (shown after customer selected) -->
         <div id="addressSection" class="hidden">
-          <div class="section-label">Select Delivery Address</div>
+          <div class="section-label" style="margin-top:16px">Select Delivery Address</div>
           <div id="addressList" class="address-list"></div>
           <div style="margin-top:10px">
-            <button class="btn-secondary" style="font-size:13px;padding:8px 14px" onclick="toggleAddAddressForm()" id="addAddressToggle">
-              ➕ Add New Address
-            </button>
+            <button class="btn-secondary" style="font-size:13px;padding:8px 14px" onclick="toggleAddAddressForm()" id="addAddressToggle">➕ Add New Address</button>
           </div>
           <div id="addAddressForm" class="inline-form hidden" style="margin-top:10px">
             <div class="inline-form-title">New Address</div>
-            <div class="field-row">
-              <div class="field-group">
+            <div class="field-row" style="margin-bottom:14px">
+              <div>
                 <div class="field-label">Label</div>
                 <input type="text" class="field-input" id="addrLabel" placeholder="Home / Office / Site">
               </div>
@@ -546,31 +349,27 @@
             <div class="field-row">
               <div class="field-group">
                 <div class="field-label">Latitude <span style="color:var(--muted);font-weight:400">(optional)</span></div>
-                <input type="number" class="field-input" id="addrLat" placeholder="e.g. 13.0827">
+                <input type="number" class="field-input" id="addrLat" placeholder="13.0827">
               </div>
               <div class="field-group">
                 <div class="field-label">Longitude <span style="color:var(--muted);font-weight:400">(optional)</span></div>
-                <input type="number" class="field-input" id="addrLng" placeholder="e.g. 80.2707">
+                <input type="number" class="field-input" id="addrLng" placeholder="80.2707">
               </div>
             </div>
-            <button class="btn-primary" onclick="submitAddAddress()" id="submitAddAddrBtn">💾 Save Address</button>
+            <button class="btn-primary" id="submitAddAddrBtn" onclick="submitAddAddress()">💾 Save Address</button>
           </div>
         </div>
 
-        <!-- GST Number -->
-        <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-          <div class="field-group" style="max-width:340px; margin-bottom:0;">
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="field-group" style="max-width:340px;margin-bottom:0">
             <div class="field-label">GST Number <span style="color:var(--muted);font-weight:400">(optional)</span></div>
-            <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase"
-              oninput="this.value=this.value.toUpperCase()">
+            <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
           </div>
         </div>
       </div>
       <div class="wizard-footer">
         <span></span>
-        <button class="btn-primary" id="step1Next" onclick="goToStep2()" disabled>
-          Next: Cart →
-        </button>
+        <button class="btn-primary" id="step1Next" onclick="goToStep2()" disabled>Next: Cart →</button>
       </div>
     </div>
 
@@ -580,18 +379,15 @@
         <div class="wizard-title">🛒 Build Cart</div>
         <div id="step2CustomerInfo" style="font-size:13px;color:var(--muted)"></div>
       </div>
-      <div class="wizard-body" style="padding:16px 24px;">
+      <div class="wizard-body" style="padding:16px 24px">
         <div class="cart-layout">
-          <!-- Product Browser -->
           <div class="product-browser">
             <div class="category-tabs" id="categoryTabs">
               <button class="cat-tab active" data-cat="all">All</button>
             </div>
             <div class="search-box">
               <span class="search-icon">🔍</span>
-              <input type="text" class="field-input" id="productSearch"
-                placeholder="Search products..."
-                oninput="filterProducts(this.value)">
+              <input type="text" class="field-input" id="productSearch" placeholder="Search products..." oninput="filterProducts(this.value)">
             </div>
             <div id="productGrid" class="product-grid">
               <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
@@ -602,15 +398,17 @@
             <div id="productPageControls"></div>
           </div>
 
-          <!-- Cart Panel -->
           <div class="cart-panel">
-            <div class="cart-panel-header">🛒 Cart <span id="cartCount" style="color:var(--muted);font-weight:400;font-size:12px">(0 items)</span></div>
+            <div class="cart-panel-header">
+              <span>🛒 Cart <span id="cartCount" style="color:var(--muted);font-weight:400;font-size:12px">(0 items)</span></span>
+              <span class="pill-cod">COD</span>
+            </div>
             <div class="cart-items-list" id="cartItemsList">
               <div class="cart-empty">Cart is empty</div>
             </div>
-            <div class="cart-totals" id="cartTotals">
+            <div class="cart-totals">
               <div class="totals-row"><span>Subtotal</span><span class="amt" id="totSubtotal">₹0</span></div>
-              <div class="totals-row"><span>GST</span><span class="amt" id="totGst">₹0</span></div>
+              <div class="totals-row"><span id="totGstLabel">GST</span><span class="amt" id="totGst">₹0</span></div>
               <div class="totals-row"><span>Delivery</span><span class="amt" id="totDelivery"><span class="totals-loading">calculating...</span></span></div>
               <div class="totals-row grand"><span>Grand Total</span><span class="amt" id="totGrand">₹0</span></div>
             </div>
@@ -619,27 +417,21 @@
       </div>
       <div class="wizard-footer">
         <button class="btn-secondary" onclick="goToStep(1)">← Back</button>
-        <button class="btn-primary" id="step2Next" onclick="goToStep3()" disabled>
-          Next: Quotation →
-        </button>
+        <button class="btn-primary" id="step2Next" onclick="goToStep3()" disabled>Next: Quotation →</button>
       </div>
     </div>
 
     <!-- STEP 3: QUOTATION -->
     <div id="step3" class="wizard-card hidden">
-      <div class="wizard-header">
-        <div class="wizard-title">📄 Zoho Quotation</div>
-      </div>
+      <div class="wizard-header"><div class="wizard-title">📄 Zoho Quotation</div></div>
       <div class="wizard-body">
-        <!-- Customer + Address summary -->
         <div class="summary-section">
           <div class="summary-section-title">Customer</div>
           <div class="p-row"><span class="p-label">Name</span><span class="p-val" id="s3Name">—</span></div>
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s3Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s3Address">—</span></div>
-          <div class="p-row" id="s3GstRow" style="display:none"><span class="p-label">GST No.</span><span class="p-val" id="s3Gst">—</span></div>
+          <div class="p-row hidden" id="s3GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s3Gst">—</span></div>
         </div>
-        <!-- Items summary -->
         <div class="summary-section">
           <div class="summary-section-title">Items</div>
           <table class="items-table">
@@ -648,51 +440,40 @@
           </table>
           <div style="margin-top:12px">
             <div class="total-row"><span>Subtotal</span><span class="amt" id="s3Subtotal">—</span></div>
-            <div class="total-row"><span>GST</span><span class="amt" id="s3Gst2">—</span></div>
+            <div class="total-row"><span>GST</span><span class="amt" id="s3GstAmt">—</span></div>
             <div class="total-row"><span>Delivery</span><span class="amt" id="s3Delivery">—</span></div>
             <div class="total-row grand"><span>Grand Total</span><span class="amt" id="s3Grand">—</span></div>
           </div>
         </div>
-
-        <!-- Quotation action / result -->
         <div id="quotationActionArea">
-          <button class="btn-green-full" id="createQuoteBtn" onclick="createQuotation()">
-            📄 Create Zoho Quotation
-          </button>
+          <button class="btn-green-full" id="createQuoteBtn" onclick="createQuotation()">📄 Create Zoho Quotation</button>
         </div>
         <div id="quotationResultArea" class="hidden" style="margin-top:12px"></div>
       </div>
       <div class="wizard-footer">
         <button class="btn-secondary" onclick="goToStep(2)">← Back</button>
-        <button class="btn-primary" id="step3Next" onclick="goToStep4()" disabled>
-          Next: Confirm Order →
-        </button>
+        <button class="btn-primary" id="step3Next" onclick="goToStep4()" disabled>Next: Confirm Order →</button>
       </div>
     </div>
 
     <!-- STEP 4: CONFIRM -->
     <div id="step4" class="wizard-card hidden">
-      <div class="wizard-header">
-        <div class="wizard-title">✅ Confirm Order</div>
-      </div>
-      <div class="wizard-body" id="step4Body">
-        <!-- Summary -->
+      <div class="wizard-header"><div class="wizard-title">✅ Confirm Order</div></div>
+      <div class="wizard-body">
         <div class="summary-section">
           <div class="summary-section-title">Order Summary</div>
           <div class="p-row"><span class="p-label">Customer</span><span class="p-val" id="s4Name">—</span></div>
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s4Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s4Address">—</span></div>
-          <div class="p-row" id="s4GstRow" style="display:none"><span class="p-label">GST No.</span><span class="p-val" id="s4Gst">—</span></div>
+          <div class="p-row hidden" id="s4GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s4Gst">—</span></div>
           <div class="p-row"><span class="p-label">Quotation</span><span class="p-val" id="s4QuoteNum">—</span></div>
         </div>
         <div class="summary-section">
-          <div class="p-row"><span class="p-label">Payment</span><span><span class="pill pill-cod">COD</span></span></div>
+          <div class="p-row"><span class="p-label">Payment</span><span><span class="pill-cod">COD</span></span></div>
           <div class="p-row"><span class="p-label">Grand Total</span><span class="p-val mono" id="s4Grand" style="font-size:18px;color:var(--blue2)">—</span></div>
         </div>
         <div id="confirmActionArea">
-          <button class="btn-navy-full" onclick="confirmOrder()" id="confirmOrderBtn">
-            ✅ Confirm Order
-          </button>
+          <button class="btn-navy-full" id="confirmOrderBtn" onclick="confirmOrder()">✅ Confirm Order</button>
         </div>
         <div id="confirmResultArea" class="hidden" style="margin-top:12px"></div>
       </div>
@@ -705,119 +486,67 @@
   </div>
 </div>
 
-<!-- SHADE PICKER MODAL -->
-<div class="modal-backdrop" id="shadeModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2 id="shadeModalTitle">🎨 Select Shade</h2>
-      <button class="modal-close" onclick="closeShadeModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="field-group">
-        <input type="text" class="field-input" id="shadeSearch" placeholder="Search shade code or name..." oninput="filterShades(this.value)">
-      </div>
-      <div id="shadeGrid" class="shade-grid"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary" onclick="clearShade()">Clear Shade</button>
-      <button class="btn-primary" onclick="confirmShade()">Select</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast"></div>
 
 <script>
 'use strict';
-
 const API_BASE = window.location.origin;
-
-// Auth guard
 const token = sessionStorage.getItem('adminToken');
 if (!token) window.location.href = 'login.html';
 
-function authHeaders() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-}
-
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
 async function apiFetch(url, opts = {}) {
-  const res = await fetch(API_BASE + url, {
-    ...opts,
-    headers: { ...authHeaders(), ...(opts.headers || {}) }
-  });
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
   if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
   return res;
 }
-
-function logout() {
-  sessionStorage.clear();
-  window.location.href = 'login.html';
-}
-
-function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function fmtMoney(n) {
-  return '₹' + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
-let toastTimer = null;
-function showToast(msg, type = '') {
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtMoney(n) { return '₹' + Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+let _toastTimer;
+function showToast(msg, type='') {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'show' + (type ? ' ' + type : '');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = ''; }, 3500);
+  t.textContent = msg; t.className = 'show' + (type ? ' '+type : '');
+  clearTimeout(_toastTimer); _toastTimer = setTimeout(() => { t.className = ''; }, 3500);
 }
 
-// ── STATE ──────────────────────────────────────────────────────────────────────
+// ── STATE ──
 let currentStep = 1;
-let selectedCustomer = null;    // { userId, name, phone, email }
-let selectedAddress = null;     // address object
+let selectedCustomer = null;
+let selectedAddress = null;
 let gstNumber = '';
-let cart = [];                  // [{ productId, zohoItemId, variantId, name, unit, unitPrice, quantity, gstRate, shadeCode, shadeName, shadeTier }]
+let cart = [];
 let draftId = null;
-let draftData = null;           // full draft returned from server
-let quotationData = null;       // { zohoQuotationId, zohoQuotationNumber, zohoQuotationUrl }
-
-// Products cache
+let draftData = null;
+let quotationData = null;
 let allProducts = [];
 let productMap = {};
 let currentCategory = 'all';
 let productSearch = '';
 let productPage = 0;
 const PAGE_SIZE = 20;
-
-// Delivery debounce
 let deliveryDebounceTimer = null;
+let searchResults = [];  // safe reference for click delegation
 
-// ── STEP INDICATOR ─────────────────────────────────────────────────────────────
+// ── STEPS ──
 function updateStepIndicator(step) {
   for (let i = 1; i <= 4; i++) {
-    const circle = document.getElementById('sc' + i);
-    const name = document.getElementById('sn' + i);
-    circle.className = 'step-circle' + (i === step ? ' active' : i < step ? ' done' : '');
-    circle.textContent = i < step ? '✓' : i;
-    name.className = 'step-name' + (i === step ? ' active' : i < step ? ' done' : '');
-    if (i <= 3) {
-      document.getElementById('conn' + i).className = 'step-connector' + (i < step ? ' done' : '');
-    }
+    const c = document.getElementById('sc'+i), n = document.getElementById('sn'+i);
+    c.className = 'step-circle' + (i===step?' active':i<step?' done':'');
+    c.textContent = i < step ? '✓' : i;
+    n.className = 'step-name' + (i===step?' active':i<step?' done':'');
+    if (i<=3) document.getElementById('conn'+i).className = 'step-connector' + (i<step?' done':'');
   }
 }
-
 function goToStep(n) {
   currentStep = n;
-  for (let i = 1; i <= 4; i++) {
-    document.getElementById('step' + i).classList.toggle('hidden', i !== n);
-  }
+  for (let i=1;i<=4;i++) document.getElementById('step'+i).classList.toggle('hidden', i!==n);
   updateStepIndicator(n);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top:0, behavior:'smooth' });
 }
 
-// ── STEP 1: CUSTOMER ────────────────────────────────────────────────────────────
-let searchDebounceTimer = null;
-
+// ── STEP 1: CUSTOMER ──
+let searchDebounceTimer;
 function onCustomerSearch(val) {
   clearTimeout(searchDebounceTimer);
   const q = val.trim();
@@ -826,56 +555,57 @@ function onCustomerSearch(val) {
     document.getElementById('createCustomerSection').classList.add('hidden');
     return;
   }
-  searchDebounceTimer = setTimeout(() => searchCustomers(q), 300);
+  searchDebounceTimer = setTimeout(() => doSearchCustomers(q), 300);
 }
 
-async function searchCustomers(q) {
+async function doSearchCustomers(q) {
   const container = document.getElementById('customerSearchResults');
   container.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px">Searching...</div>';
   try {
-    const res = await apiFetch('/api/v1/admin/pos/customers/search?q=' + encodeURIComponent(q));
+    const res = await apiFetch('/api/v1/admin/pos/customers/search?q='+encodeURIComponent(q));
     const data = await res.json();
     if (!data.success) throw new Error(data.message);
-    const customers = data.data.customers || [];
-    if (customers.length === 0) {
+    searchResults = data.data.customers || [];
+    if (!searchResults.length) {
       container.innerHTML = '';
       document.getElementById('createCustomerSection').classList.remove('hidden');
       return;
     }
     document.getElementById('createCustomerSection').classList.add('hidden');
-    container.innerHTML = `<div class="customer-results">${customers.map(c => `
-      <div class="customer-result-item" onclick="selectCustomer(${escHtml(JSON.stringify(c))})">
+    container.innerHTML = `<div class="customer-results">${searchResults.map((c,i) => `
+      <div class="customer-result-item" data-idx="${i}">
         <div>
           <div class="cust-name">${escHtml(c.name)}</div>
-          <div class="cust-meta">${escHtml(c.phone)}${c.email ? ' · ' + escHtml(c.email) : ''}</div>
+          <div class="cust-meta">${escHtml(c.phone)}${c.email ? ' · '+escHtml(c.email) : ''}</div>
         </div>
-        <div style="font-size:12px;color:var(--muted)">${c.addresses.length} address${c.addresses.length !== 1 ? 'es' : ''}</div>
+        <div style="font-size:12px;color:var(--muted)">${c.addresses.length} address${c.addresses.length!==1?'es':''}</div>
       </div>`).join('')}</div>`;
   } catch(e) {
     container.innerHTML = '';
-    showToast('Search failed: ' + e.message, 'error');
+    showToast('Search failed: '+e.message, 'error');
   }
 }
 
+document.getElementById('customerSearchResults').addEventListener('click', function(e) {
+  const item = e.target.closest('.customer-result-item');
+  if (item) selectCustomer(searchResults[parseInt(item.dataset.idx, 10)]);
+});
+
 function selectCustomer(c) {
+  if (!c) return;
   selectedCustomer = c;
   selectedAddress = null;
-
-  // Show chip
   document.getElementById('chipName').textContent = c.name;
   document.getElementById('chipPhone').textContent = c.phone;
   document.getElementById('selectedCustomerChip').classList.remove('hidden');
   document.getElementById('customerSearchSection').classList.add('hidden');
-
-  // Show address section
   document.getElementById('addressSection').classList.remove('hidden');
   renderAddressList(c.addresses || []);
   checkStep1Next();
 }
 
 function clearCustomer() {
-  selectedCustomer = null;
-  selectedAddress = null;
+  selectedCustomer = null; selectedAddress = null;
   document.getElementById('selectedCustomerChip').classList.add('hidden');
   document.getElementById('customerSearchSection').classList.remove('hidden');
   document.getElementById('customerSearchInput').value = '';
@@ -888,41 +618,39 @@ function clearCustomer() {
 
 function renderAddressList(addresses) {
   const list = document.getElementById('addressList');
+  list._addresses = addresses;
   if (!addresses.length) {
     list.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:4px 0">No saved addresses — add one below.</div>';
     return;
   }
   list.innerHTML = addresses.map((a, i) => `
-    <div class="address-card ${selectedAddress && selectedAddress.addressId === a.addressId ? 'selected' : ''}"
-      onclick="selectAddress(${i})" id="addrCard${i}">
-      <input type="radio" class="address-radio" name="addrRadio"
-        ${selectedAddress && selectedAddress.addressId === a.addressId ? 'checked' : ''} readonly>
+    <div class="address-card ${selectedAddress && selectedAddress.addressId===a.addressId?'selected':''}" data-idx="${i}">
+      <input type="radio" class="address-radio" name="addrRadio" ${selectedAddress && selectedAddress.addressId===a.addressId?'checked':''} readonly>
       <div>
-        <div class="address-label">${escHtml(a.label || 'Address')}</div>
-        <div class="address-text">${escHtml(a.streetAddress || a.fullAddress || '')}</div>
+        <div class="address-lbl">${escHtml(a.label||'Address')}</div>
+        <div class="address-text">${escHtml(a.streetAddress||a.fullAddress||'')}</div>
         ${a.pincode ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">Pincode: ${escHtml(a.pincode)}</div>` : ''}
       </div>
     </div>`).join('');
-  // store for click reference
-  list._addresses = addresses;
 }
 
-function selectAddress(idx) {
-  const list = document.getElementById('addressList');
-  const addresses = list._addresses;
+document.getElementById('addressList').addEventListener('click', function(e) {
+  const card = e.target.closest('.address-card');
+  if (!card) return;
+  const idx = parseInt(card.dataset.idx, 10);
+  const addresses = this._addresses;
   if (!addresses) return;
   selectedAddress = addresses[idx];
-  // re-render to update selected state
   renderAddressList(addresses);
   checkStep1Next();
-}
+});
 
 function toggleAddAddressForm() {
   const form = document.getElementById('addAddressForm');
   const btn = document.getElementById('addAddressToggle');
-  const isHidden = form.classList.contains('hidden');
-  form.classList.toggle('hidden', !isHidden);
-  btn.textContent = isHidden ? '✕ Cancel' : '➕ Add New Address';
+  const hidden = form.classList.contains('hidden');
+  form.classList.toggle('hidden', !hidden);
+  btn.textContent = hidden ? '✕ Cancel' : '➕ Add New Address';
 }
 
 async function submitAddAddress() {
@@ -932,37 +660,25 @@ async function submitAddAddress() {
   const lat = document.getElementById('addrLat').value.trim();
   const lng = document.getElementById('addrLng').value.trim();
   if (!fullAddress) { showToast('Full address is required', 'error'); return; }
-
   const btn = document.getElementById('submitAddAddrBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Saving...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving...';
   try {
     const res = await apiFetch(`/api/v1/admin/pos/customers/${selectedCustomer.userId}/addresses`, {
-      method: 'POST',
-      body: JSON.stringify({ fullAddress, label: label || 'POS Address', lat: lat || null, lng: lng || null })
+      method:'POST', body: JSON.stringify({ fullAddress, label: label||'POS Address', lat:lat||null, lng:lng||null })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to save address');
+    if (!res.ok) throw new Error(data.message||'Failed to save address');
     const newAddr = data.data.address;
-    const existingAddresses = document.getElementById('addressList')._addresses || [];
-    const updatedAddresses = [...existingAddresses, newAddr];
-    renderAddressList(updatedAddresses);
+    const existing = document.getElementById('addressList')._addresses || [];
+    const updated = [...existing, newAddr];
     selectedAddress = newAddr;
-    renderAddressList(updatedAddresses);
-    // clear form
-    document.getElementById('addrFull').value = '';
-    document.getElementById('addrLabel').value = '';
-    document.getElementById('addrLat').value = '';
-    document.getElementById('addrLng').value = '';
+    renderAddressList(updated);
+    ['addrFull','addrLabel','addrLat','addrLng'].forEach(id => { document.getElementById(id).value = ''; });
     toggleAddAddressForm();
     checkStep1Next();
     showToast('Address saved', 'success');
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '💾 Save Address';
-  }
+  } catch(e) { showToast('Error: '+e.message, 'error'); }
+  finally { btn.disabled=false; btn.innerHTML='💾 Save Address'; }
 }
 
 async function createCustomer() {
@@ -971,31 +687,19 @@ async function createCustomer() {
   const email = document.getElementById('newCustEmail').value.trim();
   if (!name) { showToast('Name is required', 'error'); return; }
   if (!phone) { showToast('Phone is required', 'error'); return; }
-
   const btn = document.getElementById('createCustBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Creating...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating...';
   try {
-    const res = await apiFetch('/api/v1/admin/pos/customers', {
-      method: 'POST',
-      body: JSON.stringify({ name, phone, email: email || null })
-    });
+    const res = await apiFetch('/api/v1/admin/pos/customers', { method:'POST', body: JSON.stringify({ name, phone, email:email||null }) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create customer');
+    if (!res.ok) throw new Error(data.message||'Failed to create customer');
     const c = data.data.customer;
-    // Auto-select and move to address step
-    selectCustomer({ ...c, addresses: [] });
-    document.getElementById('newCustName').value = '';
-    document.getElementById('newCustPhone').value = '';
-    document.getElementById('newCustEmail').value = '';
+    selectCustomer({ ...c, addresses:[] });
+    ['newCustName','newCustPhone','newCustEmail'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('createCustomerSection').classList.add('hidden');
     showToast('Customer created', 'success');
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '➕ Create Customer';
-  }
+  } catch(e) { showToast('Error: '+e.message, 'error'); }
+  finally { btn.disabled=false; btn.innerHTML='➕ Create Customer'; }
 }
 
 function checkStep1Next() {
@@ -1004,16 +708,14 @@ function checkStep1Next() {
 
 async function goToStep2() {
   gstNumber = document.getElementById('gstNumber').value.trim();
-  // Update step2 customer info bar
   document.getElementById('step2CustomerInfo').textContent =
-    `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress.label || 'Address'}`;
+    `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress.label||'Address'}`;
   goToStep(2);
-  // Load products if not loaded
   if (!allProducts.length) await loadProducts();
   scheduleDeliveryCalc();
 }
 
-// ── STEP 2: PRODUCTS & CART ──────────────────────────────────────────────────────
+// ── STEP 2: PRODUCTS ──
 async function loadProducts() {
   try {
     const res = await fetch(API_BASE + '/api/v1/products');
@@ -1021,8 +723,7 @@ async function loadProducts() {
     allProducts = Array.isArray(data.data) ? data.data : (Array.isArray(data.products) ? data.products : (Array.isArray(data) ? data : []));
     productMap = {};
     allProducts.forEach(p => { productMap[p.id] = p; });
-    // Extract unique categories
-    const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
+    const cats = [...new Set(allProducts.map(p=>p.category).filter(Boolean))].sort();
     const tabsEl = document.getElementById('categoryTabs');
     tabsEl.innerHTML = `<button class="cat-tab active" data-cat="all">All</button>` +
       cats.map(c => `<button class="cat-tab" data-cat="${escHtml(c)}">${escHtml(c)}</button>`).join('');
@@ -1038,190 +739,242 @@ async function loadProducts() {
     renderProductGrid();
   } catch(e) {
     document.getElementById('productGrid').innerHTML =
-      `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--red2)">Failed to load products</div>`;
+      '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--red2)">Failed to load products</div>';
   }
 }
 
-function filterProducts(q) {
-  productSearch = q;
-  productPage = 0;
-  renderProductGrid();
-}
+function filterProducts(q) { productSearch = q; productPage = 0; renderProductGrid(); }
 
 function getFilteredProducts() {
-  let products = allProducts;
-  if (currentCategory !== 'all') {
-    products = products.filter(p => p.category === currentCategory);
-  }
+  let list = allProducts;
+  if (currentCategory !== 'all') list = list.filter(p => p.category === currentCategory);
   const q = productSearch.toLowerCase().trim();
-  if (q) {
-    products = products.filter(p => (p.name || '').toLowerCase().includes(q));
-  }
-  return products;
+  if (q) list = list.filter(p => (p.name||'').toLowerCase().includes(q));
+  return list;
 }
 
 function renderProductGrid() {
   const grid = document.getElementById('productGrid');
   const filtered = getFilteredProducts();
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const page = Math.min(productPage, Math.max(0, totalPages - 1));
-  productPage = page;
-  const pageProducts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
+  productPage = Math.min(productPage, Math.max(0, totalPages-1));
+  const page = productPage;
+  const slice = filtered.slice(page*PAGE_SIZE, (page+1)*PAGE_SIZE);
   if (!filtered.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">No products found</div>';
-    renderPageControls(0, 0, 0);
+    document.getElementById('productPageControls').innerHTML = '';
     return;
   }
-  grid.innerHTML = pageProducts.map(p => buildProductCard(p)).join('');
+  grid.innerHTML = slice.map(p => buildProductCard(p)).join('');
   renderPageControls(page, totalPages, filtered.length);
 }
 
-function renderPageControls(page, totalPages, total) {
+function renderPageControls(page, total, count) {
   const el = document.getElementById('productPageControls');
-  if (!el) return;
-  if (totalPages <= 1) { el.innerHTML = ''; return; }
-  const start = page * PAGE_SIZE + 1;
-  const end = Math.min((page + 1) * PAGE_SIZE, total);
-  el.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;font-size:13px;color:var(--muted)">
-      <span>Showing ${start}–${end} of ${total} products</span>
-      <div style="display:flex;gap:6px">
-        <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page === 0 ? 'disabled' : ''} onclick="setProductPage(${page - 1})">← Prev</button>
-        <span style="padding:6px 10px;font-size:12px;font-weight:600">Page ${page + 1} / ${totalPages}</span>
-        <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="setProductPage(${page + 1})">Next →</button>
-      </div>
-    </div>`;
-}
-
-function setProductPage(n) {
-  productPage = n;
-  renderProductGrid();
-  document.getElementById('productGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function buildProductCard(p) {
-  const isTintable = !!p.shadeBrand;
-  const pid = escHtml(p.id);
-
-  let priceHtml, footerHtml = '';
-  if (p.hasVariants && p.variants && p.variants.length) {
-    priceHtml = `<div class="product-card-price range">${escHtml(p.priceRange || '')}</div>`;
-    const opts = p.variants.map(v =>
-      `<option value="${escHtml(v.id)}" data-price="${Number(v.price)||0}">${escHtml(v.name)} — ${fmtMoney(v.price)}</option>`
-    ).join('');
-    footerHtml = `<select class="variant-select" id="vs_${pid}">${opts}</select>`;
-  } else {
-    priceHtml = `<div class="product-card-price">${fmtMoney(p.price)}</div>`;
-  }
-
-  const shadeHtml = isTintable
-    ? `<div id="shade_chip_${pid}" style="margin-bottom:4px"></div>
-       <button class="btn-shade-picker pos-shade-btn" data-pid="${pid}">🎨 Pick Shade</button>`
-    : '';
-
-  return `<div class="product-card" data-pid="${pid}">
-    <img class="product-card-img" src="${escHtml(p.imageUrl || p.image || '')}" alt="" loading="lazy" onerror="this.src='https://placehold.co/400x300/png'">
-    <div class="product-card-body">
-      <div class="product-card-name">${escHtml(p.name)}</div>
-      <div class="product-card-cat">${escHtml(p.category || '')}</div>
-      ${priceHtml}
-    </div>
-    <div class="product-card-footer">
-      ${footerHtml}
-      ${shadeHtml}
-      <button class="btn-add-to-cart pos-add-btn" data-pid="${pid}">➕ Add to Cart</button>
+  if (total <= 1) { el.innerHTML = ''; return; }
+  const start = page*PAGE_SIZE+1, end = Math.min((page+1)*PAGE_SIZE, count);
+  el.innerHTML = `<div class="page-controls">
+    <span>Showing ${start}–${end} of ${count} products</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page===0?'disabled':''} onclick="setProductPage(${page-1})">← Prev</button>
+      <span style="font-size:12px;font-weight:600">Page ${page+1} / ${total}</span>
+      <button class="btn-secondary" style="padding:6px 14px;font-size:12px" ${page>=total-1?'disabled':''} onclick="setProductPage(${page+1})">Next →</button>
     </div>
   </div>`;
 }
 
+function setProductPage(n) {
+  productPage = n; renderProductGrid();
+  document.getElementById('productGrid').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function buildProductCard(p) {
+  const pid = escHtml(p.id);
+  let priceHtml = '', variantHtml = '';
+  if (p.hasVariants && p.variants && p.variants.length) {
+    priceHtml = `<div class="product-card-price range">${escHtml(p.priceRange||'')}</div>`;
+    variantHtml = `<select class="variant-select" id="vs_${pid}">` +
+      p.variants.map(v => `<option value="${escHtml(v.id)}" data-price="${Number(v.price)||0}">${escHtml(v.name)} — ${fmtMoney(v.price)}</option>`).join('') +
+      `</select>`;
+  } else {
+    priceHtml = `<div class="product-card-price">${fmtMoney(p.price)}</div>`;
+  }
+
+  const shadeArea = p.shadeBrand ? `
+    <div id="sc_${pid}"></div>
+    <button class="btn-shade-picker pos-shade-btn" data-pid="${pid}">🎨 Pick Shade</button>
+    <div class="shade-picker-inline hidden" id="spi_${pid}">
+      <div class="spi-header">
+        <span class="spi-label">🎨 Shades</span>
+        <input class="spi-search" placeholder="Search..." data-pid="${pid}">
+        <button class="spi-close" data-pid="${pid}">✕</button>
+      </div>
+      <div class="spi-grid" id="sg_${pid}"></div>
+    </div>` : '';
+
+  return `<div class="product-card" data-pid="${pid}">
+    <img class="product-card-img" src="${escHtml(p.imageUrl||p.image||'')}" alt="" loading="lazy" onerror="this.src='https://placehold.co/400x300/png'">
+    <div class="product-card-body">
+      <div class="product-card-name">${escHtml(p.name)}</div>
+      <div class="product-card-cat">${escHtml(p.category||'')}</div>
+      ${priceHtml}
+    </div>
+    <div class="product-card-footer">
+      ${variantHtml}
+      ${shadeArea}
+      <button class="btn-add-to-cart pos-add-btn" data-pid="${pid}">Add to Cart</button>
+    </div>
+  </div>`;
+}
+
+// Event delegation — product grid
+document.getElementById('productGrid').addEventListener('click', function(e) {
+  const addBtn = e.target.closest('.pos-add-btn');
+  if (addBtn) { addToCart(addBtn.dataset.pid); return; }
+  const shadeBtn = e.target.closest('.pos-shade-btn');
+  if (shadeBtn) { openInlineShadePicker(shadeBtn.dataset.pid); return; }
+  const closeBtn = e.target.closest('.spi-close');
+  if (closeBtn) { closeInlineShadePicker(closeBtn.dataset.pid); return; }
+  const swatch = e.target.closest('.spi-swatch');
+  if (swatch) {
+    const panel = swatch.closest('.shade-picker-inline');
+    if (panel) {
+      const pid = panel.id.replace('spi_', '');
+      selectShadeInline(pid, swatch.dataset.code, swatch.dataset.name, swatch.dataset.hex);
+    }
+  }
+});
+
+document.getElementById('productGrid').addEventListener('input', function(e) {
+  if (e.target.classList.contains('spi-search')) {
+    const panel = e.target.closest('.shade-picker-inline');
+    if (panel) {
+      const pid = panel.id.replace('spi_', '');
+      renderShadeSwatches(pid, e.target.value);
+    }
+  }
+});
+
+// ── INLINE SHADE PICKER ──
+let allShades = [];
+const shadeByCode = {};
+let _currentShadePid = null;
+
+async function openInlineShadePicker(pid) {
+  // Close any other open picker
+  if (_currentShadePid && _currentShadePid !== pid) {
+    const prev = document.getElementById('spi_'+_currentShadePid);
+    if (prev) prev.classList.add('hidden');
+  }
+  _currentShadePid = pid;
+  const panel = document.getElementById('spi_'+pid);
+  if (!panel) return;
+  panel.classList.remove('hidden');
+
+  const gridEl = document.getElementById('sg_'+pid);
+  if (!allShades.length) {
+    gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted)"><div class="spinner dark" style="margin:0 auto 8px;width:14px;height:14px"></div>Loading...</div>';
+    try {
+      const res = await fetch(API_BASE + '/api/v1/shades/asian-paints');
+      const data = await res.json();
+      allShades = data.shades || [];
+      allShades.forEach(s => { shadeByCode[s.code] = s; });
+    } catch(e) {
+      gridEl.innerHTML = '<div style="color:var(--red2);font-size:12px;padding:8px">Failed to load shades</div>';
+      return;
+    }
+  }
+  // Clear search
+  const searchEl = panel.querySelector('.spi-search');
+  if (searchEl) searchEl.value = '';
+  renderShadeSwatches(pid, '');
+}
+
+function closeInlineShadePicker(pid) {
+  const panel = document.getElementById('spi_'+pid);
+  if (panel) panel.classList.add('hidden');
+  if (_currentShadePid === pid) _currentShadePid = null;
+}
+
+function renderShadeSwatches(pid, query) {
+  const gridEl = document.getElementById('sg_'+pid);
+  if (!gridEl) return;
+  const q = query.toLowerCase().trim();
+  const filtered = q
+    ? allShades.filter(s => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+    : allShades;
+  const chip = document.getElementById('sc_'+pid);
+  const currentCode = chip && chip._shade ? chip._shade.code : null;
+  gridEl.innerHTML = filtered.slice(0, 150).map(s => {
+    const bg = s.hex || '#ccc';
+    const sel = currentCode === s.code;
+    return `<div class="spi-swatch ${sel?'selected':''}" data-code="${escHtml(s.code)}" data-name="${escHtml(s.name)}" data-hex="${escHtml(bg)}">
+      <div class="spi-dot" style="background:${escHtml(bg)}"></div>
+      <div class="spi-code">${escHtml(s.code)}</div>
+    </div>`;
+  }).join('');
+}
+
+function selectShadeInline(pid, code, name, hex) {
+  const chip = document.getElementById('sc_'+pid);
+  if (!chip) return;
+  const shade = shadeByCode[code] || { code, name, hex };
+  chip._shade = shade;
+  const bg = shade.hex || hex || '#ccc';
+  chip.innerHTML = `<span class="shade-chip">
+    <span class="shade-chip-dot" style="background:${escHtml(bg)}"></span>
+    ${escHtml(shade.code)} ${escHtml(shade.name||'')}
+  </span>`;
+  closeInlineShadePicker(pid);
+}
+
+// ── CART ──
 function addToCart(productId) {
   const product = productMap[productId];
   if (!product) return;
-
-  let variantId = null, zohoItemId = productId, unitPrice = product.price || 0, variantName = null;
+  let variantId=null, zohoItemId=productId, unitPrice=product.price||0, variantName=null;
   if (product.hasVariants && product.variants && product.variants.length) {
-    const sel = document.getElementById('vs_' + productId);
+    const sel = document.getElementById('vs_'+productId);
     if (sel) {
       const opt = sel.options[sel.selectedIndex];
-      zohoItemId = opt.value;
-      unitPrice = parseFloat(opt.dataset.price) || 0;
-      variantId = opt.value;
-      variantName = opt.text.split(' — ')[0];
+      zohoItemId = opt.value; unitPrice = parseFloat(opt.dataset.price)||0;
+      variantId = opt.value; variantName = opt.text.split(' — ')[0];
     }
   }
-
-  // Shade
-  let shadeCode = null, shadeName = null, shadeTier = null;
-  const chipEl = document.getElementById('shade_chip_' + productId);
+  let shadeCode=null, shadeName=null, shadeTier=null;
+  const chipEl = document.getElementById('sc_'+productId);
   if (chipEl && chipEl._shade) {
     shadeCode = chipEl._shade.code;
     shadeName = chipEl._shade.name;
-    shadeTier = chipEl._shade.tier;
+    shadeTier = chipEl._shade.tier||null;
   }
-
-  // Check if same item+variant+shade already in cart
-  const existing = cart.find(i =>
-    i.productId === productId &&
-    i.zohoItemId === zohoItemId &&
-    (i.shadeCode || null) === (shadeCode || null)
-  );
-  if (existing) {
-    existing.quantity += 1;
-  } else {
-    cart.push({
-      productId,
-      zohoItemId,
-      variantId,
-      variantName,
-      name: product.name,
-      unit: product.unit || '',
-      unitPrice,
-      gstRate: product.gst_percentage || 18,
-      quantity: 1,
-      shadeCode,
-      shadeName,
-      shadeTier,
-    });
-  }
+  const existing = cart.find(i => i.productId===productId && i.zohoItemId===zohoItemId && (i.shadeCode||null)===(shadeCode||null));
+  if (existing) { existing.quantity += 1; }
+  else { cart.push({ productId, zohoItemId, variantId, variantName, name:product.name, unit:product.unit||'', unitPrice, gstRate:product.gst_percentage||18, quantity:1, shadeCode, shadeName, shadeTier }); }
   renderCart();
   scheduleDeliveryCalc();
 }
 
-function removeFromCart(idx) {
-  cart.splice(idx, 1);
-  renderCart();
-  scheduleDeliveryCalc();
-}
-
-function changeQty(idx, delta) {
-  cart[idx].quantity = Math.max(1, cart[idx].quantity + delta);
-  renderCart();
-  scheduleDeliveryCalc();
-}
+function removeFromCart(idx) { cart.splice(idx,1); renderCart(); scheduleDeliveryCalc(); }
+function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); scheduleDeliveryCalc(); }
 
 function renderCart() {
   const list = document.getElementById('cartItemsList');
-  const count = cart.reduce((s, i) => s + i.quantity, 0);
-  document.getElementById('cartCount').textContent = `(${count} item${count !== 1 ? 's' : ''})`;
-
+  const count = cart.reduce((s,i)=>s+i.quantity,0);
+  document.getElementById('cartCount').textContent = `(${count} item${count!==1?'s':''})`;
   if (!cart.length) {
     list.innerHTML = '<div class="cart-empty">Cart is empty</div>';
-    renderCartTotals(0, 0, null);
+    renderCartTotals(0,0,null);
     document.getElementById('step2Next').disabled = true;
     return;
   }
-
-  list.innerHTML = cart.map((item, idx) => {
-    const lineTotal = item.unitPrice * item.quantity;
-    const metaParts = [];
-    if (item.variantName) metaParts.push(item.variantName);
-    if (item.shadeCode) metaParts.push(`Shade: ${item.shadeCode}${item.shadeName ? ' ' + item.shadeName : ''}`);
+  list.innerHTML = cart.map((item,idx) => {
+    const meta = [item.variantName, item.shadeCode ? `Shade: ${item.shadeCode}` : null].filter(Boolean).join(' · ');
     return `<div class="cart-item">
       <div class="cart-item-info">
         <div class="cart-item-name">${escHtml(item.name)}</div>
-        ${metaParts.length ? `<div class="cart-item-meta">${escHtml(metaParts.join(' · '))}</div>` : ''}
-        <div class="cart-item-price">${fmtMoney(lineTotal)}</div>
+        ${meta ? `<div class="cart-item-meta">${escHtml(meta)}</div>` : ''}
+        <div class="cart-item-price">${fmtMoney(item.unitPrice * item.quantity)}</div>
       </div>
       <div class="qty-stepper">
         <button class="qty-btn" onclick="changeQty(${idx},-1)">−</button>
@@ -1231,18 +984,10 @@ function renderCart() {
       <button class="btn-remove-cart" onclick="removeFromCart(${idx})" title="Remove">✕</button>
     </div>`;
   }).join('');
-
-  // Local totals (delivery calculated async)
-  const subtotal = cart.reduce((s, i) => {
-    const gstRate = i.gstRate || 18;
-    const base = i.unitPrice / (1 + gstRate / 100);
-    return s + base * i.quantity;
-  }, 0);
-  const gstTotal = cart.reduce((s, i) => {
-    const gstRate = i.gstRate || 18;
-    const base = i.unitPrice / (1 + gstRate / 100);
-    return s + (i.unitPrice * i.quantity - base * i.quantity);
-  }, 0);
+  const subtotal = cart.reduce((s,i) => s + (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity, 0);
+  const gstTotal = cart.reduce((s,i) => s + (i.unitPrice*i.quantity - (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity), 0);
+  const avgGst = cart.length ? Math.round(cart[0].gstRate||18) : 18;
+  document.getElementById('totGstLabel').textContent = `GST (${avgGst}%)`;
   renderCartTotals(subtotal, gstTotal, null);
   document.getElementById('step2Next').disabled = false;
 }
@@ -1252,13 +997,13 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   document.getElementById('totGst').textContent = fmtMoney(gstTotal);
   if (deliveryResult === null) {
     document.getElementById('totDelivery').innerHTML = '<span class="totals-loading">calculating...</span>';
-    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
   } else if (deliveryResult === 'error') {
     document.getElementById('totDelivery').innerHTML = '<span style="color:var(--muted);font-size:12px">—</span>';
-    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
   } else {
-    document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge || 0);
-    document.getElementById('totGrand').textContent = fmtMoney(deliveryResult.grandTotal || subtotal + gstTotal);
+    document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
+    document.getElementById('totGrand').textContent = fmtMoney(deliveryResult.grandTotal||subtotal+gstTotal);
   }
 }
 
@@ -1272,96 +1017,63 @@ async function fetchDraftForTotals() {
   if (!cart.length || !selectedAddress) return;
   try {
     const body = buildDraftBody();
-    const res = await apiFetch('/api/v1/admin/pos/drafts', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
+    const res = await apiFetch('/api/v1/admin/pos/drafts', { method:'POST', body:JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) return;
     const d = data.data.draft;
-    // Save this draft id for totals — it may not be the "final" draft
-    // We'll create a proper one on Next
-    const subtotal = cart.reduce((s, i) => {
-      const b = i.unitPrice / (1 + (i.gstRate || 18) / 100);
-      return s + b * i.quantity;
-    }, 0);
-    const gstTotal = cart.reduce((s, i) => {
-      const b = i.unitPrice / (1 + (i.gstRate || 18) / 100);
-      return s + (i.unitPrice * i.quantity - b * i.quantity);
-    }, 0);
+    draftId = d.draftId; draftData = d;
+    const subtotal = cart.reduce((s,i) => s+(i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity,0);
+    const gstTotal = cart.reduce((s,i) => s+(i.unitPrice*i.quantity-(i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity),0);
     renderCartTotals(subtotal, gstTotal, d);
-    // Store the draft id from this preview (will be overwritten on goToStep3)
-    draftId = d.draftId;
-    draftData = d;
-  } catch(e) {
-    // silent — just show local totals
-  }
+  } catch(e) { /* silent */ }
 }
 
 function buildDraftBody() {
   return {
     customerId: selectedCustomer ? selectedCustomer.userId : null,
-    addressId: selectedAddress ? (selectedAddress.addressId || selectedAddress.id) : null,
-    gstNumber: gstNumber || null,
-    items: cart.map(i => ({
-      productId: i.productId,
-      variantId: i.variantId || null,
-      quantity: i.quantity,
-      shadeCode: i.shadeCode || null,
-    }))
+    addressId: selectedAddress ? (selectedAddress.addressId||selectedAddress.id) : null,
+    gstNumber: gstNumber||null,
+    items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null }))
   };
 }
 
 async function goToStep3() {
   if (!cart.length) { showToast('Cart is empty', 'error'); return; }
   const btn = document.getElementById('step2Next');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Saving draft...';
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Saving draft...';
   try {
     const body = buildDraftBody();
     const res = await apiFetch(
       draftId ? `/api/v1/admin/pos/drafts/${draftId}` : '/api/v1/admin/pos/drafts',
-      { method: draftId ? 'PUT' : 'POST', body: JSON.stringify(body) }
+      { method: draftId?'PUT':'POST', body:JSON.stringify(body) }
     );
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to save draft');
-    draftData = data.data.draft;
-    draftId = draftData.draftId;
+    if (!res.ok) throw new Error(data.message||'Failed to save draft');
+    draftData = data.data.draft; draftId = draftData.draftId;
     populateStep3();
     goToStep(3);
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = 'Next: Quotation →';
-  }
+  } catch(e) { showToast('Error: '+e.message, 'error'); }
+  finally { btn.disabled=false; btn.innerHTML='Next: Quotation →'; }
 }
 
 function populateStep3() {
   document.getElementById('s3Name').textContent = selectedCustomer.name;
   document.getElementById('s3Phone').textContent = selectedCustomer.phone;
-  document.getElementById('s3Address').textContent = selectedAddress.streetAddress || selectedAddress.fullAddress || '';
-  if (gstNumber) {
-    document.getElementById('s3GstRow').style.display = '';
-    document.getElementById('s3Gst').textContent = gstNumber;
-  } else {
-    document.getElementById('s3GstRow').style.display = 'none';
-  }
-
+  document.getElementById('s3Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
+  document.getElementById('s3GstRow').classList.toggle('hidden', !gstNumber);
+  if (gstNumber) document.getElementById('s3Gst').textContent = gstNumber;
   const d = draftData;
-  document.getElementById('s3Items').innerHTML = (d.items || []).map(item => `
+  document.getElementById('s3Items').innerHTML = (d.items||[]).map(item => `
     <tr>
-      <td>${escHtml(item.name)}${item.variantId ? ` <span style="color:var(--muted);font-size:11px">${escHtml(item.variantId)}</span>` : ''}${item.shadeCode ? ` <span style="color:var(--purple);font-size:11px">🎨${escHtml(item.shadeCode)}</span>` : ''}</td>
-      <td style="text-align:right">${item.quantity} ${escHtml(item.unit || '')}</td>
-      <td style="text-align:right font-family:'JetBrains Mono',monospace">${fmtMoney(item.unitPrice)}</td>
+      <td>${escHtml(item.name)}${item.variantId?` <span style="color:var(--muted);font-size:11px">${escHtml(item.variantId)}</span>`:''}${item.shadeCode?` <span style="color:var(--purple);font-size:11px">🎨 ${escHtml(item.shadeCode)}</span>`:''}</td>
+      <td style="text-align:right">${item.quantity} ${escHtml(item.unit||'')}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace">${fmtMoney(item.unitPrice)}</td>
       <td style="text-align:right;font-family:'JetBrains Mono',monospace">${fmtMoney(item.grandTotal)}</td>
     </tr>`).join('');
   document.getElementById('s3Subtotal').textContent = fmtMoney(d.subtotal);
-  document.getElementById('s3Gst2').textContent = fmtMoney(d.gstTotal);
+  document.getElementById('s3GstAmt').textContent = fmtMoney(d.gstTotal);
   document.getElementById('s3Delivery').textContent = fmtMoney(d.deliveryCharge);
   document.getElementById('s3Grand').textContent = fmtMoney(d.grandTotal);
-
-  // Reset quotation state if going back and forward
   document.getElementById('quotationActionArea').classList.remove('hidden');
   if (!quotationData) {
     document.getElementById('quotationResultArea').classList.add('hidden');
@@ -1371,30 +1083,29 @@ function populateStep3() {
   }
 }
 
+// ── STEP 3: QUOTATION ──
 async function createQuotation() {
   const btn = document.getElementById('createQuoteBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Creating quotation...';
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Creating quotation...';
   try {
-    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/quotation`, { method: 'POST' });
+    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/quotation`, { method:'POST' });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create quotation');
+    if (!res.ok) throw new Error(data.message||'Failed to create quotation');
     quotationData = data.data;
     renderQuotationResult();
     document.getElementById('step3Next').disabled = false;
-    showToast('Quotation created: ' + quotationData.zohoQuotationNumber, 'success');
+    showToast('Quotation created: '+quotationData.zohoQuotationNumber, 'success');
   } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-    btn.disabled = false;
-    btn.innerHTML = '📄 Create Zoho Quotation';
+    showToast('Error: '+e.message, 'error');
+    btn.disabled=false; btn.innerHTML='📄 Create Zoho Quotation';
   }
 }
 
 function renderQuotationResult() {
   const q = quotationData;
   const d = draftData;
-  const phone = (selectedCustomer.phone || '').replace(/[^0-9]/g, '');
-  const number = phone.startsWith('91') ? phone : '91' + phone;
+  const rawPhone = (selectedCustomer.phone||'').replace(/\D/g,'');
+  const waPhone = rawPhone.startsWith('91') ? rawPhone : '91'+rawPhone;
   const waMsg = encodeURIComponent(
     `Hi ${selectedCustomer.name}! 👋 Here is your quotation from *Suppliable*.\n\n` +
     `*Quotation No:* ${q.zohoQuotationNumber}\n` +
@@ -1402,17 +1113,14 @@ function renderQuotationResult() {
     `*View Quotation:* ${q.zohoQuotationUrl}\n\n` +
     `Payment mode: *Cash on Delivery*. Our team will confirm the order shortly. Thank you! 🙏`
   );
-
   document.getElementById('quotationResultArea').innerHTML = `
     <div class="quote-success">
-      <div class="quote-success-label">Quotation Created</div>
+      <div style="font-size:12px;color:#047857">Quotation Created</div>
       <div class="quote-success-num">${escHtml(q.zohoQuotationNumber)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-        <a href="${escHtml(q.zohoQuotationUrl)}" target="_blank"
-          style="font-size:12px;color:var(--blue);text-decoration:underline">View in Zoho →</a>
-        <button onclick="window.open('https://wa.me/${number}?text=${waMsg}','_blank')"
-          style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;
-            color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+        <a href="${escHtml(q.zohoQuotationUrl)}" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:underline">View in Zoho →</a>
+        <button onclick="window.open('https://wa.me/${waPhone}?text=${waMsg}','_blank')"
+          style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
           💬 Share via WhatsApp
         </button>
       </div>
@@ -1421,44 +1129,31 @@ function renderQuotationResult() {
   document.getElementById('quotationActionArea').classList.add('hidden');
 }
 
-function goToStep4() {
-  populateStep4();
-  goToStep(4);
-}
+function goToStep4() { populateStep4(); goToStep(4); }
 
 function populateStep4() {
   document.getElementById('s4Name').textContent = selectedCustomer.name;
   document.getElementById('s4Phone').textContent = selectedCustomer.phone;
-  document.getElementById('s4Address').textContent = selectedAddress.streetAddress || selectedAddress.fullAddress || '';
-  if (gstNumber) {
-    document.getElementById('s4GstRow').style.display = '';
-    document.getElementById('s4Gst').textContent = gstNumber;
-  } else {
-    document.getElementById('s4GstRow').style.display = 'none';
-  }
+  document.getElementById('s4Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
+  document.getElementById('s4GstRow').classList.toggle('hidden', !gstNumber);
+  if (gstNumber) document.getElementById('s4Gst').textContent = gstNumber;
   document.getElementById('s4QuoteNum').textContent = quotationData ? quotationData.zohoQuotationNumber : '—';
   document.getElementById('s4Grand').textContent = fmtMoney(draftData ? draftData.grandTotal : 0);
-
   document.getElementById('confirmActionArea').classList.remove('hidden');
   document.getElementById('confirmResultArea').classList.add('hidden');
 }
 
+// ── STEP 4: CONFIRM ──
 async function confirmOrder() {
   const btn = document.getElementById('confirmOrderBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Confirming order...';
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Confirming order...';
   try {
-    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/convert`, {
-      method: 'POST',
-      body: JSON.stringify({ paymentMethod: 'cod' })
-    });
+    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/convert`, { method:'POST', body:JSON.stringify({ paymentMethod:'cod' }) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to confirm order');
+    if (!res.ok) throw new Error(data.message||'Failed to confirm order');
     const order = data.data.order;
-
     document.getElementById('confirmActionArea').classList.add('hidden');
     document.getElementById('step4Back').classList.add('hidden');
-
     document.getElementById('confirmResultArea').innerHTML = `
       <div class="confirm-success">
         <span class="confirm-success-icon">🎉</span>
@@ -1466,148 +1161,46 @@ async function confirmOrder() {
         <div class="confirm-success-order">${escHtml(order.orderId)}</div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <a href="orders.html?highlight=${encodeURIComponent(order.orderId)}"
-            style="padding:10px 22px;background:var(--blue2);color:#fff;border-radius:8px;
-              text-decoration:none;font-size:14px;font-weight:600">
+            style="padding:10px 22px;background:var(--blue2);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">
             📦 View in Orders
           </a>
           <button onclick="resetWizard()"
-            style="padding:10px 22px;background:#fff;color:var(--text);border:1.5px solid var(--border);
-              border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+            style="padding:10px 22px;background:#fff;color:var(--text);border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
             ➕ New POS Order
           </button>
         </div>
       </div>`;
     document.getElementById('confirmResultArea').classList.remove('hidden');
     updateStepIndicator(4);
-    showToast('Order created: ' + order.orderId, 'success');
+    showToast('Order created: '+order.orderId, 'success');
   } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-    btn.disabled = false;
-    btn.innerHTML = '✅ Confirm Order';
+    showToast('Error: '+e.message, 'error');
+    btn.disabled=false; btn.innerHTML='✅ Confirm Order';
   }
 }
 
+// ── RESET ──
 function resetWizard() {
-  selectedCustomer = null;
-  selectedAddress = null;
-  gstNumber = '';
-  cart = [];
-  draftId = null;
-  draftData = null;
-  quotationData = null;
-  document.getElementById('customerSearchInput').value = '';
-  document.getElementById('customerSearchResults').innerHTML = '';
+  selectedCustomer=null; selectedAddress=null; gstNumber=''; cart=[];
+  draftId=null; draftData=null; quotationData=null;
+  allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
+  allShades=[]; _currentShadePid=null;
+  ['customerSearchInput','gstNumber'].forEach(id => { document.getElementById(id).value=''; });
+  document.getElementById('customerSearchResults').innerHTML='';
   document.getElementById('createCustomerSection').classList.add('hidden');
   document.getElementById('selectedCustomerChip').classList.add('hidden');
   document.getElementById('customerSearchSection').classList.remove('hidden');
   document.getElementById('addressSection').classList.add('hidden');
   document.getElementById('addAddressForm').classList.add('hidden');
-  document.getElementById('gstNumber').value = '';
-  document.getElementById('step1Next').disabled = true;
+  document.getElementById('step1Next').disabled=true;
   document.getElementById('step4Back').classList.remove('hidden');
+  // Reset category tabs
+  const tabs = document.getElementById('categoryTabs');
+  tabs.innerHTML = '<button class="cat-tab active" data-cat="all">All</button>';
+  document.getElementById('productGrid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><div class="spinner dark" style="margin:0 auto 12px"></div><div>Loading products...</div></div>';
+  document.getElementById('productPageControls').innerHTML='';
   goToStep(1);
 }
-
-// ── SHADE MODAL ─────────────────────────────────────────────────────────────────
-let shadeModalProductId = null;
-let allShades = [];
-let tempSelectedShade = null;
-
-async function openShadeModal(productId, productName) {
-  shadeModalProductId = productId;
-  tempSelectedShade = null;
-  const chipEl = document.getElementById('shade_chip_' + productId);
-  if (chipEl && chipEl._shade) tempSelectedShade = chipEl._shade;
-
-  document.getElementById('shadeModalTitle').textContent = `🎨 Shade — ${productName}`;
-  document.getElementById('shadeSearch').value = '';
-  document.getElementById('shadeGrid').innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)"><div class="spinner dark" style="margin:0 auto 12px"></div>Loading shades...</div>';
-  document.getElementById('shadeModal').classList.add('show');
-
-  if (!allShades.length) {
-    try {
-      const res = await fetch(API_BASE + '/api/v1/shades/asian-paints');
-      const data = await res.json();
-      allShades = data.shades || [];
-    } catch(e) {
-      document.getElementById('shadeGrid').innerHTML = '<div style="text-align:center;padding:30px;color:var(--red2)">Failed to load shades</div>';
-      return;
-    }
-  }
-  filterShades('');
-}
-
-function filterShades(q) {
-  const lq = q.toLowerCase();
-  const filtered = q
-    ? allShades.filter(s => s.code.toLowerCase().includes(lq) || s.name.toLowerCase().includes(lq))
-    : allShades;
-
-  if (!filtered.length) {
-    document.getElementById('shadeGrid').innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">No shades found</div>';
-    return;
-  }
-
-  document.getElementById('shadeGrid').innerHTML = filtered.slice(0, 200).map(s => {
-    const sel = tempSelectedShade && tempSelectedShade.code === s.code;
-    const bg = s.hex ? s.hex : '#cccccc';
-    return `<div class="shade-swatch ${sel ? 'selected' : ''}" onclick="pickShade(${JSON.stringify(s).replace(/"/g,'&quot;')})">
-      <div class="shade-dot" style="background:${escHtml(bg)}"></div>
-      <div class="shade-code">${escHtml(s.code)}</div>
-      <div class="shade-name">${escHtml(s.name)}</div>
-    </div>`;
-  }).join('');
-}
-
-function pickShade(shade) {
-  tempSelectedShade = shade;
-  filterShades(document.getElementById('shadeSearch').value);
-}
-
-function confirmShade() {
-  if (!shadeModalProductId) return;
-  const chipEl = document.getElementById('shade_chip_' + shadeModalProductId);
-  if (!chipEl) { closeShadeModal(); return; }
-  if (tempSelectedShade) {
-    chipEl._shade = tempSelectedShade;
-    const bg = tempSelectedShade.hex || '#ccc';
-    chipEl.innerHTML = `<div class="shade-selected-chip">
-      <div class="shade-dot-small" style="background:${escHtml(bg)}"></div>
-      ${escHtml(tempSelectedShade.code)} ${escHtml(tempSelectedShade.name)}
-    </div>`;
-  } else {
-    chipEl._shade = null;
-    chipEl.innerHTML = '';
-  }
-  closeShadeModal();
-}
-
-function clearShade() {
-  tempSelectedShade = null;
-  confirmShade();
-}
-
-function closeShadeModal() {
-  document.getElementById('shadeModal').classList.remove('show');
-  shadeModalProductId = null;
-}
-
-// Close modal on backdrop click
-document.getElementById('shadeModal').addEventListener('click', function(e) {
-  if (e.target === this) closeShadeModal();
-});
-
-// Event delegation for product grid — avoids inline onclick with unsafe strings
-document.getElementById('productGrid').addEventListener('click', function(e) {
-  const addBtn = e.target.closest('.pos-add-btn');
-  if (addBtn) { addToCart(addBtn.dataset.pid); return; }
-  const shadeBtn = e.target.closest('.pos-shade-btn');
-  if (shadeBtn) {
-    const pid = shadeBtn.dataset.pid;
-    const product = productMap[pid];
-    if (product) openShadeModal(pid, product.name);
-  }
-});
 </script>
 </body>
 </html>
