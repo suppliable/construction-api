@@ -454,4 +454,9 @@ router.post('/pos/drafts/:draftId/convert', async (req, res) => {
   }
 });
 
+// Maps API key — GET /admin/pos/maps-key
+router.get('/pos/maps-key', (req, res) => {
+  res.json({ success: true, data: { apiKey: process.env.GOOGLE_MAPS_API_KEY || null } });
+});
+
 module.exports = router;
