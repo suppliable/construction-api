@@ -1,5 +1,7 @@
 'use strict';
 
+const axios = require('axios');
+const admin = require('../utils/firebaseAdmin');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { dbOp } = require('../utils/dbOp');
 const { getCustomerByPhone, saveCustomer, getCustomer } = require('../repositories/customerRepository');
@@ -10,7 +12,7 @@ const { getProductById } = require('./productService');
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, getAccessToken } = require('./zohoService');
 
 const db = getTrackedDb();
 
@@ -98,7 +100,7 @@ async function getCustomerAddresses(userId, traceContext = null) {
   return getAddresses(userId, traceContext);
 }
 
-async function addCustomerAddress(userId, { fullAddress, lat, lng, label }, traceContext = null) {
+async function addCustomerAddress(userId, { fullAddress, lat, lng, label, address_components }, traceContext = null) {
   if (!fullAddress || !fullAddress.trim()) throw Object.assign(new Error('fullAddress is required'), { code: 'MISSING_PARAM' });
 
   let latitude = lat ? parseFloat(lat) : null;
@@ -112,14 +114,26 @@ async function addCustomerAddress(userId, { fullAddress, lat, lng, label }, trac
     longitude = coords.longitude;
   }
 
-  // Try to extract 6-digit Indian pincode from fullAddress
-  const pincodeMatch = fullAddress.match(/\b(\d{6})\b/);
-  if (pincodeMatch) {
-    pincode = pincodeMatch[1];
-  } else if (latitude && longitude && process.env.GOOGLE_MAPS_API_KEY) {
-    // Fallback: reverse geocode to get pincode
+  // 1. Most reliable: postal_code component from Google Places address_components
+  if (address_components && Array.isArray(address_components)) {
+    const postalComp = address_components.find(c => c.types && c.types.includes('postal_code'));
+    if (postalComp?.long_name) pincode = postalComp.long_name;
+  }
+
+  // 2. Fallback: regex on the address string
+  if (!pincode) {
+    const pincodeMatch = fullAddress.match(/\b(\d{6})\b/);
+    if (pincodeMatch) pincode = pincodeMatch[1];
+  }
+
+  // 3. Fallback: reverse geocode using coordinates
+  if (!pincode && latitude && longitude && process.env.GOOGLE_MAPS_API_KEY) {
     const geo = await reverseGeocode(latitude, longitude, traceContext).catch(() => null);
     if (geo?.postalCode) pincode = geo.postalCode;
+  }
+
+  if (!pincode) {
+    console.warn('addCustomerAddress: pincode could not be resolved for address:', fullAddress);
   }
 
   return addAddress(userId, {
@@ -216,6 +230,8 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null) 
       if (deliveryResult?.serviceable) {
         deliveryCharge = deliveryResult.delivery_charge || 0;
       }
+    } else {
+      console.warn('Delivery skipped — no pincode for address:', addressId);
     }
   }
 
@@ -433,6 +449,109 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
   return order;
 }
 
+async function listPOSDrafts(traceContext = null) {
+  const now = new Date().toISOString();
+  const snap = await dbOp('pos.listDrafts', () =>
+    db.collection('posDrafts')
+      .where('expiresAt', '>', now)
+      .orderBy('expiresAt')
+      .limit(100)
+      .get(),
+    traceContext
+  );
+
+  const drafts = snap.docs
+    .map(d => d.data())
+    .filter(d => d.status !== 'converted');
+
+  // Sort newest first (Firestore ordered by expiresAt, not createdAt)
+  drafts.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const enriched = await Promise.all(drafts.map(async draft => {
+    const [customer, address] = await Promise.all([
+      draft.customerId ? getCustomer(draft.customerId, traceContext).catch(() => null) : null,
+      draft.addressId ? getAddressById(draft.addressId, traceContext).catch(() => null) : null,
+    ]);
+
+    return {
+      draftId: draft.draftId,
+      customerId: draft.customerId || null,
+      customer: customer
+        ? { userId: customer.userId, name: customer.name, phone: customer.phone, email: customer.email || null }
+        : null,
+      address: address
+        ? {
+            addressId: address.addressId || address.id,
+            streetAddress: address.streetAddress || address.fullAddress,
+            label: address.label,
+            pincode: address.pincode,
+            lat: address.lat || address.latitude || null,
+            lng: address.lng || address.longitude || null,
+          }
+        : null,
+      items: draft.items || [],
+      subtotal: draft.subtotal || 0,
+      gstTotal: draft.gstTotal || 0,
+      deliveryCharge: draft.deliveryCharge || 0,
+      grandTotal: draft.grandTotal || 0,
+      gstNumber: draft.gstNumber || null,
+      status: draft.status,
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+      expiresAt: draft.expiresAt,
+      zohoQuotationId: draft.zohoQuotationId || null,
+      zohoQuotationNumber: draft.zohoQuotationNumber || null,
+      zohoQuotationUrl: draft.zohoQuotationUrl || null,
+      quotationPdfUrl: draft.quotationPdfUrl || null,
+    };
+  }));
+
+  return enriched;
+}
+
+async function getPOSQuotationPDF(draftId, traceContext = null) {
+  const draft = await getPOSDraft(draftId, traceContext);
+  if (!draft) throw Object.assign(new Error('Draft not found'), { code: 'DRAFT_NOT_FOUND' });
+  if (!draft.zohoQuotationId) throw Object.assign(new Error('No quotation on this draft'), { code: 'NO_QUOTATION' });
+
+  // Return cached URL if already generated
+  if (draft.quotationPdfUrl) return { pdfUrl: draft.quotationPdfUrl };
+
+  // 1. Download PDF from Zoho Books
+  // zohoGet's buildConfig doesn't forward responseType, so we use axios directly
+  const token = await getAccessToken();
+  const pdfRes = await axios.get(
+    `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates/${draft.zohoQuotationId}`,
+    {
+      params: { organization_id: process.env.ZOHO_ORG_ID, accept: 'pdf' },
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      responseType: 'arraybuffer',
+      timeout: 30000,
+    }
+  );
+  const pdfBuffer = Buffer.from(pdfRes.data);
+
+  // 2. Upload to Firebase Storage (public, matching storageService pattern)
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+  const bucket = admin.storage().bucket(bucketName);
+  const filePath = `pos-quotations/${draftId}.pdf`;
+  const file = bucket.file(filePath);
+  await file.save(pdfBuffer, {
+    metadata: { contentType: 'application/pdf' },
+    public: true,
+    resumable: false,
+  });
+  const pdfUrl = `https://storage.googleapis.com/${bucketName}/${filePath}`;
+
+  // 3. Persist URL on draft
+  await dbOp('pos.savePdfUrl', () =>
+    db.collection('posDrafts').doc(draftId).update({ quotationPdfUrl: pdfUrl }),
+    traceContext
+  );
+
+  return { pdfUrl };
+}
+
 module.exports = {
   searchCustomers,
   createCustomer,
@@ -443,4 +562,6 @@ module.exports = {
   updatePOSDraft,
   createPOSQuotation,
   convertPOSDraftToOrder,
+  listPOSDrafts,
+  getPOSQuotationPDF,
 };
