@@ -334,6 +334,8 @@ const {
   updatePOSDraft,
   createPOSQuotation,
   convertPOSDraftToOrder,
+  listPOSDrafts,
+  getPOSQuotationPDF,
 } = require('../services/posService');
 
 // Customer search — GET /admin/pos/customers/search?q=
@@ -454,9 +456,34 @@ router.post('/pos/drafts/:draftId/convert', async (req, res) => {
   }
 });
 
+// List active POS drafts — GET /admin/pos/drafts
+router.get('/pos/drafts', async (req, res) => {
+  try {
+    const drafts = await listPOSDrafts(req.traceContext);
+    res.json({ success: true, data: { drafts } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Generate/fetch PDF for a POS quotation — POST /admin/pos/drafts/:draftId/pdf
+router.post('/pos/drafts/:draftId/pdf', async (req, res) => {
+  try {
+    const { draftId } = req.params;
+    const result = await getPOSQuotationPDF(draftId, req.traceContext);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    const status = e.code === 'DRAFT_NOT_FOUND' ? 404 : e.code === 'NO_QUOTATION' ? 400 : 500;
+    res.status(status).json({ success: false, message: e.message });
+  }
+});
+
 // Maps API key — GET /admin/pos/maps-key
+// Prefers GOOGLE_MAPS_FRONTEND_KEY (unrestricted browser key) over the
+// server-side GOOGLE_MAPS_API_KEY which may have IP restrictions.
 router.get('/pos/maps-key', (req, res) => {
-  res.json({ success: true, data: { apiKey: process.env.GOOGLE_MAPS_API_KEY || null } });
+  const apiKey = process.env.GOOGLE_MAPS_FRONTEND_KEY || process.env.GOOGLE_MAPS_API_KEY || null;
+  res.json({ success: true, data: { apiKey } });
 });
 
 module.exports = router;

@@ -224,6 +224,20 @@
   #toast.success { background:var(--green); }
   .hidden { display:none !important; }
   .mono { font-family:'JetBrains Mono',monospace; }
+  /* ── Tabs ── */
+  .pos-tabs-bar { display:flex; gap:0; margin-bottom:0; border-bottom:2px solid var(--border); }
+  .pos-tab { padding:11px 22px; border:none; background:none; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:color 0.15s,border-color 0.15s; }
+  .pos-tab:hover { color:var(--text); }
+  .pos-tab.active { color:var(--blue2); border-bottom-color:var(--blue2); }
+  /* ── Drafts table ── */
+  .drafts-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .drafts-table th { padding:10px 14px; text-align:left; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; background:#f8f9fc; border-bottom:2px solid var(--border); }
+  .drafts-table td { padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .drafts-table tr:last-child td { border-bottom:none; }
+  .drafts-table tbody tr:hover td { background:#fafbff; }
+  .drafts-table th:last-child, .drafts-table td:last-child { text-align:left; }
+  .badge-draft { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700; background:#fef3c7; color:#b45309; }
+  .badge-quoted { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700; background:#d1fae5; color:#065f46; }
 </style>
 </head>
 <body>
@@ -261,6 +275,26 @@
   </div>
 
   <div class="content">
+
+    <!-- TAB BAR -->
+    <div class="pos-tabs-bar">
+      <button class="pos-tab" id="tabNewOrder" onclick="switchTab('new-order')">+ New Order</button>
+      <button class="pos-tab active" id="tabDrafts" onclick="switchTab('drafts')">📋 Active Drafts</button>
+    </div>
+
+    <!-- ACTIVE DRAFTS PANEL -->
+    <div id="panelDrafts">
+      <div class="wizard-card" style="margin-top:16px">
+        <div class="wizard-header">
+          <div class="wizard-title">📋 Active Drafts</div>
+          <button class="btn-secondary" style="padding:7px 14px;font-size:13px" onclick="loadDrafts()">↻ Refresh</button>
+        </div>
+        <div id="draftsTableContainer" style="min-height:180px"></div>
+      </div>
+    </div>
+
+    <!-- NEW ORDER PANEL -->
+    <div id="panelNewOrder" class="hidden">
 
     <!-- STEPS BAR -->
     <div class="steps-bar">
@@ -487,6 +521,8 @@
       </div>
     </div>
 
+    </div><!-- /panelNewOrder -->
+
   </div>
 </div>
 
@@ -523,6 +559,8 @@ let cart = [];
 let draftId = null;
 let draftData = null;
 let quotationData = null;
+let currentPdfUrl = null;
+let _activeDrafts = [];
 let allProducts = [];
 let productMap = {};
 let currentCategory = 'all';
@@ -541,14 +579,14 @@ let addressMarker = null;
 let addressAutocomplete = null;
 let lastMapCoords = null;
 
-// Fetch maps key early (non-blocking)
-(async function fetchMapsKey() {
+// Awaitable key fetch — initAddressMap waits on this before proceeding
+const _mapsKeyReady = (async () => {
   try {
     const res = await apiFetch('/api/v1/admin/pos/maps-key');
     const data = await res.json();
     mapsApiKey = (data.data && data.data.apiKey) ? data.data.apiKey : null;
   } catch(e) { mapsApiKey = null; }
-}());
+})();
 
 // ── STEPS ──
 function updateStepIndicator(step) {
@@ -695,7 +733,7 @@ async function submitAddAddress() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving...';
   try {
     const res = await apiFetch(`/api/v1/admin/pos/customers/${selectedCustomer.userId}/addresses`, {
-      method:'POST', body: JSON.stringify({ fullAddress, label: label||'POS Address', lat, lng })
+      method:'POST', body: JSON.stringify({ fullAddress, label: label||'POS Address', lat, lng, address_components: _lastAddressComponents || undefined })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message||'Failed to save address');
@@ -708,6 +746,7 @@ async function submitAddAddress() {
     document.getElementById('addrLat').value = '';
     document.getElementById('addrLng').value = '';
     lastMapCoords = null;
+    _lastAddressComponents = null;
     toggleAddAddressForm();
     checkStep1Next();
     showToast('Address saved', 'success');
@@ -1112,6 +1151,7 @@ function populateStep3() {
     document.getElementById('quotationResultArea').classList.add('hidden');
     document.getElementById('step3Next').disabled = true;
   } else {
+    document.getElementById('step3Next').disabled = false;
     renderQuotationResult();
   }
 }
@@ -1125,13 +1165,36 @@ async function createQuotation() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message||'Failed to create quotation');
     quotationData = data.data;
-    renderQuotationResult();
+    currentPdfUrl = null;
+    document.getElementById('quotationResultArea').innerHTML = `
+      <div class="quote-success">
+        <div style="font-size:12px;color:#047857">Quotation Created</div>
+        <div class="quote-success-num">${escHtml(quotationData.zohoQuotationNumber)}</div>
+        <div style="margin-top:6px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <span class="spinner dark" style="width:12px;height:12px;border-width:2px"></span> Generating PDF…
+        </div>
+      </div>`;
+    document.getElementById('quotationResultArea').classList.remove('hidden');
+    document.getElementById('quotationActionArea').classList.add('hidden');
     document.getElementById('step3Next').disabled = false;
     showToast('Quotation created: '+quotationData.zohoQuotationNumber, 'success');
+    await generateQuotationPDF();
   } catch(e) {
     showToast('Error: '+e.message, 'error');
     btn.disabled=false; btn.innerHTML='📄 Create Zoho Quotation';
   }
+}
+
+async function generateQuotationPDF() {
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/pdf`, { method:'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'PDF generation failed');
+    currentPdfUrl = data.data.pdfUrl;
+  } catch(e) {
+    currentPdfUrl = null;
+  }
+  renderQuotationResult();
 }
 
 function renderQuotationResult() {
@@ -1139,19 +1202,24 @@ function renderQuotationResult() {
   const d = draftData;
   const rawPhone = (selectedCustomer.phone||'').replace(/\D/g,'');
   const waPhone = rawPhone.startsWith('91') ? rawPhone : '91'+rawPhone;
+  const linkUrl = currentPdfUrl || q.zohoQuotationUrl;
+  const linkLabel = currentPdfUrl ? 'View Quotation PDF' : 'View Quotation';
   const waMsg = encodeURIComponent(
-    `Hi ${selectedCustomer.name}! 👋 Here is your quotation from *Suppliable*.\n\n` +
-    `*Quotation No:* ${q.zohoQuotationNumber}\n` +
-    `*Grand Total:* ${fmtMoney(d.grandTotal)}\n` +
-    `*View Quotation:* ${q.zohoQuotationUrl}\n\n` +
-    `Payment mode: *Cash on Delivery*. Our team will confirm the order shortly. Thank you! 🙏`
+    `Hi ${selectedCustomer.name}! 🧾 Here is your quotation from Suppliable.\n\n` +
+    `Quotation No: ${q.zohoQuotationNumber}\n` +
+    `Grand Total: ${fmtMoney(d.grandTotal)}\n` +
+    `📄 ${linkLabel}: ${linkUrl}\n\n` +
+    `Payment mode: Cash on Delivery. Our team will confirm the order shortly. Thank you! 🙏`
   );
+  const pdfWarning = !currentPdfUrl
+    ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">⚠️ PDF unavailable — sending portal link instead</div>` : '';
   document.getElementById('quotationResultArea').innerHTML = `
     <div class="quote-success">
       <div style="font-size:12px;color:#047857">Quotation Created</div>
       <div class="quote-success-num">${escHtml(q.zohoQuotationNumber)}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-        <a href="${escHtml(q.zohoQuotationUrl)}" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:underline">View in Zoho →</a>
+      ${pdfWarning}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
+        <a href="${escHtml(linkUrl)}" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:underline">${currentPdfUrl ? 'View PDF →' : 'View in Zoho →'}</a>
         <button onclick="window.open('https://wa.me/${waPhone}?text=${waMsg}','_blank')"
           style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
           💬 Share via WhatsApp
@@ -1194,10 +1262,11 @@ async function confirmOrder() {
         <div class="confirm-success-order">${escHtml(order.orderId)}</div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <a href="orders.html?highlight=${encodeURIComponent(order.orderId)}"
+            onclick="loadDrafts()"
             style="padding:10px 22px;background:var(--blue2);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">
             📦 View in Orders
           </a>
-          <button onclick="resetWizard()"
+          <button onclick="loadDrafts(); resetWizard()"
             style="padding:10px 22px;background:#fff;color:var(--text);border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
             ➕ New POS Order
           </button>
@@ -1206,6 +1275,8 @@ async function confirmOrder() {
     document.getElementById('confirmResultArea').classList.remove('hidden');
     updateStepIndicator(4);
     showToast('Order created: '+order.orderId, 'success');
+    loadDrafts();
+    switchTab('drafts');
   } catch(e) {
     showToast('Error: '+e.message, 'error');
     btn.disabled=false; btn.innerHTML='✅ Confirm Order';
@@ -1226,33 +1297,39 @@ function loadMapsSDK(apiKey) {
   });
 }
 
+function unlockManualCoords() {
+  document.getElementById('addressMapDiv').style.display = 'none';
+  ['addrLat','addrLng'].forEach(id => {
+    const el = document.getElementById(id);
+    el.readOnly = false; el.style.background = ''; el.style.color = '';
+    el.placeholder = id === 'addrLat' ? '13.0827' : '80.2707';
+  });
+}
+
 async function initAddressMap() {
+  // Wait for key fetch to complete regardless of when form was opened
+  await _mapsKeyReady;
+
   if (!mapsApiKey) {
-    // No key — unlock lat/lng fields for manual entry
-    ['addrLat','addrLng'].forEach(id => {
-      const el = document.getElementById(id);
-      el.readOnly = false; el.style.background = ''; el.style.color = '';
-      el.placeholder = id === 'addrLat' ? '13.0827' : '80.2707';
-    });
+    unlockManualCoords();
     return;
   }
   try {
     await loadMapsSDK(mapsApiKey);
 
-    // Autocomplete on address input
+    // Attach autocomplete to address input (only once)
     if (!addressAutocomplete) {
       const input = document.getElementById('addrFull');
       addressAutocomplete = new google.maps.places.Autocomplete(input, {
         componentRestrictions: { country: 'in' },
-        fields: ['formatted_address', 'geometry'],
+        fields: ['formatted_address', 'geometry', 'address_components'],
       });
       addressAutocomplete.addListener('place_changed', onPlaceSelected);
     }
 
-    // Show map container
+    // Show and init map
     const mapDiv = document.getElementById('addressMapDiv');
     mapDiv.style.display = 'block';
-
     const center = lastMapCoords || WAREHOUSE;
     if (!addressMap) {
       addressMap = new google.maps.Map(mapDiv, {
@@ -1270,14 +1347,13 @@ async function initAddressMap() {
       google.maps.event.trigger(addressMap, 'resize');
     }
   } catch(e) {
-    // Graceful degradation — plain text inputs
-    ['addrLat','addrLng'].forEach(id => {
-      const el = document.getElementById(id);
-      el.readOnly = false; el.style.background = ''; el.style.color = '';
-      el.placeholder = id === 'addrLat' ? '13.0827' : '80.2707';
-    });
+    // SDK failed (key invalid, restricted, or APIs not enabled) — fall back to manual
+    unlockManualCoords();
+    document.getElementById('addrFull').placeholder = 'Enter full address manually';
   }
 }
+
+let _lastAddressComponents = null;
 
 function onPlaceSelected() {
   const place = addressAutocomplete.getPlace();
@@ -1287,6 +1363,7 @@ function onPlaceSelected() {
   if (place.formatted_address) document.getElementById('addrFull').value = place.formatted_address;
   document.getElementById('addrLat').value = lat.toFixed(6);
   document.getElementById('addrLng').value = lng.toFixed(6);
+  _lastAddressComponents = place.address_components || null;
   lastMapCoords = { lat, lng };
   if (addressMarker) {
     addressMarker.setPosition({ lat, lng });
@@ -1313,10 +1390,10 @@ async function onMapMarkerDragEnd(event) {
 // ── RESET ──
 function resetWizard() {
   selectedCustomer=null; selectedAddress=null; gstNumber=''; cart=[];
-  draftId=null; draftData=null; quotationData=null;
+  draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
   allShades=[]; _currentShadePid=null;
-  addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null;
+  addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null; _lastAddressComponents=null;
   document.getElementById('addressMapDiv').style.display='none';
   ['customerSearchInput','gstNumber','addrFull','addrLabel','addrLat','addrLng'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('customerSearchResults').innerHTML='';
@@ -1334,6 +1411,139 @@ function resetWizard() {
   document.getElementById('productPageControls').innerHTML='';
   goToStep(1);
 }
+
+// ── TABS ──
+function switchTab(tab) {
+  const isNew = tab === 'new-order';
+  document.getElementById('tabNewOrder').classList.toggle('active', isNew);
+  document.getElementById('tabDrafts').classList.toggle('active', !isNew);
+  document.getElementById('panelNewOrder').classList.toggle('hidden', !isNew);
+  document.getElementById('panelDrafts').classList.toggle('hidden', isNew);
+  if (!isNew) loadDrafts();
+}
+
+// ── ACTIVE DRAFTS ──
+async function loadDrafts() {
+  const container = document.getElementById('draftsTableContainer');
+  container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><div class="spinner dark" style="margin:0 auto 12px"></div>Loading drafts…</div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/pos/drafts');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message);
+    _activeDrafts = data.data.drafts;
+    renderDraftsTable(_activeDrafts);
+  } catch(e) {
+    container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red2)">Failed to load drafts: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderDraftStatusBadge(status) {
+  if (status === 'quoted') return '<span class="badge-quoted">Quoted</span>';
+  return '<span class="badge-draft">Draft</span>';
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' });
+  } catch(e) { return iso; }
+}
+
+function renderDraftsTable(drafts) {
+  const container = document.getElementById('draftsTableContainer');
+  if (!drafts.length) {
+    container.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">
+      <div style="font-size:32px;margin-bottom:12px">📋</div>
+      <div style="font-size:15px;font-weight:600">No active drafts</div>
+      <div style="font-size:13px;margin-top:6px">All drafts expire after 7 days. Create a new POS order to get started.</div>
+    </div>`;
+    return;
+  }
+  container.innerHTML = `<div style="overflow-x:auto"><table class="drafts-table">
+    <thead><tr>
+      <th>Customer</th><th>Phone</th><th>Quotation No</th>
+      <th style="text-align:right">Grand Total</th><th>Status</th><th>Created</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      ${drafts.map((d,i) => `<tr>
+        <td style="font-weight:600">${escHtml(d.customer?.name || 'Walk-in')}</td>
+        <td style="color:var(--muted)">${escHtml(d.customer?.phone || '—')}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${escHtml(d.zohoQuotationNumber || '—')}</td>
+        <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600">${fmtMoney(d.grandTotal)}</td>
+        <td>${renderDraftStatusBadge(d.status)}</td>
+        <td style="color:var(--muted);font-size:12px">${fmtDateTime(d.createdAt)}</td>
+        <td><button class="btn-secondary" style="padding:5px 12px;font-size:12px" onclick="resumeDraft(${i})">Resume</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+async function resumeDraft(idx) {
+  const draft = _activeDrafts[idx];
+  if (!draft) return;
+
+  // Restore wizard state
+  draftId = draft.draftId;
+  draftData = draft;
+  gstNumber = draft.gstNumber || '';
+  currentPdfUrl = draft.quotationPdfUrl || null;
+
+  selectedCustomer = draft.customer
+    ? { userId: draft.customer.userId, name: draft.customer.name, phone: draft.customer.phone, email: draft.customer.email || null, addresses: draft.address ? [draft.address] : [] }
+    : null;
+  selectedAddress = draft.address || null;
+
+  cart = (draft.items || []).map(item => ({
+    productId: item.productId,
+    zohoItemId: item.zohoItemId || item.productId,
+    variantId: item.variantId || null,
+    variantName: item.variantId || null,
+    name: item.name,
+    unit: item.unit || '',
+    unitPrice: item.unitPrice,
+    gstRate: item.gstRate || 18,
+    quantity: item.quantity,
+    shadeCode: item.shadeCode || null,
+    shadeName: null,
+    shadeTier: null,
+  }));
+
+  quotationData = draft.status === 'quoted' && draft.zohoQuotationId
+    ? { zohoQuotationId: draft.zohoQuotationId, zohoQuotationNumber: draft.zohoQuotationNumber, zohoQuotationUrl: draft.zohoQuotationUrl }
+    : null;
+
+  // Restore Step 1 customer chip
+  if (selectedCustomer) {
+    document.getElementById('chipName').textContent = selectedCustomer.name;
+    document.getElementById('chipPhone').textContent = selectedCustomer.phone;
+    document.getElementById('selectedCustomerChip').classList.remove('hidden');
+    document.getElementById('customerSearchSection').classList.add('hidden');
+    document.getElementById('addressSection').classList.remove('hidden');
+  }
+  if (gstNumber) document.getElementById('gstNumber').value = gstNumber;
+
+  // Switch to New Order tab
+  document.getElementById('tabNewOrder').classList.add('active');
+  document.getElementById('tabDrafts').classList.remove('active');
+  document.getElementById('panelNewOrder').classList.remove('hidden');
+  document.getElementById('panelDrafts').classList.add('hidden');
+
+  if (draft.status === 'quoted') {
+    if (!allProducts.length) loadProducts();
+    populateStep3();
+    goToStep(3);
+  } else {
+    if (!allProducts.length) await loadProducts();
+    document.getElementById('step2CustomerInfo').textContent =
+      `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress?.label || 'Address'}`;
+    renderCart();
+    goToStep(2);
+    scheduleDeliveryCalc();
+  }
+}
+
+// ── INIT ──
+loadDrafts();
 </script>
 </body>
 </html>
