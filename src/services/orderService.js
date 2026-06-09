@@ -230,8 +230,15 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
 }
 
 /**
- * Record a failed payment attempt without changing order status — leaves
- * the order in `pending_payment` so the user can retry with a new session.
+ * Record a failed payment attempt. Leaves the order in `pending_payment` (the
+ * Cashfree link stays ACTIVE, so the user can retry on it), but flips
+ * `paymentStatus` to `'failed'` so the client's next `/verify` returns `failed`
+ * and shows the retry dialog instead of the "Confirming your payment" spinner.
+ *
+ * Guarded so a late failure webhook can't override an order that already moved
+ * on: only sets `paymentStatus: 'failed'` while the order is still
+ * `pending_payment` AND not already `confirmed`. A subsequent successful retry
+ * goes through `confirmOnlinePayment`, which overrides `failed` → `confirmed`.
  */
 async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
@@ -245,9 +252,17 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
     source: attempt && attempt.source ? attempt.source : 'unknown',
   };
 
-  await updateOrder(orderId, {
+  const update = {
     'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-  }, traceContext);
+  };
+  // Only surface failure on the order while it's still awaiting payment and
+  // hasn't been confirmed. Don't touch orders that already proceeded
+  // (pending_proceeding) or confirmed — a stale/late failure must not regress them.
+  if (order.status === 'pending_payment' && order.paymentStatus !== 'confirmed') {
+    update.paymentStatus = 'failed';
+  }
+
+  await updateOrder(orderId, update, traceContext);
 }
 
 /**
