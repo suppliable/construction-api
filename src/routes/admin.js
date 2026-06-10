@@ -335,6 +335,7 @@ const {
   createPOSQuotation,
   convertPOSDraftToOrder,
   listPOSDrafts,
+  discardPOSDraft,
   getPOSQuotationPDF,
 } = require('../services/posService');
 
@@ -453,6 +454,17 @@ router.post('/pos/drafts/:draftId/convert', async (req, res) => {
     if (err.code === 'INVALID_STATUS') return res.status(409).json({ success: false, error: err.code, message: err.message });
     if (err.code === 'WAREHOUSE_CLOSED') return res.status(503).json({ success: false, error: err.code, message: err.message });
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Discard a POS draft — PATCH /admin/pos/drafts/:draftId/discard
+router.patch('/pos/drafts/:draftId/discard', async (req, res) => {
+  try {
+    await discardPOSDraft(req.params.draftId, req.traceContext);
+    res.json({ success: true });
+  } catch (e) {
+    const status = e.code === 'DRAFT_NOT_FOUND' ? 404 : e.code === 'ALREADY_CONVERTED' ? 400 : 500;
+    res.status(status).json({ success: false, message: e.message });
   }
 });
 

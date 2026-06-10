@@ -9,6 +9,7 @@ const { getAddresses, addAddress, getAddressById } = require('../repositories/ad
 const { saveOrder } = require('../repositories/orderRepository');
 const { getSettings } = require('../repositories/configRepository');
 const { getProductById } = require('./productService');
+const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepository');
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
@@ -162,13 +163,38 @@ async function buildDraftLineItems(items, traceContext = null) {
     let zohoItemId = item.productId;
     let resolvedVariantId = item.variantId || null;
     let unitPrice = product.price || 0;
+    let resolvedVariant = null;
 
     if (item.variantId && product.variants) {
-      const variant = product.variants.find(v => v.name === item.variantId || v.id === item.variantId);
-      if (variant) {
-        zohoItemId = variant.id;
-        resolvedVariantId = variant.name;
-        unitPrice = variant.price ?? unitPrice;
+      resolvedVariant = product.variants.find(v => v.name === item.variantId || v.id === item.variantId);
+      if (resolvedVariant) {
+        zohoItemId = resolvedVariant.id;
+        resolvedVariantId = resolvedVariant.name;
+        unitPrice = resolvedVariant.price ?? unitPrice;
+      }
+    }
+
+    // Stock check — variant-level first, then product-level
+    const availableStock = resolvedVariant?.available_stock ?? product.available_stock ?? null;
+    if (availableStock !== null) {
+      const label = `${product.name}${resolvedVariantId ? ` (${resolvedVariantId})` : ''}`;
+      if (availableStock <= 0) {
+        throw Object.assign(new Error(`${label} is out of stock`), { code: 'OUT_OF_STOCK' });
+      }
+      if (item.quantity > availableStock) {
+        throw Object.assign(new Error(`Only ${availableStock} units available for ${label}`), { code: 'INSUFFICIENT_STOCK' });
+      }
+    }
+
+    // Shade pricing — look up tier-adjusted price if shade is tinted
+    if (item.shadeCode && item.shadeTier && product.shadeBrand) {
+      const pricing = await getPaintPricing(item.productId, traceContext).catch(() => null);
+      if (pricing?.tiers?.[item.shadeTier]) {
+        const sizeKey = VALID_SIZES.includes(resolvedVariantId) ? resolvedVariantId
+          : VALID_SIZES.includes(product.unit) ? product.unit : null;
+        if (sizeKey !== null && pricing.tiers[item.shadeTier][sizeKey] !== undefined) {
+          unitPrice = pricing.tiers[item.shadeTier][sizeKey];
+        }
       }
     }
 
@@ -202,6 +228,7 @@ async function buildDraftLineItems(items, traceContext = null) {
     };
 
     if (item.shadeCode) lineItem.shadeCode = item.shadeCode;
+    if (item.shadeTier) lineItem.shadeTier = item.shadeTier;
 
     lineItems.push(lineItem);
   }
@@ -449,6 +476,19 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
   return order;
 }
 
+async function discardPOSDraft(draftId, traceContext = null) {
+  const draft = await getPOSDraft(draftId, traceContext);
+  if (!draft) throw Object.assign(new Error('Draft not found'), { code: 'DRAFT_NOT_FOUND' });
+  if (draft.status === 'converted') throw Object.assign(new Error('Cannot discard a converted draft'), { code: 'ALREADY_CONVERTED' });
+  await dbOp('pos.discardDraft', () =>
+    db.collection('posDrafts').doc(draftId).update({
+      status: 'discarded',
+      discardedAt: new Date().toISOString(),
+    }),
+    traceContext
+  );
+}
+
 async function listPOSDrafts(traceContext = null) {
   const now = new Date().toISOString();
   const snap = await dbOp('pos.listDrafts', () =>
@@ -462,7 +502,7 @@ async function listPOSDrafts(traceContext = null) {
 
   const drafts = snap.docs
     .map(d => d.data())
-    .filter(d => d.status !== 'converted');
+    .filter(d => d.status !== 'converted' && d.status !== 'discarded');
 
   // Sort newest first (Firestore ordered by expiresAt, not createdAt)
   drafts.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -563,5 +603,6 @@ module.exports = {
   createPOSQuotation,
   convertPOSDraftToOrder,
   listPOSDrafts,
+  discardPOSDraft,
   getPOSQuotationPDF,
 };
