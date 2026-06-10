@@ -113,12 +113,19 @@ async function calculateDelivery(pincode, latitude, longitude, orderValue = 0, a
 }
 
 async function isFreeDeliveryEligible(userId) {
-  const db = admin.firestore();
-  const snap = await db.collection('orders')
-    .where('userId', '==', userId)
-    .where('status', '==', 'delivered')
-    .get();
-  return snap.size < 3;
+  try {
+    const db = admin.firestore();
+    const snap = await db.collection('orders')
+      .where('userId', '==', userId)
+      .get();
+    const confirmed = snap.docs.filter(d => {
+      const s = d.data().status;
+      return s !== 'pending_payment' && s !== 'cancelled';
+    });
+    return confirmed.length < 3;
+  } catch (_) {
+    return false;
+  }
 }
 
 module.exports = { calculateDelivery, isFreeDeliveryEligible };
