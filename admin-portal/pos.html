@@ -449,6 +449,9 @@
               <div class="totals-row"><span id="totGstLabel">GST</span><span class="amt" id="totGst">₹0</span></div>
               <div class="totals-row"><span>Delivery</span><span class="amt" id="totDelivery"><span class="totals-loading">calculating...</span></span></div>
               <div class="totals-row grand"><span>Grand Total</span><span class="amt" id="totGrand">₹0</span></div>
+              <div id="deliveryWarning" class="hidden" style="margin-top:8px;padding:7px 10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e">
+                ⚠️ <span id="deliveryWarningText"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -781,6 +784,14 @@ function checkStep1Next() {
 
 async function goToStep2() {
   gstNumber = document.getElementById('gstNumber').value.trim();
+  // If no active draft yet, reuse an existing draft-status draft for this customer
+  // to avoid creating a duplicate when they reach Step 3
+  if (!draftId && selectedCustomer) {
+    const existing = _activeDrafts.find(
+      d => d.customerId === selectedCustomer.userId && d.status === 'draft'
+    );
+    if (existing) { draftId = existing.draftId; draftData = existing; }
+  }
   document.getElementById('step2CustomerInfo').textContent =
     `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress.label||'Address'}`;
   goToStep(2);
@@ -1001,7 +1012,7 @@ function selectShadeInline(pid, code, name, hex) {
 }
 
 // ── CART ──
-function addToCart(productId) {
+async function addToCart(productId) {
   const product = productMap[productId];
   if (!product) return;
   let variantId=null, zohoItemId=productId, unitPrice=product.price||0, variantName=null;
@@ -1019,6 +1030,15 @@ function addToCart(productId) {
     shadeCode = chipEl._shade.code;
     shadeName = chipEl._shade.name;
     shadeTier = chipEl._shade.tier||null;
+  }
+  // Shade pricing: look up tier-adjusted price if a tinted shade is selected
+  if (shadeCode && shadeTier && product.shadeBrand) {
+    const sizeKey = encodeURIComponent(variantName || product.unit || '');
+    try {
+      const pr = await apiFetch(`/api/v1/paint-pricing/${productId}/calculate?tier=${encodeURIComponent(shadeTier)}&size=${sizeKey}`);
+      const pd = await pr.json();
+      if (pr.ok && pd.price) unitPrice = pd.price;
+    } catch(e) { /* keep base price */ }
   }
   const existing = cart.find(i => i.productId===productId && i.zohoItemId===zohoItemId && (i.shadeCode||null)===(shadeCode||null));
   if (existing) { existing.quantity += 1; }
@@ -1067,15 +1087,30 @@ function renderCart() {
 function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   document.getElementById('totSubtotal').textContent = fmtMoney(subtotal);
   document.getElementById('totGst').textContent = fmtMoney(gstTotal);
+  const warnEl = document.getElementById('deliveryWarning');
+  const warnText = document.getElementById('deliveryWarningText');
   if (deliveryResult === null) {
     document.getElementById('totDelivery').innerHTML = '<span class="totals-loading">calculating...</span>';
     document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
+    warnEl.classList.add('hidden');
   } else if (deliveryResult === 'error') {
     document.getElementById('totDelivery').innerHTML = '<span style="color:var(--muted);font-size:12px">—</span>';
     document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
+    warnEl.classList.add('hidden');
   } else {
     document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
     document.getElementById('totGrand').textContent = fmtMoney(deliveryResult.grandTotal||subtotal+gstTotal);
+    // Serviceability warning
+    const dr = deliveryResult.deliveryResult;
+    if (!dr) {
+      warnText.textContent = 'No pincode on this address — delivery charge could not be calculated';
+      warnEl.classList.remove('hidden');
+    } else if (dr.serviceable === false) {
+      warnText.textContent = dr.message || 'Delivery not available to this area';
+      warnEl.classList.remove('hidden');
+    } else {
+      warnEl.classList.add('hidden');
+    }
   }
 }
 
@@ -1472,7 +1507,10 @@ function renderDraftsTable(drafts) {
         <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600">${fmtMoney(d.grandTotal)}</td>
         <td>${renderDraftStatusBadge(d.status)}</td>
         <td style="color:var(--muted);font-size:12px">${fmtDateTime(d.createdAt)}</td>
-        <td><button class="btn-secondary" style="padding:5px 12px;font-size:12px" onclick="resumeDraft(${i})">Resume</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn-secondary" style="padding:5px 12px;font-size:12px" onclick="resumeDraft(${i})">Resume</button>
+          <button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--red2);border-color:var(--red2);margin-left:6px" onclick="discardDraft('${escHtml(d.draftId)}')">Discard</button>
+        </td>
       </tr>`).join('')}
     </tbody>
   </table></div>`;
@@ -1539,6 +1577,19 @@ async function resumeDraft(idx) {
     renderCart();
     goToStep(2);
     scheduleDeliveryCalc();
+  }
+}
+
+async function discardDraft(draftId) {
+  if (!confirm('Discard this draft? This cannot be undone.')) return;
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/drafts/${draftId}/discard`, { method: 'PATCH' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to discard draft');
+    showToast('Draft discarded', 'success');
+    loadDrafts();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
