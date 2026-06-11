@@ -183,6 +183,8 @@
   .qty-btn:last-child { border-radius:0 6px 6px 0; }
   .qty-btn:hover { background:var(--bg); }
   .qty-num { width:32px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 0; font-family:'JetBrains Mono',monospace; }
+  .qty-input { width:48px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 2px; font-family:'JetBrains Mono',monospace; background:#fff; -moz-appearance:textfield; }
+  .qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
   .btn-remove-cart { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 4px; border-radius:4px; transition:color 0.15s; flex-shrink:0; }
   .btn-remove-cart:hover { color:var(--red2); }
   .cart-totals { padding:12px 14px; border-top:1px solid var(--border); background:#f8f9fc; }
@@ -381,7 +383,8 @@
             </div>
             <div class="field-group">
               <div class="field-label">Search Address <span style="color:var(--red2)">*</span></div>
-              <input type="text" class="field-input" id="addrFull" placeholder="Start typing an address…" autocomplete="off">
+              <input type="text" class="field-input" id="addrFull" placeholder="Type an address or paste a Google Maps link…" autocomplete="off">
+              <div id="mapsLinkStatus" style="font-size:12px;margin-top:4px;min-height:16px"></div>
             </div>
             <div id="addressMapDiv" style="display:none"></div>
             <div class="field-row" style="margin-bottom:14px">
@@ -748,6 +751,7 @@ async function submitAddAddress() {
     ['addrFull','addrLabel'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('addrLat').value = '';
     document.getElementById('addrLng').value = '';
+    document.getElementById('mapsLinkStatus').textContent = '';
     lastMapCoords = null;
     _lastAddressComponents = null;
     toggleAddAddressForm();
@@ -1037,18 +1041,27 @@ async function addToCart(productId) {
     try {
       const pr = await apiFetch(`/api/v1/paint-pricing/${productId}/calculate?tier=${encodeURIComponent(shadeTier)}&size=${sizeKey}`);
       const pd = await pr.json();
-      if (pr.ok && pd.price) unitPrice = pd.price;
+      if (pr.ok && pd.price) {
+        unitPrice = pd.price;
+      } else if (pr.status === 404) {
+        showToast('Shade pricing not configured for this product — using base price', 'error');
+      }
     } catch(e) { /* keep base price */ }
   }
   const existing = cart.find(i => i.productId===productId && i.zohoItemId===zohoItemId && (i.shadeCode||null)===(shadeCode||null));
   if (existing) { existing.quantity += 1; }
   else { cart.push({ productId, zohoItemId, variantId, variantName, name:product.name, unit:product.unit||'', unitPrice, gstRate:product.gst_percentage||18, quantity:1, shadeCode, shadeName, shadeTier }); }
   renderCart();
-  scheduleDeliveryCalc();
 }
 
-function removeFromCart(idx) { cart.splice(idx,1); renderCart(); scheduleDeliveryCalc(); }
-function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); scheduleDeliveryCalc(); }
+function removeFromCart(idx) { cart.splice(idx,1); renderCart(); }
+function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); }
+function setQty(idx, val) {
+  const n = Math.max(1, parseInt(val) || 1);
+  if (n === cart[idx]?.quantity) return;
+  cart[idx].quantity = n;
+  renderCart();
+}
 
 function renderCart() {
   const list = document.getElementById('cartItemsList');
@@ -1070,7 +1083,9 @@ function renderCart() {
       </div>
       <div class="qty-stepper">
         <button class="qty-btn" onclick="changeQty(${idx},-1)">−</button>
-        <div class="qty-num">${item.quantity}</div>
+        <input class="qty-input" type="number" value="${item.quantity}" min="1"
+          onchange="setQty(${idx},this.value)"
+          onkeydown="if(event.key==='Enter')this.blur()">
         <button class="qty-btn" onclick="changeQty(${idx},1)">+</button>
       </div>
       <button class="btn-remove-cart" onclick="removeFromCart(${idx})" title="Remove">✕</button>
@@ -1080,7 +1095,8 @@ function renderCart() {
   const gstTotal = cart.reduce((s,i) => s + (i.unitPrice*i.quantity - (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity), 0);
   const avgGst = cart.length ? Math.round(cart[0].gstRate||18) : 18;
   document.getElementById('totGstLabel').textContent = `GST (${avgGst}%)`;
-  renderCartTotals(subtotal, gstTotal, null);
+  // Use cached delivery from last draft fetch; null = still calculating for the first time
+  renderCartTotals(subtotal, gstTotal, draftData || null);
   document.getElementById('step2Next').disabled = false;
 }
 
@@ -1099,7 +1115,7 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
     warnEl.classList.add('hidden');
   } else {
     document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
-    document.getElementById('totGrand').textContent = fmtMoney(deliveryResult.grandTotal||subtotal+gstTotal);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + (deliveryResult.deliveryCharge||0));
     // Serviceability warning
     const dr = deliveryResult.deliveryResult;
     if (!dr) {
@@ -1124,7 +1140,9 @@ async function fetchDraftForTotals() {
   if (!cart.length || !selectedAddress) return;
   try {
     const body = buildDraftBody();
-    const res = await apiFetch('/api/v1/admin/pos/drafts', { method:'POST', body:JSON.stringify(body) });
+    const url = draftId ? `/api/v1/admin/pos/drafts/${draftId}` : '/api/v1/admin/pos/drafts';
+    const method = draftId ? 'PUT' : 'POST';
+    const res = await apiFetch(url, { method, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) return;
     const d = data.data.draft;
@@ -1421,6 +1439,78 @@ async function onMapMarkerDragEnd(event) {
     }
   } catch(e) { /* silent — address field keeps existing value */ }
 }
+
+// ── GOOGLE MAPS LINK PASTE ──
+function isMapsUrl(text) {
+  return /https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.com|www\.google\.com\/maps)/i.test(text);
+}
+
+function extractMapsCoords(url) {
+  let m;
+  m = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+async function applyMapsCoords(lat, lng) {
+  document.getElementById('addrLat').value = lat.toFixed(6);
+  document.getElementById('addrLng').value = lng.toFixed(6);
+  lastMapCoords = { lat, lng };
+  if (addressMarker) {
+    addressMarker.setPosition({ lat, lng });
+    addressMap.panTo({ lat, lng });
+    addressMap.setZoom(17);
+    document.getElementById('addressMapDiv').style.display = 'block';
+  }
+  if (mapsSDKLoaded && window.google?.maps?.Geocoder) {
+    try {
+      const geocoder = new google.maps.Geocoder();
+      const result = await geocoder.geocode({ location: { lat, lng } });
+      if (result.results?.[0]) {
+        document.getElementById('addrFull').value = result.results[0].formatted_address;
+        _lastAddressComponents = result.results[0].address_components || null;
+      }
+    } catch(e) { /* keep coords in address field as fallback */ }
+  }
+}
+
+document.getElementById('addrFull').addEventListener('paste', async (e) => {
+  const pasted = (e.clipboardData || window.clipboardData).getData('text').trim();
+  if (!isMapsUrl(pasted)) return;
+  e.preventDefault();
+
+  const statusEl = document.getElementById('mapsLinkStatus');
+  const setStatus = (msg, color) => { statusEl.textContent = msg; statusEl.style.color = color; };
+  setStatus('🔍 Resolving location…', 'var(--muted)');
+
+  // Full URL — extract coords directly in the browser
+  const direct = extractMapsCoords(pasted);
+  if (direct) {
+    await applyMapsCoords(direct.lat, direct.lng);
+    setStatus('✓ Location found', '#059669');
+    return;
+  }
+
+  // Short URL (maps.app.goo.gl) — backend must follow the redirect
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/resolve-maps-url?url=${encodeURIComponent(pasted)}`);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      setStatus('⚠️ ' + (data.message || 'Could not extract location from link'), '#b45309');
+      return;
+    }
+    await applyMapsCoords(data.data.lat, data.data.lng);
+    setStatus('✓ Location found', '#059669');
+  } catch(e) {
+    setStatus('⚠️ Failed to resolve Maps link', '#b45309');
+  }
+});
 
 // ── RESET ──
 function resetWizard() {

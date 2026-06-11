@@ -490,6 +490,41 @@ router.post('/pos/drafts/:draftId/pdf', async (req, res) => {
   }
 });
 
+// Resolve Google Maps short/full URL to coordinates — GET /admin/pos/resolve-maps-url?url=
+function extractGoogleMapsCoords(url) {
+  let m;
+  m = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+router.get('/pos/resolve-maps-url', async (req, res) => {
+  const url = (req.query.url || '').trim();
+  if (!url) return res.status(400).json({ success: false, message: 'url parameter is required' });
+  try {
+    const response = await axios.get(url, {
+      maxRedirects: 10,
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Suppliable/1.0)' },
+      validateStatus: () => true,
+    });
+    const finalUrl = response.request?.res?.responseUrl || url;
+    const coords = extractGoogleMapsCoords(finalUrl);
+    if (!coords) {
+      return res.status(422).json({ success: false, message: 'Could not extract coordinates from this Maps link' });
+    }
+    res.json({ success: true, data: { lat: coords.lat, lng: coords.lng, resolvedUrl: finalUrl } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Failed to resolve Maps URL: ' + e.message });
+  }
+});
+
 // Maps API key — GET /admin/pos/maps-key
 // Prefers GOOGLE_MAPS_FRONTEND_KEY (unrestricted browser key) over the
 // server-side GOOGLE_MAPS_API_KEY which may have IP restrictions.
