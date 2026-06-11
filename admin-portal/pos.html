@@ -1493,7 +1493,7 @@ function extractMapsCoords(url) {
   return null;
 }
 
-async function applyMapsCoords(lat, lng) {
+async function applyMapsCoords(lat, lng, placeName = null) {
   document.getElementById('addrLat').value = lat.toFixed(6);
   document.getElementById('addrLng').value = lng.toFixed(6);
   lastMapCoords = { lat, lng };
@@ -1510,17 +1510,22 @@ async function applyMapsCoords(lat, lng) {
       await loadMapsSDK(mapsApiKey);
       const geocoder = new google.maps.Geocoder();
       const result = await geocoder.geocode({ location: { lat, lng } });
-      if (result.results?.[0]?.formatted_address) {
-        document.getElementById('addrFull').value = result.results[0].formatted_address;
+      if (result.results?.[0]) {
         _lastAddressComponents = result.results[0].address_components || null;
-        return true; // geocoding succeeded
+        // If we have a place name (from a shared Place URL), prepend it to the
+        // geocoded address so the field reads "Chai Kings - Perumbakkam, Antony
+        // Nagar Ext Rd, Chennai, Tamil Nadu 600100" instead of a Plus Code.
+        const geocodedAddr = result.results[0].formatted_address || '';
+        document.getElementById('addrFull').value = placeName
+          ? `${placeName}, ${geocodedAddr}`
+          : geocodedAddr;
+        return true;
       }
     }
-  } catch(e) { /* geocoding failed — fall through to coords fallback */ }
-  // Geocoding unavailable — pre-fill coords so saveAddress validation passes;
-  // user can overwrite with a proper address if needed.
+  } catch(e) { /* geocoding failed — fall through to fallback */ }
+  // Geocoding unavailable — use place name if we have it, else coords
   if (!document.getElementById('addrFull').value) {
-    document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    document.getElementById('addrFull').value = placeName || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
   }
   return false;
 }
@@ -1538,12 +1543,12 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
     if (geocoded) {
       setStatus('✓ Location and address found', '#059669');
     } else {
-      setStatus('📍 Pin placed — address could not be auto-filled, please type it above', '#b45309');
+      setStatus('📍 Pin placed — please verify or type the address above', '#b45309');
       document.getElementById('addrFull').focus();
     }
   };
 
-  // Full URL — extract coords directly in the browser
+  // Full URL — extract coords directly in the browser (no place name available)
   const direct = extractMapsCoords(pasted);
   if (direct) {
     const geocoded = await applyMapsCoords(direct.lat, direct.lng);
@@ -1551,7 +1556,7 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
     return;
   }
 
-  // Short URL (maps.app.goo.gl) — backend must follow the redirect
+  // Short URL (maps.app.goo.gl) — backend follows redirect and extracts place name
   try {
     const res = await apiFetch(`/api/v1/admin/pos/resolve-maps-url?url=${encodeURIComponent(pasted)}`);
     const data = await res.json();
@@ -1559,7 +1564,7 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
       setStatus('⚠️ ' + (data.message || 'Could not extract location from link'), '#b45309');
       return;
     }
-    const geocoded = await applyMapsCoords(data.data.lat, data.data.lng);
+    const geocoded = await applyMapsCoords(data.data.lat, data.data.lng, data.data.placeName || null);
     onResult(geocoded);
   } catch(e) {
     setStatus('⚠️ Failed to resolve Maps link', '#b45309');

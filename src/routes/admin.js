@@ -519,7 +519,13 @@ router.get('/pos/resolve-maps-url', async (req, res) => {
     if (!coords) {
       return res.status(422).json({ success: false, message: 'Could not extract coordinates from this Maps link' });
     }
-    res.json({ success: true, data: { lat: coords.lat, lng: coords.lng, resolvedUrl: finalUrl } });
+    // Extract place name from URL path: /maps/place/Chai+Kings+-+Perumbakkam/@...
+    let placeName = null;
+    const placeMatch = finalUrl.match(/\/maps\/place\/([^/@?]+)/);
+    if (placeMatch) {
+      placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim() || null;
+    }
+    res.json({ success: true, data: { lat: coords.lat, lng: coords.lng, resolvedUrl: finalUrl, placeName } });
   } catch (e) {
     res.status(500).json({ success: false, message: 'Failed to resolve Maps URL: ' + e.message });
   }
