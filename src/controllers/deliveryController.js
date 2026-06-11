@@ -1,4 +1,4 @@
-const { calculateDelivery } = require('../services/deliveryService');
+const { calculateDelivery, isFreeDeliveryEligible } = require('../services/deliveryService');
 const { updateDeliveryConfig, getDeliveryConfig, getAddressById } = require('../services/firestoreService');
 
 const calculateDeliveryCharge = async (req, res) => {
@@ -34,14 +34,18 @@ const calculateDeliveryCharge = async (req, res) => {
       });
     }
 
+    const eligible = await isFreeDeliveryEligible(userId);
+    const deliveryCharge = eligible ? 0 : result.delivery_charge;
+
     res.json({
       success: true,
       data: {
-        deliveryCharge: result.delivery_charge,
+        deliveryCharge,
         distanceKm: result.one_way_km,
         distanceText: result.distance_text,
         serviceable: true,
-        distanceSource: result.distance_source
+        distanceSource: result.distance_source,
+        isFreeDelivery: eligible,
       }
     });
   } catch (err) {

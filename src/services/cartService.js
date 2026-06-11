@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
+const { isFreeDeliveryEligible } = require('./deliveryService');
 
 async function addToCart(userId, productId, quantity, price, shadeInfo = null, variantId = null) {
   if (!price || price <= 0) throw new ValidationError('price is required and must be greater than 0', 'INVALID_PARAM');
@@ -137,7 +138,8 @@ async function removeFromCart(userId, productId, cartItemId = null) {
 
 async function setDeliveryCharge(userId, deliveryCharge, addressId) {
   const cart = await getCart(userId);
-  cart.deliveryCharge = deliveryCharge;
+  const eligible = await isFreeDeliveryEligible(userId);
+  cart.deliveryCharge = eligible ? 0 : deliveryCharge;
   cart.deliveryAddressId = addressId || null;
   await saveCart(userId, cart);
   return await buildCartResponse(userId);
@@ -213,7 +215,8 @@ async function buildCartResponse(userId) {
   }
   const subtotal = Math.round(subtotalRaw * 100) / 100;
   const gstTotal = Math.round(gstTotalRaw * 100) / 100;
-  const deliveryCharge = Number(cart.deliveryCharge || 0);
+  const eligible = await isFreeDeliveryEligible(userId);
+  const deliveryCharge = eligible ? 0 : Number(cart.deliveryCharge || 0);
   const grandTotal = Math.round((subtotal + gstTotal + deliveryCharge) * 100) / 100;
 
   return {
