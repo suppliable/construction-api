@@ -198,7 +198,10 @@ async function searchZohoContactByName(name, traceContext = null) {
       })
     );
     const contacts = response.data.contacts || [];
-    return contacts.find(c => c.contact_name?.toLowerCase() === name.toLowerCase()) || null;
+    // Prefer exact case match, fall back to case-insensitive
+    return contacts.find(c => c.contact_name === name) ||
+           contacts.find(c => c.contact_name?.toLowerCase() === name.toLowerCase()) ||
+           null;
   } catch (error) {
     return null;
   }
