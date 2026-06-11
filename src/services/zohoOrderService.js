@@ -1,7 +1,7 @@
 const { createSpan } = require('../utils/spanTracer');
 const { zohoPost, zohoPut } = require('./zohoHttp');
 
-async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null) {
+async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}) {
   const span = createSpan(traceContext, 'zoho.api.createSalesOrder', {
     'peer.service': 'zoho',
     contact_id: zohoContactId,
@@ -40,6 +40,22 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       },
       notes: `Suppliable B2B Order${phone ? ` | Phone: ${phone}` : ''}`
     };
+    if (gstDetails.gstNumber) {
+      body.gst_no = gstDetails.gstNumber;
+      body.gst_treatment = 'business_gst';
+    }
+    if (gstDetails.gstName || gstDetails.gstAddress) {
+      const a = gstDetails.gstAddress || {};
+      body.billing_address = {
+        attention: gstDetails.gstName || '',
+        address: a.address_line1 || '',
+        street2: a.address_line2 || '',
+        city: a.city || '',
+        state: a.state || '',
+        zip: a.pincode || '',
+        country: 'India',
+      };
+    }
 
     const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders`,

@@ -167,17 +167,24 @@ const acceptOrder = async (req, res) => {
 
     // Sync Zoho contact with latest customer name/phone before creating the SO
     // so the invoice always shows the correct details instead of a stale phone number.
-    if (customer.name || customer.business_name) {
+    const contactDisplayName = order.gstName || customer.business_name || customer.name;
+    if (contactDisplayName) {
       try {
         // Only update contact_name/company_name — skip contact_persons to avoid
         // Zoho rejecting the request due to missing contact_person_id.
         await updateZohoContact(customer.zoho_contact_id, {
-          business_name: customer.business_name || customer.name,
+          business_name: contactDisplayName,
         }, req.traceContext);
       } catch (syncErr) {
         req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');
       }
     }
+
+    const gstDetails = {
+      gstNumber: order.gstNumber || null,
+      gstName: order.gstName || null,
+      gstAddress: order.gstAddress || null,
+    };
 
     const zohoSO = await createZohoSalesOrder(
       customer.zoho_contact_id,
@@ -185,7 +192,8 @@ const acceptOrder = async (req, res) => {
       address,
       order.delivery_charge || 0,
       customer.phone || null,
-      req.traceContext
+      req.traceContext,
+      gstDetails
     );
 
     // Write internal orderId to Zoho SO custom field (non-blocking)

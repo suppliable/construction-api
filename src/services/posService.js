@@ -394,8 +394,8 @@ async function createPOSQuotation(draftId, traceContext = null) {
     body.gst_no = draft.gstNumber;
     body.gst_treatment = 'business_gst';
   }
-  if (draft.gstAddress) {
-    const a = draft.gstAddress;
+  if (draft.gstName || draft.gstAddress) {
+    const a = draft.gstAddress || {};
     body.billing_address = {
       attention: draft.gstName || customer?.name || '',
       address: a.address_line1 || '',
