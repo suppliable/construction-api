@@ -402,9 +402,27 @@
         </div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-          <div class="field-group" style="max-width:340px;margin-bottom:0">
-            <div class="field-label">GST Number <span style="color:var(--muted);font-weight:400">(optional)</span></div>
-            <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          <div style="font-size:13px;font-weight:600;color:var(--fg);margin-bottom:12px;">GST Details <span style="color:var(--muted);font-weight:400">(optional)</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:680px;">
+            <div class="field-group" style="margin-bottom:0">
+              <div class="field-label">GSTIN</div>
+              <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+            </div>
+            <div class="field-group" style="margin-bottom:0">
+              <div class="field-label">GST Business Name</div>
+              <input type="text" class="field-input" id="gstName" placeholder="Registered business name">
+            </div>
+          </div>
+          <div style="margin-top:12px;max-width:680px;">
+            <div class="field-label" style="margin-bottom:8px;">Registered Address</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <input type="text" class="field-input" id="gstAddr1" placeholder="Address Line 1">
+              <input type="text" class="field-input" id="gstAddr2" placeholder="Address Line 2">
+              <input type="text" class="field-input" id="gstAddrCity" placeholder="City">
+              <input type="text" class="field-input" id="gstAddrPincode" placeholder="Pincode">
+              <input type="text" class="field-input" id="gstAddrState" placeholder="State">
+              <input type="text" class="field-input" id="gstAddrStateCode" placeholder="State Code (e.g. TN)">
+            </div>
           </div>
         </div>
       </div>
@@ -475,6 +493,7 @@
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s3Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s3Address">—</span></div>
           <div class="p-row hidden" id="s3GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s3Gst">—</span></div>
+          <div class="p-row hidden" id="s3GstNameRow"><span class="p-label">GST Name</span><span class="p-val" id="s3GstName">—</span></div>
         </div>
         <div class="summary-section">
           <div class="summary-section-title">Items</div>
@@ -510,6 +529,7 @@
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s4Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s4Address">—</span></div>
           <div class="p-row hidden" id="s4GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s4Gst">—</span></div>
+          <div class="p-row hidden" id="s4GstNameRow"><span class="p-label">GST Name</span><span class="p-val" id="s4GstName">—</span></div>
           <div class="p-row"><span class="p-label">Quotation</span><span class="p-val" id="s4QuoteNum">—</span></div>
         </div>
         <div class="summary-section">
@@ -561,6 +581,8 @@ let currentStep = 1;
 let selectedCustomer = null;
 let selectedAddress = null;
 let gstNumber = '';
+let gstName = '';
+let gstAddress = null;
 let cart = [];
 let draftId = null;
 let draftData = null;
@@ -668,6 +690,18 @@ function selectCustomer(c) {
   document.getElementById('customerSearchSection').classList.add('hidden');
   document.getElementById('addressSection').classList.remove('hidden');
   renderAddressList(c.addresses || []);
+  // Auto-populate GST fields from customer profile
+  if (c.gstin) document.getElementById('gstNumber').value = c.gstin;
+  if (c.businessName) document.getElementById('gstName').value = c.businessName;
+  if (c.registeredAddress && typeof c.registeredAddress === 'object') {
+    const ra = c.registeredAddress;
+    document.getElementById('gstAddr1').value = ra.address_line1 || '';
+    document.getElementById('gstAddr2').value = ra.address_line2 || '';
+    document.getElementById('gstAddrCity').value = ra.city || '';
+    document.getElementById('gstAddrPincode').value = ra.pincode || '';
+    document.getElementById('gstAddrState').value = ra.state || '';
+    document.getElementById('gstAddrStateCode').value = ra.state_code || '';
+  }
   checkStep1Next();
 }
 
@@ -680,6 +714,7 @@ function clearCustomer() {
   document.getElementById('createCustomerSection').classList.add('hidden');
   document.getElementById('addressSection').classList.add('hidden');
   document.getElementById('addAddressForm').classList.add('hidden');
+  ['gstNumber','gstName','gstAddr1','gstAddr2','gstAddrCity','gstAddrPincode','gstAddrState','gstAddrStateCode'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   checkStep1Next();
 }
 
@@ -789,6 +824,17 @@ function checkStep1Next() {
 
 async function goToStep2() {
   gstNumber = document.getElementById('gstNumber').value.trim();
+  gstName = document.getElementById('gstName').value.trim();
+  gstAddress = {
+    address_line1: document.getElementById('gstAddr1').value.trim(),
+    address_line2: document.getElementById('gstAddr2').value.trim(),
+    city: document.getElementById('gstAddrCity').value.trim(),
+    state: document.getElementById('gstAddrState').value.trim(),
+    state_code: document.getElementById('gstAddrStateCode').value.trim(),
+    pincode: document.getElementById('gstAddrPincode').value.trim(),
+  };
+  const hasGstAddress = Object.values(gstAddress).some(v => v);
+  if (!hasGstAddress) gstAddress = null;
   // If no active draft yet, reuse an existing draft-status draft for this customer
   // to avoid creating a duplicate when they reach Step 3
   if (!draftId && selectedCustomer) {
@@ -1069,10 +1115,12 @@ async function addToCart(productId) {
       }
     } catch(e) { /* keep base price */ }
   }
+  const needsDeliveryCalc = cart.length === 0 || !draftData?.deliveryResult;
   const existing = cart.find(i => i.productId===productId && i.zohoItemId===zohoItemId && (i.shadeCode||null)===(shadeCode||null));
   if (existing) { existing.quantity += 1; }
   else { cart.push({ productId, zohoItemId, variantId, variantName, name:product.name, unit:product.unit||'', unitPrice, gstRate:product.gst_percentage||18, quantity:1, shadeCode, shadeName, shadeTier }); }
   renderCart();
+  if (needsDeliveryCalc) scheduleDeliveryCalc();
 }
 
 function removeFromCart(idx) { cart.splice(idx,1); renderCart(); }
@@ -1183,6 +1231,8 @@ function buildDraftBody() {
     customerId: selectedCustomer ? selectedCustomer.userId : null,
     addressId: selectedAddress ? (selectedAddress.addressId||selectedAddress.id) : null,
     gstNumber: gstNumber||null,
+    gstName: gstName||null,
+    gstAddress: gstAddress||null,
     items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null }))
   };
 }
@@ -1215,6 +1265,8 @@ function populateStep3() {
   document.getElementById('s3Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
   document.getElementById('s3GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s3Gst').textContent = gstNumber;
+  document.getElementById('s3GstNameRow').classList.toggle('hidden', !gstName);
+  if (gstName) document.getElementById('s3GstName').textContent = gstName;
   const d = draftData;
   document.getElementById('s3Items').innerHTML = (d.items||[]).map(item => `
     <tr>
@@ -1319,6 +1371,8 @@ function populateStep4() {
   document.getElementById('s4Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
   document.getElementById('s4GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s4Gst').textContent = gstNumber;
+  document.getElementById('s4GstNameRow').classList.toggle('hidden', !gstName);
+  if (gstName) document.getElementById('s4GstName').textContent = gstName;
   document.getElementById('s4QuoteNum').textContent = quotationData ? quotationData.zohoQuotationNumber : '—';
   document.getElementById('s4Grand').textContent = fmtMoney(draftData ? draftData.grandTotal : 0);
   document.getElementById('confirmActionArea').classList.remove('hidden');
@@ -1577,13 +1631,13 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
 
 // ── RESET ──
 function resetWizard() {
-  selectedCustomer=null; selectedAddress=null; gstNumber=''; cart=[];
+  selectedCustomer=null; selectedAddress=null; gstNumber=''; gstName=''; gstAddress=null; cart=[];
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
   allShades=[]; _currentShadePid=null;
   addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null; _lastAddressComponents=null;
   document.getElementById('addressMapDiv').style.display='none';
-  ['customerSearchInput','gstNumber','addrFull','addrLabel','addrLat','addrLng'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['customerSearchInput','gstNumber','gstName','gstAddr1','gstAddr2','gstAddrCity','gstAddrPincode','gstAddrState','gstAddrStateCode','addrFull','addrLabel','addrLat','addrLng'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('customerSearchResults').innerHTML='';
   document.getElementById('createCustomerSection').classList.add('hidden');
   document.getElementById('selectedCustomerChip').classList.add('hidden');
@@ -1726,6 +1780,8 @@ async function resumeDraft(idx) {
   draftId = draft.draftId;
   draftData = draft;
   gstNumber = draft.gstNumber || '';
+  gstName = draft.gstName || '';
+  gstAddress = draft.gstAddress || null;
   currentPdfUrl = draft.quotationPdfUrl || null;
 
   selectedCustomer = draft.customer
@@ -1761,6 +1817,15 @@ async function resumeDraft(idx) {
     document.getElementById('addressSection').classList.remove('hidden');
   }
   if (gstNumber) document.getElementById('gstNumber').value = gstNumber;
+  if (gstName) document.getElementById('gstName').value = gstName;
+  if (gstAddress) {
+    document.getElementById('gstAddr1').value = gstAddress.address_line1 || '';
+    document.getElementById('gstAddr2').value = gstAddress.address_line2 || '';
+    document.getElementById('gstAddrCity').value = gstAddress.city || '';
+    document.getElementById('gstAddrPincode').value = gstAddress.pincode || '';
+    document.getElementById('gstAddrState').value = gstAddress.state || '';
+    document.getElementById('gstAddrStateCode').value = gstAddress.state_code || '';
+  }
 
   // Switch to New Order tab
   document.getElementById('tabNewOrder').classList.add('active');

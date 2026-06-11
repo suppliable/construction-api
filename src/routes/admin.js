@@ -391,11 +391,11 @@ router.post('/pos/customers/:userId/addresses', async (req, res) => {
 // Create draft — POST /admin/pos/drafts
 router.post('/pos/drafts', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber }, req.traceContext);
+    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
     res.status(201).json({ success: true, data: { draft } });
   } catch (err) {
     if (err.code === 'MISSING_PARAM' || err.code === 'INVALID_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
@@ -418,11 +418,11 @@ router.get('/pos/drafts/:draftId', async (req, res) => {
 // Update draft — PUT /admin/pos/drafts/:draftId
 router.put('/pos/drafts/:draftId', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber }, req.traceContext);
+    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
     if (!draft) return res.status(404).json({ success: false, error: 'DRAFT_NOT_FOUND', message: 'Draft not found' });
     res.json({ success: true, data: { draft } });
   } catch (err) {

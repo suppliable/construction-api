@@ -64,6 +64,9 @@ async function searchCustomers(q, traceContext = null) {
       name: c.name || '',
       phone: c.phone || '',
       email: c.email || null,
+      gstin: c.gstin || null,
+      businessName: c.business_name || null,
+      registeredAddress: c.registered_address || null,
       addresses,
     };
   }));
@@ -268,7 +271,7 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null) 
 
 // ---- Draft CRUD ----
 
-async function savePOSDraft({ customerId, addressId, items, gstNumber }, traceContext = null) {
+async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
   const lineItems = await buildDraftLineItems(items, traceContext);
   const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext);
 
@@ -281,6 +284,8 @@ async function savePOSDraft({ customerId, addressId, items, gstNumber }, traceCo
     customerId: customerId || null,
     addressId: addressId || null,
     gstNumber: gstNumber || null,
+    gstName: gstName || null,
+    gstAddress: gstAddress || null,
     items: lineItems,
     ...totals,
     status: 'draft',
@@ -305,7 +310,7 @@ async function getPOSDraft(draftId, traceContext = null) {
   }, traceContext);
 }
 
-async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber }, traceContext = null) {
+async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
   const existing = await getPOSDraft(draftId, traceContext);
   if (!existing) return null;
 
@@ -320,6 +325,8 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
     customerId: customerId !== undefined ? (customerId || null) : existing.customerId,
     addressId: resolvedAddressId || null,
     gstNumber: gstNumber !== undefined ? (gstNumber || null) : existing.gstNumber,
+    gstName: gstName !== undefined ? (gstName || null) : existing.gstName,
+    gstAddress: gstAddress !== undefined ? (gstAddress || null) : existing.gstAddress,
     items: lineItems,
     ...totals,
     updatedAt: now.toISOString(),
@@ -383,7 +390,22 @@ async function createPOSQuotation(draftId, traceContext = null) {
     shipping_charge: draft.deliveryCharge || 0,
     notes: `POS Quotation — Suppliable${customer?.phone ? ` | Phone: ${customer.phone}` : ''}`,
   };
-  if (draft.gstNumber) body.gst_no = draft.gstNumber;
+  if (draft.gstNumber) {
+    body.gst_no = draft.gstNumber;
+    body.gst_treatment = 'business_gst';
+  }
+  if (draft.gstAddress) {
+    const a = draft.gstAddress;
+    body.billing_address = {
+      attention: draft.gstName || customer?.name || '',
+      address: a.address_line1 || '',
+      street2: a.address_line2 || '',
+      city: a.city || '',
+      state: a.state || '',
+      zip: a.pincode || '',
+      country: 'India',
+    };
+  }
 
   const response = await zohoPost(
     `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates`,
@@ -457,6 +479,8 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     orderSource: 'pos',
     posDraftId: draftId,
     ...(draft.gstNumber ? { gstNumber: draft.gstNumber } : {}),
+    ...(draft.gstName ? { gstName: draft.gstName } : {}),
+    ...(draft.gstAddress ? { gstAddress: draft.gstAddress } : {}),
     ...(draft.zohoQuotationId ? { zohoQuotationId: draft.zohoQuotationId } : {}),
     ...(draft.zohoQuotationNumber ? { zohoQuotationNumber: draft.zohoQuotationNumber } : {}),
     createdAt: new Date().toISOString(),
@@ -535,6 +559,8 @@ async function listPOSDrafts(traceContext = null) {
       deliveryCharge: draft.deliveryCharge || 0,
       grandTotal: draft.grandTotal || 0,
       gstNumber: draft.gstNumber || null,
+      gstName: draft.gstName || null,
+      gstAddress: draft.gstAddress || null,
       status: draft.status,
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
