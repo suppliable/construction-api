@@ -493,13 +493,19 @@ router.post('/pos/drafts/:draftId/pdf', async (req, res) => {
 // Resolve Google Maps short/full URL to coordinates — GET /admin/pos/resolve-maps-url?url=
 function extractGoogleMapsCoords(url) {
   let m;
-  m = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  // 1. Actual place pin — !8m2!3d<lat>!4d<lng> in data= param (most precise)
+  m = url.match(/!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  // 2. Generic !3d!4d pattern in data param
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  // 3. Map view center @lat,lng (less precise — view may not centre on pin)
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  // 4. Query string patterns
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
   return null;
 }

@@ -1442,8 +1442,8 @@ function onPlaceSelected() {
   const lat = place.geometry.location.lat();
   const lng = place.geometry.location.lng();
   if (place.formatted_address) document.getElementById('addrFull').value = place.formatted_address;
-  document.getElementById('addrLat').value = lat.toFixed(6);
-  document.getElementById('addrLng').value = lng.toFixed(6);
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
   _lastAddressComponents = place.address_components || null;
   lastMapCoords = { lat, lng };
   if (addressMarker) {
@@ -1456,8 +1456,8 @@ function onPlaceSelected() {
 async function onMapMarkerDragEnd(event) {
   const lat = event.latLng.lat();
   const lng = event.latLng.lng();
-  document.getElementById('addrLat').value = lat.toFixed(6);
-  document.getElementById('addrLng').value = lng.toFixed(6);
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
   lastMapCoords = { lat, lng };
   try {
     const geocoder = new google.maps.Geocoder();
@@ -1466,11 +1466,11 @@ async function onMapMarkerDragEnd(event) {
       document.getElementById('addrFull').value = result.results[0].formatted_address;
       _lastAddressComponents = result.results[0].address_components || null;
     } else if (!document.getElementById('addrFull').value) {
-      document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      document.getElementById('addrFull').value = `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
     }
   } catch(e) {
     if (!document.getElementById('addrFull').value) {
-      document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      document.getElementById('addrFull').value = `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
     }
   }
 }
@@ -1482,20 +1482,24 @@ function isMapsUrl(text) {
 
 function extractMapsCoords(url) {
   let m;
-  m = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  // Actual place pin (most precise) — !8m2!3d<lat>!4d<lng> in data= param
+  m = url.match(/!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  // Map view centre @lat,lng — less precise, view may not centre on pin
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-  m = url.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
   if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
   return null;
 }
 
 async function applyMapsCoords(lat, lng, placeName = null) {
-  document.getElementById('addrLat').value = lat.toFixed(6);
-  document.getElementById('addrLng').value = lng.toFixed(6);
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
   lastMapCoords = { lat, lng };
   if (addressMarker) {
     addressMarker.setPosition({ lat, lng });
@@ -1525,7 +1529,7 @@ async function applyMapsCoords(lat, lng, placeName = null) {
   } catch(e) { /* geocoding failed — fall through to fallback */ }
   // Geocoding unavailable — use place name if we have it, else coords
   if (!document.getElementById('addrFull').value) {
-    document.getElementById('addrFull').value = placeName || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    document.getElementById('addrFull').value = placeName || `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
   }
   return false;
 }
