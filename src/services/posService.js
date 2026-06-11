@@ -13,7 +13,8 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, getAccessToken } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken } = require('./zohoService');
+const { updateCustomerGST } = require('./customerService');
 
 const db = getTrackedDb();
 
@@ -64,6 +65,9 @@ async function searchCustomers(q, traceContext = null) {
       name: c.name || '',
       phone: c.phone || '',
       email: c.email || null,
+      gstin: c.gstin || null,
+      businessName: c.business_name || null,
+      registeredAddress: c.registered_address || null,
       addresses,
     };
   }));
@@ -92,6 +96,21 @@ async function createCustomer({ name, phone, email }, traceContext = null) {
   };
 
   await saveCustomer(customer, traceContext);
+
+  // Create Zoho contact immediately so the customer is visible in Zoho Books
+  try {
+    const zohoContact = await createZohoContact({
+      name: customer.name,
+      phone: customer.phone,
+    }, traceContext);
+    if (zohoContact?.contact_id) {
+      customer.zoho_contact_id = zohoContact.contact_id;
+      await saveCustomer(customer, traceContext);
+    }
+  } catch (zohoErr) {
+    // non-fatal — customer is saved in Firestore; Zoho contact will be created on first order
+  }
+
   return customer;
 }
 
@@ -268,7 +287,7 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null) 
 
 // ---- Draft CRUD ----
 
-async function savePOSDraft({ customerId, addressId, items, gstNumber }, traceContext = null) {
+async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
   const lineItems = await buildDraftLineItems(items, traceContext);
   const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext);
 
@@ -281,6 +300,8 @@ async function savePOSDraft({ customerId, addressId, items, gstNumber }, traceCo
     customerId: customerId || null,
     addressId: addressId || null,
     gstNumber: gstNumber || null,
+    gstName: gstName || null,
+    gstAddress: gstAddress || null,
     items: lineItems,
     ...totals,
     status: 'draft',
@@ -305,7 +326,7 @@ async function getPOSDraft(draftId, traceContext = null) {
   }, traceContext);
 }
 
-async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber }, traceContext = null) {
+async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
   const existing = await getPOSDraft(draftId, traceContext);
   if (!existing) return null;
 
@@ -320,6 +341,8 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
     customerId: customerId !== undefined ? (customerId || null) : existing.customerId,
     addressId: resolvedAddressId || null,
     gstNumber: gstNumber !== undefined ? (gstNumber || null) : existing.gstNumber,
+    gstName: gstName !== undefined ? (gstName || null) : existing.gstName,
+    gstAddress: gstAddress !== undefined ? (gstAddress || null) : existing.gstAddress,
     items: lineItems,
     ...totals,
     updatedAt: now.toISOString(),
@@ -347,19 +370,40 @@ async function createPOSQuotation(draftId, traceContext = null) {
 
   let zohoContactId;
   if (customer?.phone) {
-    const existing = await searchZohoContactByPhone(customer.phone, traceContext).catch(() => null);
-    if (existing?.contact_id) {
-      zohoContactId = existing.contact_id;
+    if (customer.zoho_contact_id) {
+      // Use the already-linked Zoho contact — avoid fuzzy search returning a wrong contact
+      zohoContactId = customer.zoho_contact_id;
     } else {
-      const created = await createZohoContact({
-        name: customer.name || customer.phone,
-        phone: customer.phone,
-      }, traceContext);
-      zohoContactId = created.contact_id;
+      const existing = await searchZohoContactByPhone(customer.phone, traceContext).catch(() => null);
+      if (existing?.contact_id) {
+        zohoContactId = existing.contact_id;
+      } else {
+        const created = await createZohoContact({
+          name: customer.name || customer.phone,
+          phone: customer.phone,
+        }, traceContext);
+        zohoContactId = created.contact_id;
+      }
     }
   } else {
     const walkin = await createZohoContact({ name: 'Walk-in Customer', phone: '0000000000' }, traceContext);
     zohoContactId = walkin.contact_id;
+  }
+
+  // Sync GST details using the same flow as the app's customer GST update —
+  // this handles contact_name rename and CONTACT_NAME_CONFLICT redirect transparently
+  if ((draft.gstName || draft.gstNumber) && draft.customerId) {
+    try {
+      const updatedCustomer = await updateCustomerGST(draft.customerId, {
+        gstin: draft.gstNumber || null,
+        business_name: draft.gstName || null,
+        registered_address: draft.gstAddress || null,
+      }, traceContext);
+      // Use the (possibly redirected) zoho_contact_id
+      if (updatedCustomer?.zoho_contact_id) zohoContactId = updatedCustomer.zoho_contact_id;
+    } catch (err) {
+      // non-fatal — estimate will still be created
+    }
   }
 
   // Build estimate line items — same base-rate extraction as createZohoSalesOrder
@@ -383,7 +427,23 @@ async function createPOSQuotation(draftId, traceContext = null) {
     shipping_charge: draft.deliveryCharge || 0,
     notes: `POS Quotation — Suppliable${customer?.phone ? ` | Phone: ${customer.phone}` : ''}`,
   };
-  if (draft.gstNumber) body.gst_no = draft.gstNumber;
+  if (draft.gstNumber) {
+    body.gst_no = draft.gstNumber;
+    body.gst_treatment = 'business_gst';
+  }
+  if (draft.gstName || draft.gstAddress) {
+    const a = draft.gstAddress || {};
+    const trunc = (s, n = 100) => (s || '').substring(0, n);
+    body.billing_address = {
+      attention: trunc(draft.gstName || customer?.name || ''),
+      address: trunc(a.address_line1),
+      street2: trunc(a.address_line2),
+      city: trunc(a.city),
+      state: trunc(a.state),
+      zip: a.pincode || '',
+      country: 'India',
+    };
+  }
 
   const response = await zohoPost(
     `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates`,
@@ -457,6 +517,8 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     orderSource: 'pos',
     posDraftId: draftId,
     ...(draft.gstNumber ? { gstNumber: draft.gstNumber } : {}),
+    ...(draft.gstName ? { gstName: draft.gstName } : {}),
+    ...(draft.gstAddress ? { gstAddress: draft.gstAddress } : {}),
     ...(draft.zohoQuotationId ? { zohoQuotationId: draft.zohoQuotationId } : {}),
     ...(draft.zohoQuotationNumber ? { zohoQuotationNumber: draft.zohoQuotationNumber } : {}),
     createdAt: new Date().toISOString(),
@@ -535,6 +597,8 @@ async function listPOSDrafts(traceContext = null) {
       deliveryCharge: draft.deliveryCharge || 0,
       grandTotal: draft.grandTotal || 0,
       gstNumber: draft.gstNumber || null,
+      gstName: draft.gstName || null,
+      gstAddress: draft.gstAddress || null,
       status: draft.status,
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,

@@ -244,15 +244,24 @@
   .tl-dot.done { background:var(--green); color:#fff; }
   .tl-dot.current { background:var(--blue2); color:#fff; box-shadow:0 0 0 4px rgba(59,130,246,0.2); }
   .tl-dot.future { background:var(--border); color:var(--muted); }
-  .tl-line { width:2px; height:20px; background:var(--border); margin:2px 0; }
+  .tl-line { width:2px; flex-grow:1; min-height:20px; background:var(--border); margin:2px 0; }
   .tl-line.done { background:var(--green); }
   .tl-line.dashed { background:repeating-linear-gradient(to bottom, var(--border) 0, var(--border) 4px, transparent 4px, transparent 8px); }
+  .tl-connector { display:flex; flex-direction:column; align-items:center; width:20px; flex-shrink:0; }
+  .tl-elapsed-badge {
+    font-size:9px; font-weight:700; color:var(--green); background:#d1fae5;
+    border:1px solid #a7f3d0; border-radius:10px; padding:1px 5px;
+    white-space:nowrap; margin:1px 0; letter-spacing:0.2px;
+  }
+  .tl-elapsed-badge.pending { color:var(--muted); background:#f1f5f9; border-color:var(--border); }
   .tl-content { padding-top:1px; }
   .tl-label { font-size:13px; font-weight:600; color:var(--text); }
   .tl-label.done { color:var(--green); }
   .tl-label.current { color:var(--blue2); }
   .tl-label.future { color:var(--muted); }
   .tl-time { font-size:11px; color:var(--muted); margin-top:1px; }
+  .tl-total { margin-top:10px; padding:8px 10px; background:#f0fdf4; border:1px solid #a7f3d0; border-radius:8px; font-size:12px; color:#065f46; font-weight:600; display:flex; gap:8px; align-items:center; }
+  .tl-total-row { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; }
 
   /* SMALL ACTION BUTTONS */
   .btn-sm {
@@ -1019,14 +1028,28 @@ function buildActions(o) {
   }
 }
 
+function formatElapsed(ms) {
+  if (!ms || ms < 0) return null;
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return '< 1 min';
+  const totalMin = Math.floor(totalSec / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
+}
+
 function buildTimeline(o) {
   const steps = [
-    { key: 'warehouse_review', label: 'Order Placed', ts: o.createdAt },
-    { key: 'accepted', label: 'Accepted', ts: o.acceptedAt },
-    { key: 'ready_for_dispatch', label: 'Packing Done', ts: o.packedAt },
-    { key: 'loading', label: 'Dispatched', ts: o.assignedAt },
-    { key: 'out_for_delivery', label: 'Out for Delivery', ts: o.loadingCompleteAt },
-    { key: 'delivered', label: 'Delivered', ts: o.deliveredAt }
+    { key: 'warehouse_review', label: 'Order Placed',     ts: o.createdAt,        elapsedLabel: 'Wait for acceptance' },
+    { key: 'accepted',         label: 'Accepted',          ts: o.acceptedAt,       elapsedLabel: 'Packing time' },
+    { key: 'ready_for_dispatch', label: 'Packing Done',   ts: o.packedAt,         elapsedLabel: 'Loading time' },
+    { key: 'loading',          label: 'Vehicle Assigned',  ts: o.assignedAt,       elapsedLabel: 'Loading to dispatch' },
+    { key: 'out_for_delivery', label: 'Out for Delivery',  ts: o.loadingCompleteAt, elapsedLabel: 'Transit to customer' },
+    { key: 'delivered',        label: 'Delivered',         ts: o.deliveredAt,      elapsedLabel: null }
   ];
   const order_seq = ['warehouse_review','accepted','ready_for_dispatch','loading','out_for_delivery','arrived','delivered'];
   const currentIdx = order_seq.indexOf(o.status);
@@ -1052,7 +1075,7 @@ function buildTimeline(o) {
     </div>`);
   }
 
-  return `<div class="timeline">` + steps.map((step, i) => {
+  const stepHtml = steps.map((step, i) => {
     const stepIdx = order_seq.indexOf(step.key);
     const isDone = currentIdx > stepIdx;
     const isCurrent = currentIdx === stepIdx || (step.key === 'out_for_delivery' && ['out_for_delivery','arrived'].includes(o.status));
@@ -1060,18 +1083,59 @@ function buildTimeline(o) {
     const labelClass = isDone ? 'done' : isCurrent ? 'current' : 'future';
     const lineClass = isDone ? 'done' : isCurrent ? '' : 'dashed';
     const isLast = i === steps.length - 1;
+
+    // Elapsed time between this step and the next step
+    let connectorHtml = '';
+    if (!isLast) {
+      const nextTs = steps[i + 1].ts;
+      const elapsed = (step.ts && nextTs) ? formatElapsed(new Date(nextTs) - new Date(step.ts)) : null;
+      const badgeClass = elapsed ? '' : ' pending';
+      const badge = elapsed
+        ? `<div class="tl-elapsed-badge${badgeClass}">${elapsed}</div>`
+        : `<div class="tl-elapsed-badge pending">—</div>`;
+      connectorHtml = `
+        <div class="tl-connector">
+          <div class="tl-line ${lineClass}" style="min-height:10px"></div>
+          ${isDone ? badge : `<div class="tl-line ${lineClass}" style="min-height:6px"></div>`}
+          <div class="tl-line ${lineClass}" style="min-height:10px"></div>
+        </div>`;
+    }
+
     return `
       <div class="tl-item">
         <div class="tl-left">
           <div class="tl-dot ${dotClass}">${isDone ? '✓' : isCurrent ? '●' : ''}</div>
-          ${!isLast ? `<div class="tl-line ${lineClass}"></div>` : ''}
         </div>
-        <div class="tl-content" style="padding-bottom:${isLast?'0':'16px'}">
+        <div class="tl-content" style="padding-bottom:4px">
           <div class="tl-label ${labelClass}">${step.label}</div>
           ${step.ts ? `<div class="tl-time">${fmtDate(step.ts)}</div>` : ''}
         </div>
-      </div>`;
-  }).join('') + extraItems.join('') + `</div>`;
+      </div>
+      ${connectorHtml}`;
+  }).join('');
+
+  // Summary row: individual stage durations + total
+  const stages = [
+    { label: 'Acceptance', from: o.createdAt,         to: o.acceptedAt },
+    { label: 'Packing',    from: o.acceptedAt,         to: o.packedAt },
+    { label: 'Loading',    from: o.packedAt,            to: o.loadingCompleteAt },
+    { label: 'Transit',    from: o.loadingCompleteAt,  to: o.arrivedAt || o.deliveredAt },
+    { label: 'Total',      from: o.createdAt,           to: o.deliveredAt },
+  ];
+  const summaryChips = stages.map(s => {
+    const e = (s.from && s.to) ? formatElapsed(new Date(s.to) - new Date(s.from)) : null;
+    if (!e) return '';
+    const isTotal = s.label === 'Total';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;background:${isTotal?'#dbeafe':'#f1f5f9'};border:1px solid ${isTotal?'#93c5fd':'var(--border)'};border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;color:${isTotal?'#1d4ed8':'var(--text)'}">
+      <span style="color:var(--muted);font-weight:400">${s.label}</span> ${e}
+    </span>`;
+  }).filter(Boolean).join('');
+
+  const summaryBlock = summaryChips
+    ? `<div class="tl-total-row">${summaryChips}</div>`
+    : '';
+
+  return `<div class="timeline">${stepHtml}${extraItems.join('')}${summaryBlock}</div>`;
 }
 
 // ---- ORDER ACTIONS ----

@@ -338,6 +338,7 @@ const {
   discardPOSDraft,
   getPOSQuotationPDF,
 } = require('../services/posService');
+const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
 
 // Customer search — GET /admin/pos/customers/search?q=
 router.get('/pos/customers/search', async (req, res) => {
@@ -388,14 +389,40 @@ router.post('/pos/customers/:userId/addresses', async (req, res) => {
   }
 });
 
+// Update customer GST — PUT /admin/pos/customers/:userId/gst
+router.put('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const { gstin, business_name, registered_address } = req.body;
+    if (!gstin && !business_name) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'gstin or business_name is required' });
+    }
+    const customer = await updateCustomerGST(req.params.userId, { gstin, business_name, registered_address }, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Delete customer GST — DELETE /admin/pos/customers/:userId/gst
+router.delete('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const customer = await clearCustomerGST(req.params.userId, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
 // Create draft — POST /admin/pos/drafts
 router.post('/pos/drafts', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber }, req.traceContext);
+    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
     res.status(201).json({ success: true, data: { draft } });
   } catch (err) {
     if (err.code === 'MISSING_PARAM' || err.code === 'INVALID_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
@@ -418,11 +445,11 @@ router.get('/pos/drafts/:draftId', async (req, res) => {
 // Update draft — PUT /admin/pos/drafts/:draftId
 router.put('/pos/drafts/:draftId', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber }, req.traceContext);
+    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
     if (!draft) return res.status(404).json({ success: false, error: 'DRAFT_NOT_FOUND', message: 'Draft not found' });
     res.json({ success: true, data: { draft } });
   } catch (err) {
@@ -487,6 +514,53 @@ router.post('/pos/drafts/:draftId/pdf', async (req, res) => {
   } catch (e) {
     const status = e.code === 'DRAFT_NOT_FOUND' ? 404 : e.code === 'NO_QUOTATION' ? 400 : 500;
     res.status(status).json({ success: false, message: e.message });
+  }
+});
+
+// Resolve Google Maps short/full URL to coordinates — GET /admin/pos/resolve-maps-url?url=
+function extractGoogleMapsCoords(url) {
+  let m;
+  // 1. Actual place pin — !8m2!3d<lat>!4d<lng> in data= param (most precise)
+  m = url.match(/!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 2. Generic !3d!4d pattern in data param
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 3. Map view center @lat,lng (less precise — view may not centre on pin)
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 4. Query string patterns
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+router.get('/pos/resolve-maps-url', async (req, res) => {
+  const url = (req.query.url || '').trim();
+  if (!url) return res.status(400).json({ success: false, message: 'url parameter is required' });
+  try {
+    const response = await axios.get(url, {
+      maxRedirects: 10,
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Suppliable/1.0)' },
+      validateStatus: () => true,
+    });
+    const finalUrl = response.request?.res?.responseUrl || url;
+    const coords = extractGoogleMapsCoords(finalUrl);
+    if (!coords) {
+      return res.status(422).json({ success: false, message: 'Could not extract coordinates from this Maps link' });
+    }
+    // Extract place name from URL path: /maps/place/Chai+Kings+-+Perumbakkam/@...
+    let placeName = null;
+    const placeMatch = finalUrl.match(/\/maps\/place\/([^/@?]+)/);
+    if (placeMatch) {
+      placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim() || null;
+    }
+    res.json({ success: true, data: { lat: coords.lat, lng: coords.lng, resolvedUrl: finalUrl, placeName } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Failed to resolve Maps URL: ' + e.message });
   }
 });
 

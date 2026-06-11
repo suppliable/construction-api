@@ -183,6 +183,8 @@
   .qty-btn:last-child { border-radius:0 6px 6px 0; }
   .qty-btn:hover { background:var(--bg); }
   .qty-num { width:32px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 0; font-family:'JetBrains Mono',monospace; }
+  .qty-input { width:48px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 2px; font-family:'JetBrains Mono',monospace; background:#fff; -moz-appearance:textfield; }
+  .qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
   .btn-remove-cart { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 4px; border-radius:4px; transition:color 0.15s; flex-shrink:0; }
   .btn-remove-cart:hover { color:var(--red2); }
   .cart-totals { padding:12px 14px; border-top:1px solid var(--border); background:#f8f9fc; }
@@ -381,7 +383,8 @@
             </div>
             <div class="field-group">
               <div class="field-label">Search Address <span style="color:var(--red2)">*</span></div>
-              <input type="text" class="field-input" id="addrFull" placeholder="Start typing an address…" autocomplete="off">
+              <input type="text" class="field-input" id="addrFull" placeholder="Type an address or paste a Google Maps link…" autocomplete="off">
+              <div id="mapsLinkStatus" style="font-size:12px;margin-top:4px;min-height:16px"></div>
             </div>
             <div id="addressMapDiv" style="display:none"></div>
             <div class="field-row" style="margin-bottom:14px">
@@ -398,10 +401,56 @@
           </div>
         </div>
 
-        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-          <div class="field-group" style="max-width:340px;margin-bottom:0">
-            <div class="field-label">GST Number <span style="color:var(--muted);font-weight:400">(optional)</span></div>
-            <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+        <div id="gstSection" class="hidden" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="section-label" style="margin-bottom:10px">GST Details <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(optional)</span></div>
+
+          <!-- Saved GST card -->
+          <div id="gstSavedSection" class="hidden">
+            <div class="address-card selected" style="cursor:default;align-items:flex-start;justify-content:space-between">
+              <div>
+                <div class="address-lbl" id="gstCardGSTIN"></div>
+                <div class="address-text" id="gstCardName" style="margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--muted);margin-top:3px" id="gstCardAddr"></div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;margin-left:16px">
+                <button onclick="openGstEditInline()" class="btn-change-customer">Edit</button>
+                <button onclick="deleteGstDetails()" style="font-size:12px;font-weight:600;padding:5px 10px;background:none;border:1px solid var(--red2);color:var(--red2);border-radius:6px;cursor:pointer;transition:all 0.15s">Delete</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- No GST saved -->
+          <div id="gstEmptySection" class="hidden">
+            <div style="font-size:13px;color:var(--muted);padding:2px 0 10px">No GST details saved for this customer.</div>
+            <button class="btn-secondary" style="font-size:13px;padding:8px 14px" onclick="toggleGstAddForm()">+ Add GST Details</button>
+          </div>
+
+          <!-- Inline add / edit form -->
+          <div id="gstInlineForm" class="inline-form hidden" style="margin-top:10px">
+            <div class="inline-form-title" id="gstFormTitle">Add GST Details</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+              <div>
+                <div class="field-label" style="margin-bottom:4px">GSTIN</div>
+                <input type="text" class="field-input" id="gstNumber" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+              </div>
+              <div>
+                <div class="field-label" style="margin-bottom:4px">GST Business Name</div>
+                <input type="text" class="field-input" id="gstName" placeholder="Registered business name">
+              </div>
+            </div>
+            <div class="field-label" style="margin-bottom:6px">Registered Address</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <input type="text" class="field-input" id="gstAddr1" placeholder="Address Line 1">
+              <input type="text" class="field-input" id="gstAddr2" placeholder="Address Line 2">
+              <input type="text" class="field-input" id="gstAddrCity" placeholder="City">
+              <input type="text" class="field-input" id="gstAddrPincode" placeholder="Pincode">
+              <input type="text" class="field-input" id="gstAddrState" placeholder="State">
+              <input type="text" class="field-input" id="gstAddrStateCode" placeholder="State Code (e.g. TN)">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px">
+              <button class="btn-primary" onclick="saveGstToProfile()" id="gstSaveProfileBtn">Save to Profile</button>
+              <button class="btn-secondary" onclick="closeGstForm()">Cancel</button>
+            </div>
           </div>
         </div>
       </div>
@@ -472,6 +521,7 @@
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s3Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s3Address">—</span></div>
           <div class="p-row hidden" id="s3GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s3Gst">—</span></div>
+          <div class="p-row hidden" id="s3GstNameRow"><span class="p-label">GST Name</span><span class="p-val" id="s3GstName">—</span></div>
         </div>
         <div class="summary-section">
           <div class="summary-section-title">Items</div>
@@ -507,6 +557,7 @@
           <div class="p-row"><span class="p-label">Phone</span><span class="p-val" id="s4Phone">—</span></div>
           <div class="p-row"><span class="p-label">Address</span><span class="p-val" id="s4Address">—</span></div>
           <div class="p-row hidden" id="s4GstRow"><span class="p-label">GST No.</span><span class="p-val" id="s4Gst">—</span></div>
+          <div class="p-row hidden" id="s4GstNameRow"><span class="p-label">GST Name</span><span class="p-val" id="s4GstName">—</span></div>
           <div class="p-row"><span class="p-label">Quotation</span><span class="p-val" id="s4QuoteNum">—</span></div>
         </div>
         <div class="summary-section">
@@ -557,13 +608,17 @@ function showToast(msg, type='') {
 let currentStep = 1;
 let selectedCustomer = null;
 let selectedAddress = null;
+let savedGst = null;
 let gstNumber = '';
+let gstName = '';
+let gstAddress = null;
 let cart = [];
 let draftId = null;
 let draftData = null;
 let quotationData = null;
 let currentPdfUrl = null;
 let _activeDrafts = [];
+let _selectedDraftIds = new Set();
 let allProducts = [];
 let productMap = {};
 let currentCategory = 'all';
@@ -664,11 +719,16 @@ function selectCustomer(c) {
   document.getElementById('customerSearchSection').classList.add('hidden');
   document.getElementById('addressSection').classList.remove('hidden');
   renderAddressList(c.addresses || []);
+  savedGst = (c.gstin || c.businessName || c.registeredAddress)
+    ? { gstin: c.gstin || null, businessName: c.businessName || null, registeredAddress: c.registeredAddress || null }
+    : null;
+  renderGstSection();
   checkStep1Next();
 }
 
 function clearCustomer() {
   selectedCustomer = null; selectedAddress = null;
+  savedGst = null; gstNumber = ''; gstName = ''; gstAddress = null;
   document.getElementById('selectedCustomerChip').classList.add('hidden');
   document.getElementById('customerSearchSection').classList.remove('hidden');
   document.getElementById('customerSearchInput').value = '';
@@ -676,7 +736,111 @@ function clearCustomer() {
   document.getElementById('createCustomerSection').classList.add('hidden');
   document.getElementById('addressSection').classList.add('hidden');
   document.getElementById('addAddressForm').classList.add('hidden');
+  document.getElementById('gstSection').classList.add('hidden');
   checkStep1Next();
+}
+
+// ── GST SECTION ──
+function renderGstSection() {
+  const section = document.getElementById('gstSection');
+  section.classList.toggle('hidden', !selectedCustomer);
+  if (!selectedCustomer) return;
+
+  const hasSaved = savedGst && (savedGst.gstin || savedGst.businessName);
+  document.getElementById('gstSavedSection').classList.toggle('hidden', !hasSaved);
+  document.getElementById('gstEmptySection').classList.toggle('hidden', hasSaved);
+  document.getElementById('gstInlineForm').classList.add('hidden');
+
+  if (hasSaved) {
+    document.getElementById('gstCardGSTIN').textContent = savedGst.gstin || '';
+    document.getElementById('gstCardName').textContent = savedGst.businessName || '';
+    const ra = (typeof savedGst.registeredAddress === 'object' && savedGst.registeredAddress) ? savedGst.registeredAddress : {};
+    const addrParts = [ra.address_line1, ra.city, ra.state, ra.pincode].filter(Boolean);
+    document.getElementById('gstCardAddr').textContent = addrParts.join(', ');
+    gstNumber = savedGst.gstin || '';
+    gstName = savedGst.businessName || '';
+    gstAddress = (ra.address_line1 || ra.city) ? savedGst.registeredAddress : null;
+  } else {
+    gstNumber = '';
+    gstName = '';
+    gstAddress = null;
+  }
+}
+
+function openGstEditInline() {
+  document.getElementById('gstFormTitle').textContent = 'Edit GST Details';
+  _fillGstForm(savedGst);
+  document.getElementById('gstInlineForm').classList.remove('hidden');
+}
+
+function toggleGstAddForm() {
+  const form = document.getElementById('gstInlineForm');
+  if (!form.classList.contains('hidden')) { form.classList.add('hidden'); return; }
+  document.getElementById('gstFormTitle').textContent = 'Add GST Details';
+  _fillGstForm(null);
+  form.classList.remove('hidden');
+}
+
+function closeGstForm() {
+  document.getElementById('gstInlineForm').classList.add('hidden');
+}
+
+function _fillGstForm(gst) {
+  const ra = (gst && typeof gst.registeredAddress === 'object' && gst.registeredAddress) ? gst.registeredAddress : {};
+  document.getElementById('gstNumber').value = (gst && gst.gstin) || '';
+  document.getElementById('gstName').value = (gst && gst.businessName) || '';
+  document.getElementById('gstAddr1').value = ra.address_line1 || '';
+  document.getElementById('gstAddr2').value = ra.address_line2 || '';
+  document.getElementById('gstAddrCity').value = ra.city || '';
+  document.getElementById('gstAddrPincode').value = ra.pincode || '';
+  document.getElementById('gstAddrState').value = ra.state || '';
+  document.getElementById('gstAddrStateCode').value = ra.state_code || '';
+}
+
+async function saveGstToProfile() {
+  if (!selectedCustomer) return;
+  const gstin = document.getElementById('gstNumber').value.trim().toUpperCase();
+  const business_name = document.getElementById('gstName').value.trim();
+  if (!gstin && !business_name) { showToast('Enter GSTIN or Business Name', 'error'); return; }
+  const registered_address = {
+    address_line1: document.getElementById('gstAddr1').value.trim(),
+    address_line2: document.getElementById('gstAddr2').value.trim(),
+    city: document.getElementById('gstAddrCity').value.trim(),
+    state: document.getElementById('gstAddrState').value.trim(),
+    state_code: document.getElementById('gstAddrStateCode').value.trim(),
+    pincode: document.getElementById('gstAddrPincode').value.trim(),
+  };
+  const hasAddr = Object.values(registered_address).some(v => v);
+  const btn = document.getElementById('gstSaveProfileBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/customers/${selectedCustomer.userId}/gst`, {
+      method: 'PUT',
+      body: JSON.stringify({ gstin, business_name, registered_address: hasAddr ? registered_address : null }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Save failed');
+    savedGst = { gstin, businessName: business_name, registeredAddress: hasAddr ? registered_address : null };
+    renderGstSection();
+    showToast('GST details saved', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to save GST', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save to Profile';
+  }
+}
+
+async function deleteGstDetails() {
+  if (!selectedCustomer || !confirm('Remove GST details from this customer profile?')) return;
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/customers/${selectedCustomer.userId}/gst`, { method: 'DELETE' });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Delete failed'); }
+    savedGst = null;
+    renderGstSection();
+    showToast('GST details removed', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to remove GST', 'error');
+  }
 }
 
 function renderAddressList(addresses) {
@@ -748,6 +912,7 @@ async function submitAddAddress() {
     ['addrFull','addrLabel'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('addrLat').value = '';
     document.getElementById('addrLng').value = '';
+    document.getElementById('mapsLinkStatus').textContent = '';
     lastMapCoords = null;
     _lastAddressComponents = null;
     toggleAddAddressForm();
@@ -783,7 +948,6 @@ function checkStep1Next() {
 }
 
 async function goToStep2() {
-  gstNumber = document.getElementById('gstNumber').value.trim();
   // If no active draft yet, reuse an existing draft-status draft for this customer
   // to avoid creating a duplicate when they reach Step 3
   if (!draftId && selectedCustomer) {
@@ -998,7 +1162,7 @@ function renderShadeSwatches(pid, query) {
   }).join('');
 }
 
-function selectShadeInline(pid, code, name, hex) {
+async function selectShadeInline(pid, code, name, hex) {
   const chip = document.getElementById('sc_'+pid);
   if (!chip) return;
   const shade = shadeByCode[code] || { code, name, hex };
@@ -1009,6 +1173,26 @@ function selectShadeInline(pid, code, name, hex) {
     ${escHtml(shade.code)} ${escHtml(shade.name||'')}
   </span>`;
   closeInlineShadePicker(pid);
+
+  // Update variant selector prices for the selected shade tier
+  const product = productMap[pid];
+  const sel = document.getElementById('vs_'+pid);
+  if (!product?.hasVariants || !product.variants?.length || !sel || !shade.tier) return;
+  try {
+    const res = await apiFetch(`/api/v1/paint-pricing/${pid}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const tierPrices = data.tiers?.[shade.tier];
+    if (!tierPrices) return;
+    Array.from(sel.options).forEach(opt => {
+      const vName = opt.text.split(' — ')[0];
+      const p = tierPrices[vName];
+      if (p !== undefined) {
+        opt.text = `${vName} — ${fmtMoney(p)}`;
+        opt.dataset.price = p;
+      }
+    });
+  } catch(e) { /* silent — base prices remain */ }
 }
 
 // ── CART ──
@@ -1037,18 +1221,29 @@ async function addToCart(productId) {
     try {
       const pr = await apiFetch(`/api/v1/paint-pricing/${productId}/calculate?tier=${encodeURIComponent(shadeTier)}&size=${sizeKey}`);
       const pd = await pr.json();
-      if (pr.ok && pd.price) unitPrice = pd.price;
+      if (pr.ok && pd.price) {
+        unitPrice = pd.price;
+      } else if (pr.status === 404) {
+        showToast('Shade pricing not configured for this product — using base price', 'error');
+      }
     } catch(e) { /* keep base price */ }
   }
+  const needsDeliveryCalc = cart.length === 0 || !draftData?.deliveryResult;
   const existing = cart.find(i => i.productId===productId && i.zohoItemId===zohoItemId && (i.shadeCode||null)===(shadeCode||null));
   if (existing) { existing.quantity += 1; }
   else { cart.push({ productId, zohoItemId, variantId, variantName, name:product.name, unit:product.unit||'', unitPrice, gstRate:product.gst_percentage||18, quantity:1, shadeCode, shadeName, shadeTier }); }
   renderCart();
-  scheduleDeliveryCalc();
+  if (needsDeliveryCalc) scheduleDeliveryCalc();
 }
 
-function removeFromCart(idx) { cart.splice(idx,1); renderCart(); scheduleDeliveryCalc(); }
-function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); scheduleDeliveryCalc(); }
+function removeFromCart(idx) { cart.splice(idx,1); renderCart(); }
+function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); }
+function setQty(idx, val) {
+  const n = Math.max(1, parseInt(val) || 1);
+  if (n === cart[idx]?.quantity) return;
+  cart[idx].quantity = n;
+  renderCart();
+}
 
 function renderCart() {
   const list = document.getElementById('cartItemsList');
@@ -1070,7 +1265,9 @@ function renderCart() {
       </div>
       <div class="qty-stepper">
         <button class="qty-btn" onclick="changeQty(${idx},-1)">−</button>
-        <div class="qty-num">${item.quantity}</div>
+        <input class="qty-input" type="number" value="${item.quantity}" min="1"
+          onchange="setQty(${idx},this.value)"
+          onkeydown="if(event.key==='Enter')this.blur()">
         <button class="qty-btn" onclick="changeQty(${idx},1)">+</button>
       </div>
       <button class="btn-remove-cart" onclick="removeFromCart(${idx})" title="Remove">✕</button>
@@ -1080,7 +1277,8 @@ function renderCart() {
   const gstTotal = cart.reduce((s,i) => s + (i.unitPrice*i.quantity - (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity), 0);
   const avgGst = cart.length ? Math.round(cart[0].gstRate||18) : 18;
   document.getElementById('totGstLabel').textContent = `GST (${avgGst}%)`;
-  renderCartTotals(subtotal, gstTotal, null);
+  // Use cached delivery from last draft fetch; null = still calculating for the first time
+  renderCartTotals(subtotal, gstTotal, draftData || null);
   document.getElementById('step2Next').disabled = false;
 }
 
@@ -1099,17 +1297,21 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
     warnEl.classList.add('hidden');
   } else {
     document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
-    document.getElementById('totGrand').textContent = fmtMoney(deliveryResult.grandTotal||subtotal+gstTotal);
-    // Serviceability warning
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + (deliveryResult.deliveryCharge||0));
+    // Serviceability warning + gate
     const dr = deliveryResult.deliveryResult;
+    const step2NextBtn = document.getElementById('step2Next');
     if (!dr) {
       warnText.textContent = 'No pincode on this address — delivery charge could not be calculated';
       warnEl.classList.remove('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = false;
     } else if (dr.serviceable === false) {
-      warnText.textContent = dr.message || 'Delivery not available to this area';
+      warnText.textContent = (dr.message || 'Delivery not available to this area') + ' — cannot proceed';
       warnEl.classList.remove('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = true;
     } else {
       warnEl.classList.add('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = false;
     }
   }
 }
@@ -1124,7 +1326,9 @@ async function fetchDraftForTotals() {
   if (!cart.length || !selectedAddress) return;
   try {
     const body = buildDraftBody();
-    const res = await apiFetch('/api/v1/admin/pos/drafts', { method:'POST', body:JSON.stringify(body) });
+    const url = draftId ? `/api/v1/admin/pos/drafts/${draftId}` : '/api/v1/admin/pos/drafts';
+    const method = draftId ? 'PUT' : 'POST';
+    const res = await apiFetch(url, { method, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) return;
     const d = data.data.draft;
@@ -1140,12 +1344,17 @@ function buildDraftBody() {
     customerId: selectedCustomer ? selectedCustomer.userId : null,
     addressId: selectedAddress ? (selectedAddress.addressId||selectedAddress.id) : null,
     gstNumber: gstNumber||null,
+    gstName: gstName||null,
+    gstAddress: gstAddress||null,
     items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null }))
   };
 }
 
 async function goToStep3() {
   if (!cart.length) { showToast('Cart is empty', 'error'); return; }
+  if (draftData?.deliveryResult?.serviceable === false) {
+    showToast('Delivery not available to this pincode — cannot proceed', 'error'); return;
+  }
   const btn = document.getElementById('step2Next');
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Saving draft...';
   try {
@@ -1169,6 +1378,8 @@ function populateStep3() {
   document.getElementById('s3Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
   document.getElementById('s3GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s3Gst').textContent = gstNumber;
+  document.getElementById('s3GstNameRow').classList.toggle('hidden', !gstName);
+  if (gstName) document.getElementById('s3GstName').textContent = gstName;
   const d = draftData;
   document.getElementById('s3Items').innerHTML = (d.items||[]).map(item => `
     <tr>
@@ -1273,6 +1484,8 @@ function populateStep4() {
   document.getElementById('s4Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
   document.getElementById('s4GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s4Gst').textContent = gstNumber;
+  document.getElementById('s4GstNameRow').classList.toggle('hidden', !gstName);
+  if (gstName) document.getElementById('s4GstName').textContent = gstName;
   document.getElementById('s4QuoteNum').textContent = quotationData ? quotationData.zohoQuotationNumber : '—';
   document.getElementById('s4Grand').textContent = fmtMoney(draftData ? draftData.grandTotal : 0);
   document.getElementById('confirmActionArea').classList.remove('hidden');
@@ -1396,8 +1609,8 @@ function onPlaceSelected() {
   const lat = place.geometry.location.lat();
   const lng = place.geometry.location.lng();
   if (place.formatted_address) document.getElementById('addrFull').value = place.formatted_address;
-  document.getElementById('addrLat').value = lat.toFixed(6);
-  document.getElementById('addrLng').value = lng.toFixed(6);
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
   _lastAddressComponents = place.address_components || null;
   lastMapCoords = { lat, lng };
   if (addressMarker) {
@@ -1410,27 +1623,138 @@ function onPlaceSelected() {
 async function onMapMarkerDragEnd(event) {
   const lat = event.latLng.lat();
   const lng = event.latLng.lng();
-  document.getElementById('addrLat').value = lat.toFixed(6);
-  document.getElementById('addrLng').value = lng.toFixed(6);
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
   lastMapCoords = { lat, lng };
   try {
     const geocoder = new google.maps.Geocoder();
     const result = await geocoder.geocode({ location: { lat, lng } });
-    if (result.results && result.results[0]) {
+    if (result.results?.[0]?.formatted_address) {
       document.getElementById('addrFull').value = result.results[0].formatted_address;
+      _lastAddressComponents = result.results[0].address_components || null;
+    } else if (!document.getElementById('addrFull').value) {
+      document.getElementById('addrFull').value = `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
     }
-  } catch(e) { /* silent — address field keeps existing value */ }
+  } catch(e) {
+    if (!document.getElementById('addrFull').value) {
+      document.getElementById('addrFull').value = `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
+    }
+  }
 }
+
+// ── GOOGLE MAPS LINK PASTE ──
+function isMapsUrl(text) {
+  return /https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.com|www\.google\.com\/maps)/i.test(text);
+}
+
+function extractMapsCoords(url) {
+  let m;
+  // Actual place pin (most precise) — !8m2!3d<lat>!4d<lng> in data= param
+  m = url.match(/!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // Map view centre @lat,lng — less precise, view may not centre on pin
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+async function applyMapsCoords(lat, lng, placeName = null) {
+  document.getElementById('addrLat').value = lat.toFixed(7);
+  document.getElementById('addrLng').value = lng.toFixed(7);
+  lastMapCoords = { lat, lng };
+  if (addressMarker) {
+    addressMarker.setPosition({ lat, lng });
+    addressMap.panTo({ lat, lng });
+    addressMap.setZoom(17);
+    document.getElementById('addressMapDiv').style.display = 'block';
+  }
+  // Always geocode — load SDK if it hasn't finished loading yet
+  try {
+    await _mapsKeyReady;
+    if (mapsApiKey) {
+      await loadMapsSDK(mapsApiKey);
+      const geocoder = new google.maps.Geocoder();
+      const result = await geocoder.geocode({ location: { lat, lng } });
+      if (result.results?.[0]) {
+        _lastAddressComponents = result.results[0].address_components || null;
+        // If we have a place name (from a shared Place URL), prepend it to the
+        // geocoded address so the field reads "Chai Kings - Perumbakkam, Antony
+        // Nagar Ext Rd, Chennai, Tamil Nadu 600100" instead of a Plus Code.
+        const geocodedAddr = result.results[0].formatted_address || '';
+        // Only prepend placeName if it's a distinct business name not already in the geocoded address
+        // (prevents duplication when a Maps link points to a plain address rather than a named place)
+        const alreadyIncluded = geocodedAddr.toLowerCase().includes(placeName?.toLowerCase() || '~~~');
+        document.getElementById('addrFull').value = (placeName && !alreadyIncluded)
+          ? `${placeName}, ${geocodedAddr}`
+          : geocodedAddr;
+        return true;
+      }
+    }
+  } catch(e) { /* geocoding failed — fall through to fallback */ }
+  // Geocoding unavailable — use place name if we have it, else coords
+  if (!document.getElementById('addrFull').value) {
+    document.getElementById('addrFull').value = placeName || `${lat.toFixed(7)}, ${lng.toFixed(7)}`;
+  }
+  return false;
+}
+
+document.getElementById('addrFull').addEventListener('paste', async (e) => {
+  const pasted = (e.clipboardData || window.clipboardData).getData('text').trim();
+  if (!isMapsUrl(pasted)) return;
+  e.preventDefault();
+
+  const statusEl = document.getElementById('mapsLinkStatus');
+  const setStatus = (msg, color) => { statusEl.textContent = msg; statusEl.style.color = color; };
+  setStatus('🔍 Resolving location…', 'var(--muted)');
+
+  const onResult = (geocoded) => {
+    if (geocoded) {
+      setStatus('✓ Location and address found', '#059669');
+    } else {
+      setStatus('📍 Pin placed — please verify or type the address above', '#b45309');
+      document.getElementById('addrFull').focus();
+    }
+  };
+
+  // Full URL — extract coords directly in the browser (no place name available)
+  const direct = extractMapsCoords(pasted);
+  if (direct) {
+    const geocoded = await applyMapsCoords(direct.lat, direct.lng);
+    onResult(geocoded);
+    return;
+  }
+
+  // Short URL (maps.app.goo.gl) — backend follows redirect and extracts place name
+  try {
+    const res = await apiFetch(`/api/v1/admin/pos/resolve-maps-url?url=${encodeURIComponent(pasted)}`);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      setStatus('⚠️ ' + (data.message || 'Could not extract location from link'), '#b45309');
+      return;
+    }
+    const geocoded = await applyMapsCoords(data.data.lat, data.data.lng, data.data.placeName || null);
+    onResult(geocoded);
+  } catch(e) {
+    setStatus('⚠️ Failed to resolve Maps link', '#b45309');
+  }
+});
 
 // ── RESET ──
 function resetWizard() {
-  selectedCustomer=null; selectedAddress=null; gstNumber=''; cart=[];
+  selectedCustomer=null; selectedAddress=null; savedGst=null; gstNumber=''; gstName=''; gstAddress=null; cart=[];
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
   allShades=[]; _currentShadePid=null;
   addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null; _lastAddressComponents=null;
   document.getElementById('addressMapDiv').style.display='none';
-  ['customerSearchInput','gstNumber','addrFull','addrLabel','addrLat','addrLng'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['customerSearchInput','addrFull','addrLabel','addrLat','addrLng'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('gstSection').classList.add('hidden');
   document.getElementById('customerSearchResults').innerHTML='';
   document.getElementById('createCustomerSection').classList.add('hidden');
   document.getElementById('selectedCustomerChip').classList.add('hidden');
@@ -1485,6 +1809,7 @@ function fmtDateTime(iso) {
 }
 
 function renderDraftsTable(drafts) {
+  _selectedDraftIds = new Set();
   const container = document.getElementById('draftsTableContainer');
   if (!drafts.length) {
     container.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">
@@ -1494,13 +1819,21 @@ function renderDraftsTable(drafts) {
     </div>`;
     return;
   }
-  container.innerHTML = `<div style="overflow-x:auto"><table class="drafts-table">
+  container.innerHTML = `
+    <div id="draftsSelBar" style="display:none;align-items:center;gap:12px;padding:8px 14px;background:#fef3c7;border-bottom:1px solid #fcd34d;font-size:13px">
+      <span id="draftsSelCount" style="font-weight:600;color:#92400e"></span>
+      <button class="btn-secondary" style="padding:4px 12px;font-size:12px;color:var(--red2);border-color:var(--red2)" onclick="discardSelected()">Discard Selected</button>
+      <button class="btn-secondary" style="padding:4px 10px;font-size:12px" onclick="clearDraftSelection()">Clear</button>
+    </div>
+    <div style="overflow-x:auto"><table class="drafts-table">
     <thead><tr>
+      <th style="width:32px"><input type="checkbox" id="checkAllDrafts" title="Select all" onchange="toggleSelectAllDrafts(this.checked)"></th>
       <th>Customer</th><th>Phone</th><th>Quotation No</th>
       <th style="text-align:right">Grand Total</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr></thead>
     <tbody>
       ${drafts.map((d,i) => `<tr>
+        <td><input type="checkbox" class="draft-check" data-id="${escHtml(d.draftId)}" onchange="onDraftCheckChange(this)"></td>
         <td style="font-weight:600">${escHtml(d.customer?.name || 'Walk-in')}</td>
         <td style="color:var(--muted)">${escHtml(d.customer?.phone || '—')}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${escHtml(d.zohoQuotationNumber || '—')}</td>
@@ -1516,6 +1849,46 @@ function renderDraftsTable(drafts) {
   </table></div>`;
 }
 
+function onDraftCheckChange(checkbox) {
+  const id = checkbox.dataset.id;
+  if (checkbox.checked) _selectedDraftIds.add(id); else _selectedDraftIds.delete(id);
+  _updateDraftSelBar();
+}
+
+function _updateDraftSelBar() {
+  const bar = document.getElementById('draftsSelBar');
+  const countEl = document.getElementById('draftsSelCount');
+  const allCheck = document.getElementById('checkAllDrafts');
+  const total = document.querySelectorAll('.draft-check').length;
+  const n = _selectedDraftIds.size;
+  if (bar) bar.style.display = n > 0 ? 'flex' : 'none';
+  if (countEl) countEl.textContent = `${n} draft${n !== 1 ? 's' : ''} selected`;
+  if (allCheck) { allCheck.checked = n === total; allCheck.indeterminate = n > 0 && n < total; }
+}
+
+function toggleSelectAllDrafts(checked) {
+  document.querySelectorAll('.draft-check').forEach(c => {
+    c.checked = checked;
+    if (checked) _selectedDraftIds.add(c.dataset.id); else _selectedDraftIds.delete(c.dataset.id);
+  });
+  _updateDraftSelBar();
+}
+
+function clearDraftSelection() {
+  document.querySelectorAll('.draft-check').forEach(c => c.checked = false);
+  _selectedDraftIds.clear();
+  _updateDraftSelBar();
+}
+
+async function discardSelected() {
+  const n = _selectedDraftIds.size;
+  if (!n) return;
+  if (!confirm(`Discard ${n} draft${n > 1 ? 's' : ''}? This cannot be undone.`)) return;
+  const ids = Array.from(_selectedDraftIds);
+  await Promise.all(ids.map(id => apiFetch(`/api/v1/admin/pos/drafts/${id}/discard`, { method: 'PATCH' }).catch(() => {})));
+  await loadDrafts();
+}
+
 async function resumeDraft(idx) {
   const draft = _activeDrafts[idx];
   if (!draft) return;
@@ -1524,6 +1897,11 @@ async function resumeDraft(idx) {
   draftId = draft.draftId;
   draftData = draft;
   gstNumber = draft.gstNumber || '';
+  gstName = draft.gstName || '';
+  gstAddress = draft.gstAddress || null;
+  savedGst = (gstNumber || gstName || gstAddress)
+    ? { gstin: gstNumber || null, businessName: gstName || null, registeredAddress: gstAddress || null }
+    : null;
   currentPdfUrl = draft.quotationPdfUrl || null;
 
   selectedCustomer = draft.customer
@@ -1558,7 +1936,7 @@ async function resumeDraft(idx) {
     document.getElementById('customerSearchSection').classList.add('hidden');
     document.getElementById('addressSection').classList.remove('hidden');
   }
-  if (gstNumber) document.getElementById('gstNumber').value = gstNumber;
+  if (selectedCustomer) renderGstSection();
 
   // Switch to New Order tab
   document.getElementById('tabNewOrder').classList.add('active');
