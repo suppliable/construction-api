@@ -567,6 +567,7 @@ let draftData = null;
 let quotationData = null;
 let currentPdfUrl = null;
 let _activeDrafts = [];
+let _selectedDraftIds = new Set();
 let allProducts = [];
 let productMap = {};
 let currentCategory = 'all';
@@ -1002,7 +1003,7 @@ function renderShadeSwatches(pid, query) {
   }).join('');
 }
 
-function selectShadeInline(pid, code, name, hex) {
+async function selectShadeInline(pid, code, name, hex) {
   const chip = document.getElementById('sc_'+pid);
   if (!chip) return;
   const shade = shadeByCode[code] || { code, name, hex };
@@ -1013,6 +1014,26 @@ function selectShadeInline(pid, code, name, hex) {
     ${escHtml(shade.code)} ${escHtml(shade.name||'')}
   </span>`;
   closeInlineShadePicker(pid);
+
+  // Update variant selector prices for the selected shade tier
+  const product = productMap[pid];
+  const sel = document.getElementById('vs_'+pid);
+  if (!product?.hasVariants || !product.variants?.length || !sel || !shade.tier) return;
+  try {
+    const res = await apiFetch(`/api/v1/paint-pricing/${pid}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const tierPrices = data.tiers?.[shade.tier];
+    if (!tierPrices) return;
+    Array.from(sel.options).forEach(opt => {
+      const vName = opt.text.split(' — ')[0];
+      const p = tierPrices[vName];
+      if (p !== undefined) {
+        opt.text = `${vName} — ${fmtMoney(p)}`;
+        opt.dataset.price = p;
+      }
+    });
+  } catch(e) { /* silent — base prices remain */ }
 }
 
 // ── CART ──
@@ -1116,16 +1137,20 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   } else {
     document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
     document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + (deliveryResult.deliveryCharge||0));
-    // Serviceability warning
+    // Serviceability warning + gate
     const dr = deliveryResult.deliveryResult;
+    const step2NextBtn = document.getElementById('step2Next');
     if (!dr) {
       warnText.textContent = 'No pincode on this address — delivery charge could not be calculated';
       warnEl.classList.remove('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = false;
     } else if (dr.serviceable === false) {
-      warnText.textContent = dr.message || 'Delivery not available to this area';
+      warnText.textContent = (dr.message || 'Delivery not available to this area') + ' — cannot proceed';
       warnEl.classList.remove('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = true;
     } else {
       warnEl.classList.add('hidden');
+      if (step2NextBtn) step2NextBtn.disabled = false;
     }
   }
 }
@@ -1164,6 +1189,9 @@ function buildDraftBody() {
 
 async function goToStep3() {
   if (!cart.length) { showToast('Cart is empty', 'error'); return; }
+  if (draftData?.deliveryResult?.serviceable === false) {
+    showToast('Delivery not available to this pincode — cannot proceed', 'error'); return;
+  }
   const btn = document.getElementById('step2Next');
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Saving draft...';
   try {
@@ -1468,16 +1496,19 @@ async function applyMapsCoords(lat, lng) {
     addressMap.setZoom(17);
     document.getElementById('addressMapDiv').style.display = 'block';
   }
-  if (mapsSDKLoaded && window.google?.maps?.Geocoder) {
-    try {
+  // Always geocode — load SDK if it hasn't finished loading yet
+  try {
+    await _mapsKeyReady;
+    if (mapsApiKey) {
+      await loadMapsSDK(mapsApiKey);
       const geocoder = new google.maps.Geocoder();
       const result = await geocoder.geocode({ location: { lat, lng } });
       if (result.results?.[0]) {
         document.getElementById('addrFull').value = result.results[0].formatted_address;
         _lastAddressComponents = result.results[0].address_components || null;
       }
-    } catch(e) { /* keep coords in address field as fallback */ }
-  }
+    }
+  } catch(e) { /* keep lat/lng in fields as fallback */ }
 }
 
 document.getElementById('addrFull').addEventListener('paste', async (e) => {
@@ -1575,6 +1606,7 @@ function fmtDateTime(iso) {
 }
 
 function renderDraftsTable(drafts) {
+  _selectedDraftIds = new Set();
   const container = document.getElementById('draftsTableContainer');
   if (!drafts.length) {
     container.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">
@@ -1584,13 +1616,21 @@ function renderDraftsTable(drafts) {
     </div>`;
     return;
   }
-  container.innerHTML = `<div style="overflow-x:auto"><table class="drafts-table">
+  container.innerHTML = `
+    <div id="draftsSelBar" style="display:none;align-items:center;gap:12px;padding:8px 14px;background:#fef3c7;border-bottom:1px solid #fcd34d;font-size:13px">
+      <span id="draftsSelCount" style="font-weight:600;color:#92400e"></span>
+      <button class="btn-secondary" style="padding:4px 12px;font-size:12px;color:var(--red2);border-color:var(--red2)" onclick="discardSelected()">Discard Selected</button>
+      <button class="btn-secondary" style="padding:4px 10px;font-size:12px" onclick="clearDraftSelection()">Clear</button>
+    </div>
+    <div style="overflow-x:auto"><table class="drafts-table">
     <thead><tr>
+      <th style="width:32px"><input type="checkbox" id="checkAllDrafts" title="Select all" onchange="toggleSelectAllDrafts(this.checked)"></th>
       <th>Customer</th><th>Phone</th><th>Quotation No</th>
       <th style="text-align:right">Grand Total</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr></thead>
     <tbody>
       ${drafts.map((d,i) => `<tr>
+        <td><input type="checkbox" class="draft-check" data-id="${escHtml(d.draftId)}" onchange="onDraftCheckChange(this)"></td>
         <td style="font-weight:600">${escHtml(d.customer?.name || 'Walk-in')}</td>
         <td style="color:var(--muted)">${escHtml(d.customer?.phone || '—')}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${escHtml(d.zohoQuotationNumber || '—')}</td>
@@ -1604,6 +1644,46 @@ function renderDraftsTable(drafts) {
       </tr>`).join('')}
     </tbody>
   </table></div>`;
+}
+
+function onDraftCheckChange(checkbox) {
+  const id = checkbox.dataset.id;
+  if (checkbox.checked) _selectedDraftIds.add(id); else _selectedDraftIds.delete(id);
+  _updateDraftSelBar();
+}
+
+function _updateDraftSelBar() {
+  const bar = document.getElementById('draftsSelBar');
+  const countEl = document.getElementById('draftsSelCount');
+  const allCheck = document.getElementById('checkAllDrafts');
+  const total = document.querySelectorAll('.draft-check').length;
+  const n = _selectedDraftIds.size;
+  if (bar) bar.style.display = n > 0 ? 'flex' : 'none';
+  if (countEl) countEl.textContent = `${n} draft${n !== 1 ? 's' : ''} selected`;
+  if (allCheck) { allCheck.checked = n === total; allCheck.indeterminate = n > 0 && n < total; }
+}
+
+function toggleSelectAllDrafts(checked) {
+  document.querySelectorAll('.draft-check').forEach(c => {
+    c.checked = checked;
+    if (checked) _selectedDraftIds.add(c.dataset.id); else _selectedDraftIds.delete(c.dataset.id);
+  });
+  _updateDraftSelBar();
+}
+
+function clearDraftSelection() {
+  document.querySelectorAll('.draft-check').forEach(c => c.checked = false);
+  _selectedDraftIds.clear();
+  _updateDraftSelBar();
+}
+
+async function discardSelected() {
+  const n = _selectedDraftIds.size;
+  if (!n) return;
+  if (!confirm(`Discard ${n} draft${n > 1 ? 's' : ''}? This cannot be undone.`)) return;
+  const ids = Array.from(_selectedDraftIds);
+  await Promise.all(ids.map(id => apiFetch(`/api/v1/admin/pos/drafts/${id}/discard`, { method: 'PATCH' }).catch(() => {})));
+  await loadDrafts();
 }
 
 async function resumeDraft(idx) {
