@@ -264,6 +264,9 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
   if (contactData.gstin) {
     updateBody.gst_no = contactData.gstin;
     updateBody.gst_treatment = 'business_gst';
+  } else if (contactData.gstin === null) {
+    updateBody.gst_no = '';
+    updateBody.gst_treatment = 'consumer';
   }
   if (contactData.registered_address) {
     updateBody.place_of_contact = contactData.registered_address.state_code || 'TN';

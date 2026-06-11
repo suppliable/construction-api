@@ -114,4 +114,30 @@ async function updateCustomerGST(userId, { gstin, business_name, registered_addr
   return saveCustomer(customer, traceContext);
 }
 
-module.exports = { syncCustomer, updateCustomerGST };
+async function clearCustomerGST(userId, traceContext = null) {
+  const customer = await getCustomer(userId, traceContext);
+  if (!customer) throw new Error('Customer not found');
+
+  customer.gstin = null;
+  customer.business_name = null;
+  customer.registered_address = null;
+  customer.is_business = false;
+
+  if (customer.zoho_contact_id) {
+    try {
+      await updateZohoContact(customer.zoho_contact_id, {
+        name: customer.name,
+        phone: customer.phone,
+        gstin: null,
+        business_name: null,
+        registered_address: null,
+      }, traceContext);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Zoho contact GST clear failed — saved locally');
+    }
+  }
+
+  return saveCustomer(customer, traceContext);
+}
+
+module.exports = { syncCustomer, updateCustomerGST, clearCustomerGST };

@@ -338,6 +338,7 @@ const {
   discardPOSDraft,
   getPOSQuotationPDF,
 } = require('../services/posService');
+const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
 
 // Customer search — GET /admin/pos/customers/search?q=
 router.get('/pos/customers/search', async (req, res) => {
@@ -385,6 +386,32 @@ router.post('/pos/customers/:userId/addresses', async (req, res) => {
   } catch (err) {
     if (err.code === 'MISSING_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Update customer GST — PUT /admin/pos/customers/:userId/gst
+router.put('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const { gstin, business_name, registered_address } = req.body;
+    if (!gstin && !business_name) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'gstin or business_name is required' });
+    }
+    const customer = await updateCustomerGST(req.params.userId, { gstin, business_name, registered_address }, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Delete customer GST — DELETE /admin/pos/customers/:userId/gst
+router.delete('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const customer = await clearCustomerGST(req.params.userId, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 });
 
