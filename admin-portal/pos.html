@@ -1462,10 +1462,17 @@ async function onMapMarkerDragEnd(event) {
   try {
     const geocoder = new google.maps.Geocoder();
     const result = await geocoder.geocode({ location: { lat, lng } });
-    if (result.results && result.results[0]) {
+    if (result.results?.[0]?.formatted_address) {
       document.getElementById('addrFull').value = result.results[0].formatted_address;
+      _lastAddressComponents = result.results[0].address_components || null;
+    } else if (!document.getElementById('addrFull').value) {
+      document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     }
-  } catch(e) { /* silent — address field keeps existing value */ }
+  } catch(e) {
+    if (!document.getElementById('addrFull').value) {
+      document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
+  }
 }
 
 // ── GOOGLE MAPS LINK PASTE ──
@@ -1503,12 +1510,19 @@ async function applyMapsCoords(lat, lng) {
       await loadMapsSDK(mapsApiKey);
       const geocoder = new google.maps.Geocoder();
       const result = await geocoder.geocode({ location: { lat, lng } });
-      if (result.results?.[0]) {
+      if (result.results?.[0]?.formatted_address) {
         document.getElementById('addrFull').value = result.results[0].formatted_address;
         _lastAddressComponents = result.results[0].address_components || null;
+        return true; // geocoding succeeded
       }
     }
-  } catch(e) { /* keep lat/lng in fields as fallback */ }
+  } catch(e) { /* geocoding failed — fall through to coords fallback */ }
+  // Geocoding unavailable — pre-fill coords so saveAddress validation passes;
+  // user can overwrite with a proper address if needed.
+  if (!document.getElementById('addrFull').value) {
+    document.getElementById('addrFull').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  }
+  return false;
 }
 
 document.getElementById('addrFull').addEventListener('paste', async (e) => {
@@ -1520,11 +1534,20 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
   const setStatus = (msg, color) => { statusEl.textContent = msg; statusEl.style.color = color; };
   setStatus('🔍 Resolving location…', 'var(--muted)');
 
+  const onResult = (geocoded) => {
+    if (geocoded) {
+      setStatus('✓ Location and address found', '#059669');
+    } else {
+      setStatus('📍 Pin placed — address could not be auto-filled, please type it above', '#b45309');
+      document.getElementById('addrFull').focus();
+    }
+  };
+
   // Full URL — extract coords directly in the browser
   const direct = extractMapsCoords(pasted);
   if (direct) {
-    await applyMapsCoords(direct.lat, direct.lng);
-    setStatus('✓ Location found', '#059669');
+    const geocoded = await applyMapsCoords(direct.lat, direct.lng);
+    onResult(geocoded);
     return;
   }
 
@@ -1536,8 +1559,8 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
       setStatus('⚠️ ' + (data.message || 'Could not extract location from link'), '#b45309');
       return;
     }
-    await applyMapsCoords(data.data.lat, data.data.lng);
-    setStatus('✓ Location found', '#059669');
+    const geocoded = await applyMapsCoords(data.data.lat, data.data.lng);
+    onResult(geocoded);
   } catch(e) {
     setStatus('⚠️ Failed to resolve Maps link', '#b45309');
   }
