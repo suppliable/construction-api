@@ -44,18 +44,8 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       body.gst_no = gstDetails.gstNumber;
       body.gst_treatment = 'business_gst';
     }
-    if (gstDetails.gstName || gstDetails.gstAddress) {
-      const a = gstDetails.gstAddress || {};
-      body.billing_address = {
-        attention: gstDetails.gstName || '',
-        address: a.address_line1 || '',
-        street2: a.address_line2 || '',
-        city: a.city || '',
-        state: a.state || '',
-        zip: a.pincode || '',
-        country: 'India',
-      };
-    }
+    // billing_address is intentionally omitted from the SO body —
+    // Zoho uses the contact's stored billing address (set via updateZohoContact before this call)
 
     const response = await zohoPost(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/salesorders`,

@@ -14,6 +14,7 @@ const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
 const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken } = require('./zohoService');
+const { updateCustomerGST } = require('./customerService');
 
 const db = getTrackedDb();
 
@@ -95,6 +96,21 @@ async function createCustomer({ name, phone, email }, traceContext = null) {
   };
 
   await saveCustomer(customer, traceContext);
+
+  // Create Zoho contact immediately so the customer is visible in Zoho Books
+  try {
+    const zohoContact = await createZohoContact({
+      name: customer.name,
+      phone: customer.phone,
+    }, traceContext);
+    if (zohoContact?.contact_id) {
+      customer.zoho_contact_id = zohoContact.contact_id;
+      await saveCustomer(customer, traceContext);
+    }
+  } catch (zohoErr) {
+    // non-fatal — customer is saved in Firestore; Zoho contact will be created on first order
+  }
+
   return customer;
 }
 
@@ -354,29 +370,37 @@ async function createPOSQuotation(draftId, traceContext = null) {
 
   let zohoContactId;
   if (customer?.phone) {
-    const existing = await searchZohoContactByPhone(customer.phone, traceContext).catch(() => null);
-    if (existing?.contact_id) {
-      zohoContactId = existing.contact_id;
+    if (customer.zoho_contact_id) {
+      // Use the already-linked Zoho contact — avoid fuzzy search returning a wrong contact
+      zohoContactId = customer.zoho_contact_id;
     } else {
-      const created = await createZohoContact({
-        name: customer.name || customer.phone,
-        phone: customer.phone,
-      }, traceContext);
-      zohoContactId = created.contact_id;
+      const existing = await searchZohoContactByPhone(customer.phone, traceContext).catch(() => null);
+      if (existing?.contact_id) {
+        zohoContactId = existing.contact_id;
+      } else {
+        const created = await createZohoContact({
+          name: customer.name || customer.phone,
+          phone: customer.phone,
+        }, traceContext);
+        zohoContactId = created.contact_id;
+      }
     }
   } else {
     const walkin = await createZohoContact({ name: 'Walk-in Customer', phone: '0000000000' }, traceContext);
     zohoContactId = walkin.contact_id;
   }
 
-  // Sync GST details onto the Zoho contact so the PDF "Bill To" shows the business name
-  if (draft.gstName || draft.gstNumber) {
+  // Sync GST details using the same flow as the app's customer GST update —
+  // this handles contact_name rename and CONTACT_NAME_CONFLICT redirect transparently
+  if ((draft.gstName || draft.gstNumber) && draft.customerId) {
     try {
-      await updateZohoContact(zohoContactId, {
-        business_name: draft.gstName || customer?.name || '',
+      const updatedCustomer = await updateCustomerGST(draft.customerId, {
         gstin: draft.gstNumber || null,
+        business_name: draft.gstName || null,
         registered_address: draft.gstAddress || null,
       }, traceContext);
+      // Use the (possibly redirected) zoho_contact_id
+      if (updatedCustomer?.zoho_contact_id) zohoContactId = updatedCustomer.zoho_contact_id;
     } catch (err) {
       // non-fatal — estimate will still be created
     }
@@ -409,12 +433,13 @@ async function createPOSQuotation(draftId, traceContext = null) {
   }
   if (draft.gstName || draft.gstAddress) {
     const a = draft.gstAddress || {};
+    const trunc = (s, n = 100) => (s || '').substring(0, n);
     body.billing_address = {
-      attention: draft.gstName || customer?.name || '',
-      address: a.address_line1 || '',
-      street2: a.address_line2 || '',
-      city: a.city || '',
-      state: a.state || '',
+      attention: trunc(draft.gstName || customer?.name || ''),
+      address: trunc(a.address_line1),
+      street2: trunc(a.address_line2),
+      city: trunc(a.city),
+      state: trunc(a.state),
       zip: a.pincode || '',
       country: 'India',
     };

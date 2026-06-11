@@ -1687,7 +1687,10 @@ async function applyMapsCoords(lat, lng, placeName = null) {
         // geocoded address so the field reads "Chai Kings - Perumbakkam, Antony
         // Nagar Ext Rd, Chennai, Tamil Nadu 600100" instead of a Plus Code.
         const geocodedAddr = result.results[0].formatted_address || '';
-        document.getElementById('addrFull').value = placeName
+        // Only prepend placeName if it's a distinct business name not already in the geocoded address
+        // (prevents duplication when a Maps link points to a plain address rather than a named place)
+        const alreadyIncluded = geocodedAddr.toLowerCase().includes(placeName?.toLowerCase() || '~~~');
+        document.getElementById('addrFull').value = (placeName && !alreadyIncluded)
           ? `${placeName}, ${geocodedAddr}`
           : geocodedAddr;
         return true;
