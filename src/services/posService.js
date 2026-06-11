@@ -13,7 +13,7 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, getAccessToken } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken } = require('./zohoService');
 
 const db = getTrackedDb();
 
@@ -367,6 +367,19 @@ async function createPOSQuotation(draftId, traceContext = null) {
   } else {
     const walkin = await createZohoContact({ name: 'Walk-in Customer', phone: '0000000000' }, traceContext);
     zohoContactId = walkin.contact_id;
+  }
+
+  // Sync GST details onto the Zoho contact so the PDF "Bill To" shows the business name
+  if (draft.gstName || draft.gstNumber) {
+    try {
+      await updateZohoContact(zohoContactId, {
+        business_name: draft.gstName || customer?.name || '',
+        gstin: draft.gstNumber || null,
+        registered_address: draft.gstAddress || null,
+      }, traceContext);
+    } catch (err) {
+      // non-fatal — estimate will still be created
+    }
   }
 
   // Build estimate line items — same base-rate extraction as createZohoSalesOrder
