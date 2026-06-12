@@ -118,7 +118,7 @@ async function updateCustomerGST(userId, { gstin, business_name, registered_addr
   return saveCustomer(customer, traceContext);
 }
 
-async function clearCustomerGST(userId, traceContext = null) {
+async function clearCustomerGST(userId, traceContext = null, { throwOnZohoError = false } = {}) {
   const customer = await getCustomer(userId, traceContext);
   if (!customer) throw new Error('Customer not found');
 
@@ -127,6 +127,7 @@ async function clearCustomerGST(userId, traceContext = null) {
   customer.registered_address = null;
   customer.is_business = false;
 
+  let zohoFailed = false;
   if (customer.zoho_contact_id) {
     try {
       await updateZohoContact(customer.zoho_contact_id, {
@@ -137,11 +138,18 @@ async function clearCustomerGST(userId, traceContext = null) {
         registered_address: null,
       }, traceContext);
     } catch (err) {
+      zohoFailed = true;
       logger.warn({ err: err.message }, 'Zoho contact GST clear failed — saved locally');
     }
   }
 
-  return saveCustomer(customer, traceContext);
+  const saved = await saveCustomer(customer, traceContext);
+
+  if (throwOnZohoError && zohoFailed) {
+    throw Object.assign(new Error('Zoho sync failed'), { code: 'ZOHO_SYNC_FAILED', customer: saved });
+  }
+
+  return saved;
 }
 
 module.exports = { syncCustomer, updateCustomerGST, clearCustomerGST };
