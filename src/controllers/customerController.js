@@ -1,6 +1,6 @@
 const { getCustomer, saveCustomer, getCustomerByPhone } = require('../services/firestoreService');
 const { toCustomerDTO } = require('../models/customerDTO');
-const { updateCustomerGST } = require('../services/customerService');
+const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
 
 async function getCustomerHandler(req, res) {
   const customer = await getCustomer(req.params.userId, req.traceContext);
@@ -68,4 +68,24 @@ async function updateGSTDetails(req, res) {
   }
 }
 
-module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, updateGSTDetails, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };
+async function removeGSTDetails(req, res) {
+  if (req.user?.uid !== req.params.userId) {
+    return res.status(403).json({ success: false, error: 'FORBIDDEN', message: 'Access denied' });
+  }
+  try {
+    const customer = await clearCustomerGST(req.params.userId, req.traceContext, { throwOnZohoError: true });
+    const dto = { ...toCustomerDTO(customer), isBusiness: false };
+    return res.json({ success: true, data: { customer: dto }, user: dto });
+  } catch (err) {
+    if (err.code === 'ZOHO_SYNC_FAILED') {
+      const dto = { ...toCustomerDTO(err.customer), isBusiness: false };
+      return res.status(502).json({ success: false, error: 'ZOHO_SYNC_FAILED', message: 'GST details cleared locally but Zoho sync failed', data: { customer: dto }, user: dto });
+    }
+    if (err.message === 'Customer not found') {
+      return res.status(404).json({ success: false, error: 'USER_NOT_FOUND', message: 'Customer not found' });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, updateGSTDetails, removeGSTDetails, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };
