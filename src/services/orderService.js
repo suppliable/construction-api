@@ -8,6 +8,7 @@ const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
+const { notifyNewOrder, notifyPaymentFailed } = require('./slackService');
 
 async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
@@ -155,6 +156,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   };
   await saveOrder(order, traceContext);
   await saveCart(userId, { items: [] });
+  notifyNewOrder(order).catch(() => {});
 
   return order;
 }
@@ -173,9 +175,6 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
 async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
-  const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
-
   // Always log the attempt for audit, even if no state change.
   const attemptRecord = {
     at: new Date().toISOString(),
@@ -185,35 +184,54 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     ...(attempt && attempt.actor ? { actor: attempt.actor } : {}),
   };
 
-  // Idempotency: if paymentStatus is already 'confirmed', nothing changes —
-  // just record the attempt for audit.
-  if (order.paymentStatus === 'confirmed') {
-    await updateOrder(orderId, {
+  // The webhook and the client /verify poll can both call this for the same
+  // payment and race through a plain read-then-write — both seeing
+  // paymentStatus='pending', both flipping to 'confirmed', both firing side
+  // effects (e.g. the Slack new-order notification, twice). Do the read and the
+  // flip inside a single Firestore transaction so exactly ONE caller wins the
+  // pending→confirmed transition; only the winner reports _transitioned: true.
+  const db = admin.firestore();
+  const ref = db.collection('orders').doc(orderId);
+  const { order, update, transitioned } = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+    const order = snap.data();
+
+    // Idempotency: if paymentStatus is already 'confirmed', nothing changes —
+    // just record the attempt for audit.
+    if (order.paymentStatus === 'confirmed') {
+      tx.update(ref, {
+        'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
+      });
+      return { order, update: null, transitioned: false };
+    }
+
+    // Always flip paymentStatus to 'confirmed' (from either 'pending' or
+    // 'pending_proceeding'). Only flip `status` if the order is still in
+    // pending_payment — past that, the order may have proceeded into the
+    // fulfilment pipeline via proceedAsPendingPayment, and a late webhook here
+    // must NOT jerk it back.
+    const update = {
+      paymentStatus: 'confirmed',
+      paidAt: new Date().toISOString(),
       'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-    }, traceContext);
+    };
+    if (order.status === 'pending_payment') {
+      update.status = 'warehouse_review';
+    }
+    tx.update(ref, update);
+    return { order, update, transitioned: true };
+  });
+
+  if (!transitioned) {
     return { ...order, _transitioned: false };
   }
-
-  // Always flip paymentStatus to 'confirmed' (from either 'pending' or
-  // 'pending_proceeding'). Only flip `status` if the order is still in
-  // pending_payment — past that, the order may have proceeded into the
-  // fulfilment pipeline via proceedAsPendingPayment, and a late webhook here
-  // must NOT jerk it back.
-  const update = {
-    paymentStatus: 'confirmed',
-    paidAt: new Date().toISOString(),
-    'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-  };
-  if (order.status === 'pending_payment') {
-    update.status = 'warehouse_review';
-  }
-
-  const updated = await updateOrder(orderId, update, traceContext);
 
   // Bust the cached /orders/detail response so the customer's tracking screen
   // sees paymentStatus='confirmed' on its next poll instead of a stale value.
   // Best-effort — a cache miss is harmless, a throw here must not fail payment.
   await invalidateOrder(orderId).catch(() => {});
+  notifyNewOrder({ ...order, ...update }).catch(() => {});
 
   // Cart wasn't cleared at order-creation time for ONLINE orders. Clear it
   // now that payment has succeeded — but only if the cart wasn't already
@@ -226,7 +244,7 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     }
   }
 
-  return { ...updated, _transitioned: true };
+  return { ...order, ...update, _transitioned: true };
 }
 
 /**
@@ -263,6 +281,7 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
   }
 
   await updateOrder(orderId, update, traceContext);
+  notifyPaymentFailed(order, attempt).catch(() => {});
 }
 
 /**
