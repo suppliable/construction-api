@@ -1,4 +1,4 @@
-const { getCustomer, saveCustomer } = require('./firestoreService');
+const { getCustomer, saveCustomer, getCustomerByPhone } = require('./firestoreService');
 const { createZohoContact, updateZohoContact } = require('./zohoService');
 const logger = require('../utils/logger');
 const { normalizePhone } = require('../utils/phone');
@@ -6,7 +6,19 @@ const { normalizePhone } = require('../utils/phone');
 async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, traceContext = null) {
   const normalizedPhone = normalizePhone(phone) || phone;
   logger.debug({ userId, name, is_business }, 'syncCustomer called');
-  const existing = await getCustomer(userId, traceContext);
+  let existing = await getCustomer(userId, traceContext);
+
+  // If no customer found by Firebase UID, check if a POS-created customer exists
+  // for the same phone. If so, adopt it — this links the app login to the POS account.
+  if (!existing) {
+    const byPhone = await getCustomerByPhone(normalizedPhone, traceContext).catch(() => null);
+    if (byPhone && byPhone.userId !== userId) {
+      existing = { ...byPhone, userId };
+      await saveCustomer(existing, traceContext);
+      logger.info({ oldUserId: byPhone.userId, newUserId: userId }, 'adopted POS customer for app login');
+    }
+  }
+
   if (existing) {
     let hasChanges = false;
 

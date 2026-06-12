@@ -81,7 +81,10 @@ async function createCustomer({ name, phone, email }, traceContext = null) {
   if (!name || !name.trim()) throw Object.assign(new Error('name is required'), { code: 'MISSING_PARAM' });
   if (!phone || !phone.trim()) throw Object.assign(new Error('phone is required'), { code: 'MISSING_PARAM' });
 
-  const normalizedPhone = phone.trim().replace(/\D/g, '');
+  const digits = phone.trim().replace(/\D/g, '');
+  const normalizedPhone = digits.length === 10 && /^[6-9]/.test(digits) ? '+91' + digits
+    : digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits[2]) ? '+91' + digits.slice(2)
+    : digits;
   const existing = await getCustomerByPhone(normalizedPhone, traceContext).catch(() => null);
   if (existing) throw Object.assign(new Error('A customer with this phone number already exists'), { code: 'DUPLICATE_PHONE' });
 
