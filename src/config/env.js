@@ -41,7 +41,9 @@ const schema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
-  SLACK_WEBHOOK_URL: z.string().url().optional(),
+  SLACK_WEBHOOK_URL: z.string().url().optional(), // deprecated — replaced by bot token
+  SLACK_BOT_TOKEN: z.string().optional(),
+  SLACK_CHANNEL_ID: z.string().optional(),
 
   // Payments
   PAYMENT_GATEWAY: z.enum(['none', 'cashfree', 'razorpay']).default('none'),
