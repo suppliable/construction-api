@@ -8,7 +8,7 @@ const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
-const { notifyNewOrder, notifyPaymentFailed } = require('./slackService');
+const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
 
 async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
@@ -127,6 +127,17 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       createdAt: new Date().toISOString()
     };
     await saveOrder(order, traceContext);
+
+    // Post the Slack card now (at checkout) so the order is visible while the
+    // customer is paying, showing "Awaiting payment". Persist the message ts +
+    // daily counter so confirm/fail can edit this same card later. Best-effort.
+    try {
+      const { ts, dailyNo } = await postNewOrder(order);
+      if (ts) await updateOrder(orderId, { slackTs: ts, dailyOrderNo: dailyNo }, traceContext);
+    } catch (slackErr) {
+      // Non-fatal — order is saved; Slack visibility is best-effort.
+    }
+
     return order;
   }
 
@@ -156,7 +167,8 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   };
   await saveOrder(order, traceContext);
   await saveCart(userId, { items: [] });
-  notifyNewOrder(order).catch(() => {});
+  // COD has no payment lifecycle to edit — fire-and-forget, no ts needed.
+  postNewOrder(order).catch(() => {});
 
   return order;
 }
@@ -231,7 +243,15 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   // sees paymentStatus='confirmed' on its next poll instead of a stale value.
   // Best-effort — a cache miss is harmless, a throw here must not fail payment.
   await invalidateOrder(orderId).catch(() => {});
-  notifyNewOrder({ ...order, ...update }).catch(() => {});
+  // Edit the order's Slack card to "Paid". If the card was never posted (e.g.
+  // Slack was down at checkout), post a fresh one so the confirmed order still
+  // surfaces. Best-effort.
+  const confirmedOrder = { ...order, ...update };
+  if (order.slackTs) {
+    updateOrderPaymentStatus(confirmedOrder, order.slackTs, 'paid').catch(() => {});
+  } else {
+    postNewOrder(confirmedOrder).catch(() => {});
+  }
 
   // Cart wasn't cleared at order-creation time for ONLINE orders. Clear it
   // now that payment has succeeded — but only if the cart wasn't already
@@ -281,7 +301,16 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
   }
 
   await updateOrder(orderId, update, traceContext);
+  // Separate 🚨 alert for every failed attempt (so repeated retries are all
+  // visible). Best-effort.
   notifyPaymentFailed(order, attempt).catch(() => {});
+  // Also flip this order's Slack card to "Failed" — but only when we actually
+  // marked it failed (order was still awaiting payment). A stale late-failure
+  // on an already-confirmed order must NOT regress its "Paid" card.
+  if (update.paymentStatus === 'failed' && order.slackTs) {
+    const cardState = cardStateFromRaw(attempt && attempt.rawProviderStatus);
+    updateOrderPaymentStatus(order, order.slackTs, cardState).catch(() => {});
+  }
 }
 
 /**
