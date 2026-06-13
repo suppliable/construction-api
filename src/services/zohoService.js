@@ -187,6 +187,26 @@ async function createZohoContact(contactData, traceContext = null) {
   }
 }
 
+async function searchZohoContactByName(name, traceContext = null) {
+  try {
+    const token = await getAccessToken();
+    const response = await withRetry('zoho.api.searchContactByName', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/books/v3/contacts`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID, search_text: name, contact_type: 'customer' },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    const contacts = response.data.contacts || [];
+    // Prefer exact case match, fall back to case-insensitive
+    return contacts.find(c => c.contact_name === name) ||
+           contacts.find(c => c.contact_name?.toLowerCase() === name.toLowerCase()) ||
+           null;
+  } catch (error) {
+    return null;
+  }
+}
+
 async function searchZohoContactByPhone(phone, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.searchContactByPhone', { 'peer.service': 'zoho', phone, endpoint: '/books/v3/contacts' });
   try {
@@ -202,10 +222,23 @@ async function searchZohoContactByPhone(phone, traceContext = null) {
         timeout: DEFAULT_TIMEOUT_MS,
       })
     );
-    const contacts = response.data.contacts;
-    const found = contacts && contacts.length > 0;
-    span.end({ success: true, found, contactCount: contacts?.length || 0 });
-    return found ? contacts[0] : null;
+    const contacts = response.data.contacts || [];
+    const normalizedPhone = phone.replace(/\D/g, '');
+    // Verify exact match — search_text is fuzzy, so confirm the contact actually owns this phone.
+    // The list API returns top-level `mobile`/`phone` fields but NOT contact_persons —
+    // check both to handle both list and single-contact response shapes.
+    const match = contacts.find(c => {
+      const topMobile = (c.mobile || '').replace(/\D/g, '');
+      const topPhone = (c.phone || '').replace(/\D/g, '');
+      if ((topMobile && topMobile === normalizedPhone) || (topPhone && topPhone === normalizedPhone)) return true;
+      return (c.contact_persons || []).some(p => {
+        const m = (p.mobile || '').replace(/\D/g, '');
+        const ph = (p.phone || '').replace(/\D/g, '');
+        return (m && m === normalizedPhone) || (ph && ph === normalizedPhone);
+      });
+    });
+    span.end({ success: true, found: !!match, contactCount: contacts.length });
+    return match || null;
   } catch (error) {
     span.end({ success: false, error: error.message });
     throw error;
@@ -264,6 +297,9 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
   if (contactData.gstin) {
     updateBody.gst_no = contactData.gstin;
     updateBody.gst_treatment = 'business_gst';
+  } else if (contactData.gstin === null) {
+    updateBody.gst_no = '';
+    updateBody.gst_treatment = 'consumer';
   }
   if (contactData.registered_address) {
     updateBody.place_of_contact = contactData.registered_address.state_code || 'TN';
@@ -279,17 +315,41 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
   }
 
   logger.debug({ body: updateBody }, 'Sending updateZohoContact request');
+  const url = `https://www.zohoapis.in/books/v3/contacts/${zohoContactId}`;
   try {
-    const response = await zohoPut(
-      `https://www.zohoapis.in/books/v3/contacts/${zohoContactId}`,
-      updateBody
-    );
+    const response = await zohoPut(url, updateBody);
     logger.debug({ contactId: response.data.contact?.contact_id }, 'updateZohoContact succeeded');
     span.end({ success: true, contact_id: response.data.contact?.contact_id });
     return response.data.contact;
   } catch (error) {
-    span.end({ success: false, error: error.message });
-    throw error;
+    const errorData = error.response?.data;
+    // 3062 = contact name already exists — find the conflicting contact and signal caller to redirect
+    if (errorData?.code === 3062 && updateBody.contact_name) {
+      logger.warn({ zohoContactId, contact_name: updateBody.contact_name }, 'contact_name conflict; searching for existing contact');
+      const existing = await searchZohoContactByName(updateBody.contact_name, traceContext);
+      if (existing?.contact_id) {
+        logger.info({ zohoContactId, existingContactId: existing.contact_id, name: updateBody.contact_name }, 'Redirecting to existing Zoho contact');
+        span.end({ success: false, contact_name_conflict: true, existing_id: existing.contact_id });
+        throw Object.assign(new Error('contact_name_conflict'), {
+          code: 'CONTACT_NAME_CONFLICT',
+          existingContactId: existing.contact_id,
+        });
+      }
+      // No existing contact found — retry without renaming as last resort
+      const retryBody = { ...updateBody };
+      delete retryBody.contact_name;
+      try {
+        const retryResponse = await zohoPut(url, retryBody);
+        span.end({ success: true, contact_id: retryResponse.data.contact?.contact_id, name_conflict: true });
+        return retryResponse.data.contact;
+      } catch (retryError) {
+        const retryErrorData = retryError.response?.data;
+        span.end({ success: false, error: retryErrorData?.message || retryError.message });
+        throw new Error(JSON.stringify(retryErrorData || retryError.message));
+      }
+    }
+    span.end({ success: false, error: errorData?.message || error.message });
+    throw new Error(JSON.stringify(errorData || error.message));
   }
 }
 
@@ -343,5 +403,6 @@ module.exports = {
   updateZohoItemImage,
   updateZohoItemFeatured,
   searchZohoContactByPhone,
+  searchZohoContactByName,
   recordPaymentInZohoBooks
 };

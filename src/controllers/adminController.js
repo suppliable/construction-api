@@ -30,7 +30,7 @@ function formatDuration(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
-const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks } = require('../services/zohoService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks, createZohoContact, searchZohoContactByPhone } = require('../services/zohoService');
 const { uploadToFirebase } = require('../services/storageService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
@@ -161,23 +161,56 @@ const acceptOrder = async (req, res) => {
       getAddressById(order.addressId, req.traceContext)
     ]);
 
-    if (!customer || !customer.zoho_contact_id) {
-      return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho account not found' });
+    if (!customer) {
+      return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
+    }
+    if (!customer.zoho_contact_id) {
+      // POS-created customers may not have a Zoho contact yet — find or create one now
+      try {
+        const found = await searchZohoContactByPhone(customer.phone, req.traceContext).catch(() => null);
+        if (found?.contact_id) {
+          customer.zoho_contact_id = found.contact_id;
+        } else {
+          const created = await createZohoContact({
+            name: customer.name || customer.phone,
+            phone: customer.phone,
+          }, req.traceContext);
+          customer.zoho_contact_id = created.contact_id;
+        }
+        // Persist so future accepts don't repeat this lookup
+        const { getTrackedDb } = require('../middleware/firestoreTracker');
+        await getTrackedDb().collection('customers').doc(customer.userId).update({ zoho_contact_id: customer.zoho_contact_id });
+      } catch (zohoErr) {
+        req.log.error({ err: zohoErr.message }, 'Failed to create Zoho contact for customer');
+        return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer Zoho account not found and could not be created' });
+      }
     }
 
     // Sync Zoho contact with latest customer name/phone before creating the SO
     // so the invoice always shows the correct details instead of a stale phone number.
-    if (customer.name || customer.business_name) {
+    const contactDisplayName = order.gstName || customer.business_name || customer.name;
+    if (contactDisplayName) {
       try {
-        // Only update contact_name/company_name — skip contact_persons to avoid
-        // Zoho rejecting the request due to missing contact_person_id.
         await updateZohoContact(customer.zoho_contact_id, {
-          business_name: customer.business_name || customer.name,
+          business_name: contactDisplayName,
         }, req.traceContext);
       } catch (syncErr) {
-        req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');
+        if (syncErr.code === 'CONTACT_NAME_CONFLICT' && syncErr.existingContactId) {
+          // Another Zoho contact already has this business name — use it for this order
+          customer.zoho_contact_id = syncErr.existingContactId;
+          await getTrackedDb().collection('customers').doc(customer.userId)
+            .update({ zoho_contact_id: customer.zoho_contact_id }).catch(() => {});
+        } else {
+          req.log.warn({ err: syncErr.response?.data || syncErr.message }, 'Zoho contact pre-SO sync failed (non-fatal)');
+        }
       }
     }
+
+    const gstDetails = {
+      gstNumber: order.gstNumber || null,
+      gstName: order.gstName || null,
+      gstAddress: order.gstAddress || null,
+    };
 
     const zohoSO = await createZohoSalesOrder(
       customer.zoho_contact_id,
@@ -185,7 +218,8 @@ const acceptOrder = async (req, res) => {
       address,
       order.delivery_charge || 0,
       customer.phone || null,
-      req.traceContext
+      req.traceContext,
+      gstDetails
     );
 
     // Write internal orderId to Zoho SO custom field (non-blocking)

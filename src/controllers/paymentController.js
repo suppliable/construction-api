@@ -144,6 +144,20 @@ async function verifyPayment(req, res) {
       });
     }
 
+    // Trust a webhook-recorded outcome on the order doc over the live link
+    // status. Cashfree's link-status API is blind to a single failed/dropped
+    // attempt (the link stays ACTIVE for retry), so fetchStatus would report
+    // PENDING and the client would show the "Confirming your payment" spinner.
+    // The PAYMENT_FAILED webhook already flipped paymentStatus to 'failed'
+    // (while still pending_payment) — surface that immediately so the client
+    // shows the retry dialog instead.
+    if (order.paymentStatus === 'failed' && order.status === 'pending_payment') {
+      return res.json({
+        success: true,
+        data: { paymentStatus: 'failed', orderStatus: order.status },
+      });
+    }
+
     const gateway = getGateway();
     const status = await gateway.fetchStatus({ providerOrderId });
 
@@ -247,6 +261,9 @@ async function handleWebhook(req, res) {
           rawProviderStatus: verification.rawEvent?.paymentStatus,
           source: 'webhook',
         }, req.traceContext);
+        // Bust the cached order so the next /verify reads paymentStatus='failed'
+        // and the client shows the retry dialog (not the confirming spinner).
+        invalidateOrder(orderId).catch(() => {});
         req.log.info({ orderId }, 'payment.webhook.failed_recorded');
       } else {
         req.log.info({ orderId, event }, 'payment.webhook.other_event_ignored');

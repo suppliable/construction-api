@@ -323,4 +323,253 @@ router.get('/debug/config', (req, res) => {
   });
 });
 
+// ── POS endpoints ─────────────────────────────────────────────────
+const {
+  searchCustomers,
+  createCustomer,
+  getCustomerAddresses,
+  addCustomerAddress,
+  savePOSDraft,
+  getPOSDraft,
+  updatePOSDraft,
+  createPOSQuotation,
+  convertPOSDraftToOrder,
+  listPOSDrafts,
+  discardPOSDraft,
+  getPOSQuotationPDF,
+} = require('../services/posService');
+const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
+
+// Customer search — GET /admin/pos/customers/search?q=
+router.get('/pos/customers/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q || q.length < 2) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'q must be at least 2 characters' });
+    }
+    const customers = await searchCustomers(q, req.traceContext);
+    res.json({ success: true, data: { customers } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Create customer — POST /admin/pos/customers
+router.post('/pos/customers', async (req, res) => {
+  try {
+    const { name, phone, email } = req.body;
+    const customer = await createCustomer({ name, phone, email }, req.traceContext);
+    res.status(201).json({ success: true, data: { customer } });
+  } catch (err) {
+    if (err.code === 'MISSING_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'DUPLICATE_PHONE') return res.status(409).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Get customer addresses — GET /admin/pos/customers/:userId/addresses
+router.get('/pos/customers/:userId/addresses', async (req, res) => {
+  try {
+    const addresses = await getCustomerAddresses(req.params.userId, req.traceContext);
+    res.json({ success: true, data: { addresses } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Add customer address — POST /admin/pos/customers/:userId/addresses
+router.post('/pos/customers/:userId/addresses', async (req, res) => {
+  try {
+    const { fullAddress, lat, lng, label } = req.body;
+    const address = await addCustomerAddress(req.params.userId, { fullAddress, lat, lng, label }, req.traceContext);
+    res.status(201).json({ success: true, data: { address } });
+  } catch (err) {
+    if (err.code === 'MISSING_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Update customer GST — PUT /admin/pos/customers/:userId/gst
+router.put('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const { gstin, business_name, registered_address } = req.body;
+    if (!gstin && !business_name) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'gstin or business_name is required' });
+    }
+    const customer = await updateCustomerGST(req.params.userId, { gstin, business_name, registered_address }, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Delete customer GST — DELETE /admin/pos/customers/:userId/gst
+router.delete('/pos/customers/:userId/gst', async (req, res) => {
+  try {
+    const customer = await clearCustomerGST(req.params.userId, req.traceContext);
+    res.json({ success: true, data: { customer } });
+  } catch (err) {
+    const status = err.message === 'Customer not found' ? 404 : 500;
+    res.status(status).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Create draft — POST /admin/pos/drafts
+router.post('/pos/drafts', async (req, res) => {
+  try {
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
+    }
+    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
+    res.status(201).json({ success: true, data: { draft } });
+  } catch (err) {
+    if (err.code === 'MISSING_PARAM' || err.code === 'INVALID_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'PRODUCT_NOT_FOUND') return res.status(404).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Get draft — GET /admin/pos/drafts/:draftId
+router.get('/pos/drafts/:draftId', async (req, res) => {
+  try {
+    const draft = await getPOSDraft(req.params.draftId, req.traceContext);
+    if (!draft) return res.status(404).json({ success: false, error: 'DRAFT_NOT_FOUND', message: 'Draft not found' });
+    res.json({ success: true, data: { draft } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Update draft — PUT /admin/pos/drafts/:draftId
+router.put('/pos/drafts/:draftId', async (req, res) => {
+  try {
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
+    }
+    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, req.traceContext);
+    if (!draft) return res.status(404).json({ success: false, error: 'DRAFT_NOT_FOUND', message: 'Draft not found' });
+    res.json({ success: true, data: { draft } });
+  } catch (err) {
+    if (err.code === 'MISSING_PARAM' || err.code === 'INVALID_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'PRODUCT_NOT_FOUND') return res.status(404).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Create quotation — POST /admin/pos/drafts/:draftId/quotation
+router.post('/pos/drafts/:draftId/quotation', async (req, res) => {
+  try {
+    const result = await createPOSQuotation(req.params.draftId, req.traceContext);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    if (err.code === 'DRAFT_NOT_FOUND') return res.status(404).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Convert draft to order — POST /admin/pos/drafts/:draftId/convert
+router.post('/pos/drafts/:draftId/convert', async (req, res) => {
+  try {
+    const { paymentMethod } = req.body;
+    const order = await convertPOSDraftToOrder(req.params.draftId, { paymentMethod }, req.traceContext);
+    res.status(201).json({ success: true, data: { order } });
+  } catch (err) {
+    if (err.code === 'DRAFT_NOT_FOUND') return res.status(404).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'INVALID_STATUS') return res.status(409).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'WAREHOUSE_CLOSED') return res.status(503).json({ success: false, error: err.code, message: err.message });
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Discard a POS draft — PATCH /admin/pos/drafts/:draftId/discard
+router.patch('/pos/drafts/:draftId/discard', async (req, res) => {
+  try {
+    await discardPOSDraft(req.params.draftId, req.traceContext);
+    res.json({ success: true });
+  } catch (e) {
+    const status = e.code === 'DRAFT_NOT_FOUND' ? 404 : e.code === 'ALREADY_CONVERTED' ? 400 : 500;
+    res.status(status).json({ success: false, message: e.message });
+  }
+});
+
+// List active POS drafts — GET /admin/pos/drafts
+router.get('/pos/drafts', async (req, res) => {
+  try {
+    const drafts = await listPOSDrafts(req.traceContext);
+    res.json({ success: true, data: { drafts } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Generate/fetch PDF for a POS quotation — POST /admin/pos/drafts/:draftId/pdf
+router.post('/pos/drafts/:draftId/pdf', async (req, res) => {
+  try {
+    const { draftId } = req.params;
+    const result = await getPOSQuotationPDF(draftId, req.traceContext);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    const status = e.code === 'DRAFT_NOT_FOUND' ? 404 : e.code === 'NO_QUOTATION' ? 400 : 500;
+    res.status(status).json({ success: false, message: e.message });
+  }
+});
+
+// Resolve Google Maps short/full URL to coordinates — GET /admin/pos/resolve-maps-url?url=
+function extractGoogleMapsCoords(url) {
+  let m;
+  // 1. Actual place pin — !8m2!3d<lat>!4d<lng> in data= param (most precise)
+  m = url.match(/!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 2. Generic !3d!4d pattern in data param
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 3. Map view center @lat,lng (less precise — view may not centre on pin)
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // 4. Query string patterns
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+router.get('/pos/resolve-maps-url', async (req, res) => {
+  const url = (req.query.url || '').trim();
+  if (!url) return res.status(400).json({ success: false, message: 'url parameter is required' });
+  try {
+    const response = await axios.get(url, {
+      maxRedirects: 10,
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Suppliable/1.0)' },
+      validateStatus: () => true,
+    });
+    const finalUrl = response.request?.res?.responseUrl || url;
+    const coords = extractGoogleMapsCoords(finalUrl);
+    if (!coords) {
+      return res.status(422).json({ success: false, message: 'Could not extract coordinates from this Maps link' });
+    }
+    // Extract place name from URL path: /maps/place/Chai+Kings+-+Perumbakkam/@...
+    let placeName = null;
+    const placeMatch = finalUrl.match(/\/maps\/place\/([^/@?]+)/);
+    if (placeMatch) {
+      placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim() || null;
+    }
+    res.json({ success: true, data: { lat: coords.lat, lng: coords.lng, resolvedUrl: finalUrl, placeName } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Failed to resolve Maps URL: ' + e.message });
+  }
+});
+
+// Maps API key — GET /admin/pos/maps-key
+// Prefers GOOGLE_MAPS_FRONTEND_KEY (unrestricted browser key) over the
+// server-side GOOGLE_MAPS_API_KEY which may have IP restrictions.
+router.get('/pos/maps-key', (req, res) => {
+  const apiKey = process.env.GOOGLE_MAPS_FRONTEND_KEY || process.env.GOOGLE_MAPS_API_KEY || null;
+  res.json({ success: true, data: { apiKey } });
+});
+
 module.exports = router;

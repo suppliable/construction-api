@@ -121,6 +121,7 @@
   </div>
   <nav class="sidebar-nav">
     <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
     <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
     <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
@@ -179,14 +180,17 @@
 
       <!-- BUSINESS INFO -->
       <div class="detail-section">
-        <div class="detail-section-title">Business Information</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="detail-section-title" style="margin:0">Business & GST Information</div>
+          <button class="btn btn-primary" onclick="openGSTEdit()" style="padding:6px 12px;font-size:12px;">Edit GST Details</button>
+        </div>
         <div class="detail-grid">
           <div class="detail-item">
             <div class="detail-label">Is Business</div>
             <div id="detailIsBusiness"></div>
           </div>
           <div class="detail-item">
-            <div class="detail-label">Business Name</div>
+            <div class="detail-label">Business Name (GST Name)</div>
             <div class="detail-value" id="detailBusinessName">—</div>
           </div>
           <div class="detail-item">
@@ -239,10 +243,32 @@
 
       <!-- REGISTERED ADDRESS -->
       <div class="detail-section">
-        <div class="detail-section-title">Registered Address</div>
+        <div class="detail-section-title">Registered Address (GST)</div>
         <div class="address-item">
-          <div class="address-label">Address</div>
-          <div class="address-value" id="addressRegistered">—</div>
+          <div class="address-label">Address Line 1</div>
+          <div class="address-value" id="regAddr1">—</div>
+        </div>
+        <div class="address-item" style="margin-top:12px;">
+          <div class="address-label">Address Line 2</div>
+          <div class="address-value" id="regAddr2">—</div>
+        </div>
+        <div class="detail-grid" style="margin-top:12px;">
+          <div class="detail-item">
+            <div class="detail-label">City</div>
+            <div class="detail-value" id="regAddrCity">—</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">State</div>
+            <div class="detail-value" id="regAddrState">—</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">State Code</div>
+            <div class="detail-value" id="regAddrStateCode">—</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Pincode</div>
+            <div class="detail-value" id="regAddrPincode">—</div>
+          </div>
         </div>
       </div>
 
@@ -416,14 +442,13 @@ function displayCustomerDetails(customer) {
   }
 
   // Registered Address
-  if (customer.registeredAddress) {
-    document.getElementById('addressRegistered').textContent = 
-      typeof customer.registeredAddress === 'string' 
-        ? customer.registeredAddress 
-        : JSON.stringify(customer.registeredAddress, null, 2);
-  } else {
-    document.getElementById('addressRegistered').innerHTML = '<span class="address-value empty">Not provided</span>';
-  }
+  const ra = (typeof customer.registeredAddress === 'object' && customer.registeredAddress) ? customer.registeredAddress : {};
+  document.getElementById('regAddr1').textContent = ra.address_line1 || '—';
+  document.getElementById('regAddr2').textContent = ra.address_line2 || '—';
+  document.getElementById('regAddrCity').textContent = ra.city || '—';
+  document.getElementById('regAddrState').textContent = ra.state || '—';
+  document.getElementById('regAddrStateCode').textContent = ra.state_code || '—';
+  document.getElementById('regAddrPincode').textContent = ra.pincode || '—';
 
   // Metadata
   if (customer.createdAt) {
@@ -531,7 +556,124 @@ window.addEventListener('load', () => {
   }
   document.getElementById('phoneInput').focus();
 });
+
+// ---- GST Edit ----
+function openGSTEdit() {
+  if (!currentCustomer) return;
+  const c = currentCustomer;
+  const ra = (typeof c.registeredAddress === 'object' && c.registeredAddress) ? c.registeredAddress : {};
+  document.getElementById('gstEditGSTIN').value = c.gstin || '';
+  document.getElementById('gstEditName').value = c.businessName || '';
+  document.getElementById('gstEditAddr1').value = ra.address_line1 || '';
+  document.getElementById('gstEditAddr2').value = ra.address_line2 || '';
+  document.getElementById('gstEditCity').value = ra.city || '';
+  document.getElementById('gstEditState').value = ra.state || '';
+  document.getElementById('gstEditStateCode').value = ra.state_code || '';
+  document.getElementById('gstEditPincode').value = ra.pincode || '';
+  document.getElementById('gstEditOverlay').style.display = 'flex';
+}
+
+function closeGSTEdit() {
+  document.getElementById('gstEditOverlay').style.display = 'none';
+}
+
+async function saveGSTDetails() {
+  if (!currentCustomer) return;
+  const gstin = document.getElementById('gstEditGSTIN').value.trim().toUpperCase();
+  const business_name = document.getElementById('gstEditName').value.trim();
+  const registered_address = {
+    address_line1: document.getElementById('gstEditAddr1').value.trim(),
+    address_line2: document.getElementById('gstEditAddr2').value.trim(),
+    city: document.getElementById('gstEditCity').value.trim(),
+    state: document.getElementById('gstEditState').value.trim(),
+    state_code: document.getElementById('gstEditStateCode').value.trim(),
+    pincode: document.getElementById('gstEditPincode').value.trim(),
+  };
+  const btn = document.getElementById('gstSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const res = await fetch(`/api/v1/customers/${currentCustomer.userId}/gst`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ gstin, business_name, registered_address }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Save failed');
+    currentCustomer = { ...currentCustomer, gstin, businessName: business_name, registeredAddress: registered_address };
+    document.getElementById('detailGSTIN').textContent = gstin || '—';
+    document.getElementById('detailBusinessName').textContent = business_name || '—';
+    document.getElementById('regAddr1').textContent = registered_address.address_line1 || '—';
+    document.getElementById('regAddr2').textContent = registered_address.address_line2 || '—';
+    document.getElementById('regAddrCity').textContent = registered_address.city || '—';
+    document.getElementById('regAddrState').textContent = registered_address.state || '—';
+    document.getElementById('regAddrStateCode').textContent = registered_address.state_code || '—';
+    document.getElementById('regAddrPincode').textContent = registered_address.pincode || '—';
+    closeGSTEdit();
+    showToast('GST details saved', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to save GST details', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
 </script>
+
+<!-- GST Edit Modal -->
+<div id="gstEditOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border-radius:12px;padding:28px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:16px;font-weight:600;">Edit GST Details</h3>
+      <button onclick="closeGSTEdit()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--muted);">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <div class="detail-label" style="margin-bottom:6px;">GSTIN</div>
+        <input type="text" id="gstEditGSTIN" class="field-input" placeholder="22AAAAA0000A1Z5" style="text-transform:uppercase;width:100%;box-sizing:border-box;" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div>
+        <div class="detail-label" style="margin-bottom:6px;">GST Business Name</div>
+        <input type="text" id="gstEditName" class="field-input" placeholder="Registered business name" style="width:100%;box-sizing:border-box;">
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;">
+        <div class="detail-label" style="margin-bottom:10px;font-weight:600;">Registered Address</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <div class="detail-label" style="margin-bottom:4px;">Address Line 1</div>
+            <input type="text" id="gstEditAddr1" class="field-input" style="width:100%;box-sizing:border-box;">
+          </div>
+          <div>
+            <div class="detail-label" style="margin-bottom:4px;">Address Line 2</div>
+            <input type="text" id="gstEditAddr2" class="field-input" style="width:100%;box-sizing:border-box;">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <div class="detail-label" style="margin-bottom:4px;">City</div>
+              <input type="text" id="gstEditCity" class="field-input" style="width:100%;box-sizing:border-box;">
+            </div>
+            <div>
+              <div class="detail-label" style="margin-bottom:4px;">Pincode</div>
+              <input type="text" id="gstEditPincode" class="field-input" style="width:100%;box-sizing:border-box;">
+            </div>
+            <div>
+              <div class="detail-label" style="margin-bottom:4px;">State</div>
+              <input type="text" id="gstEditState" class="field-input" style="width:100%;box-sizing:border-box;">
+            </div>
+            <div>
+              <div class="detail-label" style="margin-bottom:4px;">State Code</div>
+              <input type="text" id="gstEditStateCode" class="field-input" placeholder="e.g. TN" style="width:100%;box-sizing:border-box;">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+      <button onclick="closeGSTEdit()" class="btn" style="padding:8px 18px;">Cancel</button>
+      <button id="gstSaveBtn" onclick="saveGSTDetails()" class="btn btn-primary" style="padding:8px 18px;">Save</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>

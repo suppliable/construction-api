@@ -1,4 +1,4 @@
-const { getCustomer, saveCustomer } = require('./firestoreService');
+const { getCustomer, saveCustomer, getCustomerByPhone } = require('./firestoreService');
 const { createZohoContact, updateZohoContact } = require('./zohoService');
 const logger = require('../utils/logger');
 const { normalizePhone } = require('../utils/phone');
@@ -6,7 +6,19 @@ const { normalizePhone } = require('../utils/phone');
 async function syncCustomer(userId, phone, name, is_business, business_name, gstin, registered_address, traceContext = null) {
   const normalizedPhone = normalizePhone(phone) || phone;
   logger.debug({ userId, name, is_business }, 'syncCustomer called');
-  const existing = await getCustomer(userId, traceContext);
+  let existing = await getCustomer(userId, traceContext);
+
+  // If no customer found by Firebase UID, check if a POS-created customer exists
+  // for the same phone. If so, adopt it — this links the app login to the POS account.
+  if (!existing) {
+    const byPhone = await getCustomerByPhone(normalizedPhone, traceContext).catch(() => null);
+    if (byPhone && byPhone.userId !== userId) {
+      existing = { ...byPhone, userId };
+      await saveCustomer(existing, traceContext);
+      logger.info({ oldUserId: byPhone.userId, newUserId: userId }, 'adopted POS customer for app login');
+    }
+  }
+
   if (existing) {
     let hasChanges = false;
 
@@ -100,18 +112,56 @@ async function updateCustomerGST(userId, { gstin, business_name, registered_addr
   if (customer.zoho_contact_id) {
     try {
       await updateZohoContact(customer.zoho_contact_id, {
-        name: customer.name,
-        phone: customer.phone,
-        gstin,
         business_name,
+        gstin,
         registered_address
       }, traceContext);
     } catch (err) {
-      logger.warn({ err: err.message }, 'Zoho contact GST update failed — saved locally');
+      if (err.code === 'CONTACT_NAME_CONFLICT' && err.existingContactId) {
+        // Another Zoho contact already has this business name — redirect this customer to it
+        logger.info({ userId, from: customer.zoho_contact_id, to: err.existingContactId, business_name }, 'Redirecting customer zoho_contact_id to existing company contact');
+        customer.zoho_contact_id = err.existingContactId;
+      } else {
+        logger.warn({ err: err.message }, 'Zoho contact GST update failed — saved locally');
+      }
     }
   }
 
   return saveCustomer(customer, traceContext);
 }
 
-module.exports = { syncCustomer, updateCustomerGST };
+async function clearCustomerGST(userId, traceContext = null, { throwOnZohoError = false } = {}) {
+  const customer = await getCustomer(userId, traceContext);
+  if (!customer) throw new Error('Customer not found');
+
+  customer.gstin = null;
+  customer.business_name = null;
+  customer.registered_address = null;
+  customer.is_business = false;
+
+  let zohoFailed = false;
+  if (customer.zoho_contact_id) {
+    try {
+      await updateZohoContact(customer.zoho_contact_id, {
+        name: customer.name,
+        phone: customer.phone,
+        gstin: null,
+        business_name: null,
+        registered_address: null,
+      }, traceContext);
+    } catch (err) {
+      zohoFailed = true;
+      logger.warn({ err: err.message }, 'Zoho contact GST clear failed — saved locally');
+    }
+  }
+
+  const saved = await saveCustomer(customer, traceContext);
+
+  if (throwOnZohoError && zohoFailed) {
+    throw Object.assign(new Error('Zoho sync failed'), { code: 'ZOHO_SYNC_FAILED', customer: saved });
+  }
+
+  return saved;
+}
+
+module.exports = { syncCustomer, updateCustomerGST, clearCustomerGST };

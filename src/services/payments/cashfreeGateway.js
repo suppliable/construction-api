@@ -30,6 +30,12 @@ function paiseToRupees(paise) {
 
 // Payment Link statuses → our normalized status. Link statuses on Cashfree PG:
 // ACTIVE | PAID | PARTIALLY_PAID | EXPIRED | CANCELLED.
+//
+// NOTE: a *single failed payment attempt* does NOT change the link status — the
+// link stays ACTIVE so the customer can retry until it expires. So ACTIVE alone
+// can't distinguish "no attempt yet / in-flight" from "last attempt failed".
+// fetchStatus disambiguates by also inspecting the per-attempt payment status
+// (see classifyAttempts) before falling back to this link-level mapping.
 function normalizeLinkStatus(linkStatus) {
   switch (linkStatus) {
     case 'PAID':
@@ -42,6 +48,85 @@ function normalizeLinkStatus(linkStatus) {
       return 'FAILED';
     default:
       return 'PENDING';
+  }
+}
+
+// Per-attempt payment_status values on Cashfree link payments:
+// SUCCESS | FAILED | USER_DROPPED | PENDING | NOT_ATTEMPTED | CANCELLED | FLAGGED.
+// Returns 'PAID' | 'FAILED' | 'PENDING' | null (null = no decisive signal; the
+// caller should fall back to the link-level status).
+function classifyAttempts(payments) {
+  if (!Array.isArray(payments) || payments.length === 0) return null;
+
+  // A success anywhere wins (covers the rare case where the link status hasn't
+  // caught up to PAID yet).
+  if (payments.some(p => p.payment_status === 'SUCCESS')) return 'PAID';
+
+  // Anything still in flight → don't declare failure; wait for it to settle.
+  if (payments.some(p =>
+    p.payment_status === 'PENDING' ||
+    p.payment_status === 'FLAGGED' ||
+    p.payment_status === 'NOT_ATTEMPTED')) {
+    return 'PENDING';
+  }
+
+  // No success, nothing in flight, but at least one explicit failure/drop →
+  // this attempt failed. The link is still ACTIVE for retry, but we surface the
+  // failure so the client shows a retry prompt instead of "confirming…".
+  if (payments.some(p =>
+    p.payment_status === 'FAILED' ||
+    p.payment_status === 'USER_DROPPED' ||
+    p.payment_status === 'CANCELLED')) {
+    return 'FAILED';
+  }
+
+  return null;
+}
+
+// Collect every payment attempt across all orders created under a link.
+// Cashfree exposes this as two hops: GET /links/{id}/orders → [{ order_id }],
+// then GET /orders/{order_id}/payments → [{ payment_status, ... }].
+// (There is NO /links/{id}/payments endpoint — it 404s.)
+//
+// NOTE: a failed/dropped attempt on a link does not always materialize a
+// queryable order synchronously; in that case this returns [] and the caller
+// falls back to the link status. The authoritative failure signal is the
+// PAYMENT_FAILED webhook (see verifyWebhook), not this lookup.
+async function fetchAttempts(providerOrderId, log) {
+  try {
+    const ordersRes = await withRetry('payment.cashfree.fetch_link_orders', () =>
+      axios.get(`${baseUrl()}/links/${encodeURIComponent(providerOrderId)}/orders`, {
+        headers: headers(),
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
+    if (orders.length === 0) return [];
+
+    const payments = [];
+    for (const o of orders) {
+      const oid = o.order_id;
+      if (!oid) continue;
+      try {
+        const payRes = await axios.get(
+          `${baseUrl()}/orders/${encodeURIComponent(oid)}/payments`,
+          { headers: headers(), timeout: DEFAULT_TIMEOUT_MS }
+        );
+        if (Array.isArray(payRes.data)) payments.push(...payRes.data);
+      } catch (payErr) {
+        (log || logger).warn(
+          { err: payErr.message, orderId: oid, providerOrderId },
+          'cashfree.fetch_order_payments.failed');
+      }
+    }
+    return payments;
+  } catch (err) {
+    // Non-fatal: if the lookup fails (e.g. 404 before any order exists), fall
+    // back to the link-level status. Never let this break verification.
+    const status = err.response && err.response.status;
+    (log || logger).warn({ status, err: err.message, providerOrderId },
+      'cashfree.fetch_link_orders.failed');
+    return null;
   }
 }
 
@@ -131,9 +216,36 @@ async function fetchStatus({ providerOrderId }) {
       })
     );
     const data = res.data || {};
+    const linkStatus = normalizeLinkStatus(data.link_status);
+
+    // Link is terminal (PAID/EXPIRED/CANCELLED) → trust it directly.
+    if (data.link_status === 'PAID' ||
+        data.link_status === 'EXPIRED' ||
+        data.link_status === 'CANCELLED') {
+      return {
+        status: linkStatus,
+        rawProviderStatus: data.link_status,
+        amountInPaise: Math.round(Number(data.link_amount || 0) * 100),
+      };
+    }
+
+    // Link still ACTIVE → could be "no attempt yet", "in-flight", or "last
+    // attempt failed" (the link stays ACTIVE for retry). Inspect the per-attempt
+    // status to tell an explicit failure apart from a genuinely pending payment.
+    const payments = await fetchAttempts(providerOrderId);
+    const attemptStatus = classifyAttempts(payments);
+    const effective = attemptStatus || linkStatus;
+    const lastAttempt = Array.isArray(payments) && payments.length
+      ? payments[payments.length - 1]
+      : null;
+
     return {
-      status: normalizeLinkStatus(data.link_status),
-      rawProviderStatus: data.link_status,
+      status: effective,
+      // Surface the attempt-level status when it drove the decision; otherwise
+      // the link status. Helps debugging in the order's payment.attempts[] log.
+      rawProviderStatus: attemptStatus && lastAttempt
+        ? lastAttempt.payment_status
+        : data.link_status,
       amountInPaise: Math.round(Number(data.link_amount || 0) * 100),
     };
   } catch (err) {
@@ -178,10 +290,16 @@ function verifyWebhook({ rawBody, headers: hdrs }) {
   const event = normalizeEvent(parsed.type);
   const order = (parsed.data && parsed.data.order) || {};
   const payment = (parsed.data && parsed.data.payment) || {};
-  // Payment webhooks for a link carry the link_id in order.entity_id (link_id) — but
-  // for safety, fall back to order.order_id (which Cashfree sets equal to link_id
-  // when a payment is made against a link).
-  const providerOrderId = order.entity_id || order.order_id || order.link_id;
+  // For payment webhooks on a LINK, order.order_id is Cashfree's synthetic
+  // payment-order id (e.g. "CFPay_..._<ts>") — NOT our order id. Our id is the
+  // link_id, surfaced under order.order_tags.link_id. Prioritize that.
+  // entity_id / top-level link_id / order_id are kept as fallbacks for other
+  // event shapes (e.g. PAYMENT_LINK_EVENT) and defensiveness.
+  const providerOrderId =
+    (order.order_tags && order.order_tags.link_id) ||
+    order.link_id ||
+    order.entity_id ||
+    order.order_id;
   return {
     isValid: true,
     event,

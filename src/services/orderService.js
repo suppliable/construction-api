@@ -8,6 +8,7 @@ const { getProductById } = require('./productService');
 const { ValidationError, NotFoundError, StockError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
+const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
 
 async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
@@ -70,6 +71,11 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     const gstAmount = parseFloat(((unitPrice * qty) - totalWithoutGST).toFixed(2));
     const grandTotal = parseFloat((unitPrice * qty).toFixed(2));
 
+    const variantRack = cartItem.zohoItemId && product.variants
+      ? product.variants.find(v => v.id === cartItem.zohoItemId)?.rackNumber
+      : null;
+    const rackNumber = variantRack || product.rackNumber || null;
+
     const lineItem = {
       productId: cartItem.productId,
       zohoItemId: cartItem.zohoItemId || cartItem.variantId || cartItem.productId,
@@ -82,6 +88,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       gstRate,
       gstAmount,
       grandTotal,
+      rackNumber: rackNumber || null,
       cartItemId: cartItem.cartItemId || null,
     };
 
@@ -120,6 +127,17 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       createdAt: new Date().toISOString()
     };
     await saveOrder(order, traceContext);
+
+    // Post the Slack card now (at checkout) so the order is visible while the
+    // customer is paying, showing "Awaiting payment". Persist the message ts +
+    // daily counter so confirm/fail can edit this same card later. Best-effort.
+    try {
+      const { ts, dailyNo } = await postNewOrder(order);
+      if (ts) await updateOrder(orderId, { slackTs: ts, dailyOrderNo: dailyNo }, traceContext);
+    } catch (slackErr) {
+      // Non-fatal — order is saved; Slack visibility is best-effort.
+    }
+
     return order;
   }
 
@@ -149,6 +167,8 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   };
   await saveOrder(order, traceContext);
   await saveCart(userId, { items: [] });
+  // COD has no payment lifecycle to edit — fire-and-forget, no ts needed.
+  postNewOrder(order).catch(() => {});
 
   return order;
 }
@@ -167,9 +187,6 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
 async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
-  const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
-
   // Always log the attempt for audit, even if no state change.
   const attemptRecord = {
     at: new Date().toISOString(),
@@ -179,35 +196,62 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     ...(attempt && attempt.actor ? { actor: attempt.actor } : {}),
   };
 
-  // Idempotency: if paymentStatus is already 'confirmed', nothing changes —
-  // just record the attempt for audit.
-  if (order.paymentStatus === 'confirmed') {
-    await updateOrder(orderId, {
+  // The webhook and the client /verify poll can both call this for the same
+  // payment and race through a plain read-then-write — both seeing
+  // paymentStatus='pending', both flipping to 'confirmed', both firing side
+  // effects (e.g. the Slack new-order notification, twice). Do the read and the
+  // flip inside a single Firestore transaction so exactly ONE caller wins the
+  // pending→confirmed transition; only the winner reports _transitioned: true.
+  const db = admin.firestore();
+  const ref = db.collection('orders').doc(orderId);
+  const { order, update, transitioned } = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+    const order = snap.data();
+
+    // Idempotency: if paymentStatus is already 'confirmed', nothing changes —
+    // just record the attempt for audit.
+    if (order.paymentStatus === 'confirmed') {
+      tx.update(ref, {
+        'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
+      });
+      return { order, update: null, transitioned: false };
+    }
+
+    // Always flip paymentStatus to 'confirmed' (from either 'pending' or
+    // 'pending_proceeding'). Only flip `status` if the order is still in
+    // pending_payment — past that, the order may have proceeded into the
+    // fulfilment pipeline via proceedAsPendingPayment, and a late webhook here
+    // must NOT jerk it back.
+    const update = {
+      paymentStatus: 'confirmed',
+      paidAt: new Date().toISOString(),
       'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-    }, traceContext);
+    };
+    if (order.status === 'pending_payment') {
+      update.status = 'warehouse_review';
+    }
+    tx.update(ref, update);
+    return { order, update, transitioned: true };
+  });
+
+  if (!transitioned) {
     return { ...order, _transitioned: false };
   }
-
-  // Always flip paymentStatus to 'confirmed' (from either 'pending' or
-  // 'pending_proceeding'). Only flip `status` if the order is still in
-  // pending_payment — past that, the order may have proceeded into the
-  // fulfilment pipeline via proceedAsPendingPayment, and a late webhook here
-  // must NOT jerk it back.
-  const update = {
-    paymentStatus: 'confirmed',
-    paidAt: new Date().toISOString(),
-    'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-  };
-  if (order.status === 'pending_payment') {
-    update.status = 'warehouse_review';
-  }
-
-  const updated = await updateOrder(orderId, update, traceContext);
 
   // Bust the cached /orders/detail response so the customer's tracking screen
   // sees paymentStatus='confirmed' on its next poll instead of a stale value.
   // Best-effort — a cache miss is harmless, a throw here must not fail payment.
   await invalidateOrder(orderId).catch(() => {});
+  // Edit the order's Slack card to "Paid". If the card was never posted (e.g.
+  // Slack was down at checkout), post a fresh one so the confirmed order still
+  // surfaces. Best-effort.
+  const confirmedOrder = { ...order, ...update };
+  if (order.slackTs) {
+    updateOrderPaymentStatus(confirmedOrder, order.slackTs, 'paid').catch(() => {});
+  } else {
+    postNewOrder(confirmedOrder).catch(() => {});
+  }
 
   // Cart wasn't cleared at order-creation time for ONLINE orders. Clear it
   // now that payment has succeeded — but only if the cart wasn't already
@@ -220,12 +264,19 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     }
   }
 
-  return { ...updated, _transitioned: true };
+  return { ...order, ...update, _transitioned: true };
 }
 
 /**
- * Record a failed payment attempt without changing order status — leaves
- * the order in `pending_payment` so the user can retry with a new session.
+ * Record a failed payment attempt. Leaves the order in `pending_payment` (the
+ * Cashfree link stays ACTIVE, so the user can retry on it), but flips
+ * `paymentStatus` to `'failed'` so the client's next `/verify` returns `failed`
+ * and shows the retry dialog instead of the "Confirming your payment" spinner.
+ *
+ * Guarded so a late failure webhook can't override an order that already moved
+ * on: only sets `paymentStatus: 'failed'` while the order is still
+ * `pending_payment` AND not already `confirmed`. A subsequent successful retry
+ * goes through `confirmOnlinePayment`, which overrides `failed` → `confirmed`.
  */
 async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
@@ -239,9 +290,27 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
     source: attempt && attempt.source ? attempt.source : 'unknown',
   };
 
-  await updateOrder(orderId, {
+  const update = {
     'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-  }, traceContext);
+  };
+  // Only surface failure on the order while it's still awaiting payment and
+  // hasn't been confirmed. Don't touch orders that already proceeded
+  // (pending_proceeding) or confirmed — a stale/late failure must not regress them.
+  if (order.status === 'pending_payment' && order.paymentStatus !== 'confirmed') {
+    update.paymentStatus = 'failed';
+  }
+
+  await updateOrder(orderId, update, traceContext);
+  // Separate 🚨 alert for every failed attempt (so repeated retries are all
+  // visible). Best-effort.
+  notifyPaymentFailed(order, attempt).catch(() => {});
+  // Also flip this order's Slack card to "Failed" — but only when we actually
+  // marked it failed (order was still awaiting payment). A stale late-failure
+  // on an already-confirmed order must NOT regress its "Paid" card.
+  if (update.paymentStatus === 'failed' && order.slackTs) {
+    const cardState = cardStateFromRaw(attempt && attempt.rawProviderStatus);
+    updateOrderPaymentStatus(order, order.slackTs, cardState).catch(() => {});
+  }
 }
 
 /**
