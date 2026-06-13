@@ -18,6 +18,26 @@ function paiseToRupees(paise) {
   return Math.round(paise);
 }
 
+// Razorpay prefills (and validates) the contact field only when it's a clean
+// E.164 / 10-digit Indian number. A malformed value (spaces, leading 0, missing
+// country code) is ignored → the hosted page shows an empty, editable field.
+// Our users authenticate by phone so customerPhone is normally already
+// "+91XXXXXXXXXX", but normalize defensively for any other source.
+function normalizeContact(raw) {
+  if (!raw) return undefined; // omit rather than send '' (Razorpay rejects empty)
+  const digits = String(raw).replace(/[^\d]/g, ''); // strip +, spaces, dashes
+  // 10-digit bare number → assume India.
+  if (digits.length === 10) return `+91${digits}`;
+  // 12-digit starting 91 (e.g. "919884857261") → add +.
+  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
+  // 11-digit starting 0 (e.g. "09884857261") → drop 0, assume India.
+  if (digits.length === 11 && digits.startsWith('0')) return `+91${digits.slice(1)}`;
+  // Already had a + and looks international → keep as-is (re-add the +).
+  if (String(raw).trim().startsWith('+')) return `+${digits}`;
+  // Anything else: pass the digits through; let Razorpay validate.
+  return digits || undefined;
+}
+
 // Razorpay payment link statuses → our normalized status.
 // Link statuses: created | partially_paid | expired | cancelled | paid
 function normalizeLinkStatus(status) {
@@ -63,17 +83,34 @@ async function createCheckout({ orderId, amountInPaise, currency, customer, retu
     reference_id: orderId.slice(0, 40),
     callback_url: returnUrl,
     callback_method: 'get',
+    // We deliver fulfilment status via webhook only; never let Razorpay SMS/email
+    // the customer. (notifyUrl is the webhook target, configured on the dashboard.)
     notify: { sms: false, email: false },
     customer: {
-      contact: customer.customerPhone,
+      contact: normalizeContact(customer.customerPhone),
       ...(customer.customerName ? { name: customer.customerName } : {}),
       ...(customer.customerEmail ? { email: customer.customerEmail } : {}),
     },
-    // Notify via webhook — Razorpay reads this from dashboard settings but we
-    // pass it explicitly per payment link so each env gets the right URL.
-    ...(notifyUrl ? { notify: { sms: false, email: false } } : {}),
     expire_by: Math.floor((Date.now() + 30 * 60 * 1000) / 1000), // +30 min, Unix timestamp
   };
+
+  // Log the exact request body so we can confirm what's sent to Razorpay.
+  // Mask the contact (PII): keep country code + last 2 digits, e.g. "+91******61".
+  logger.debug(
+    {
+      body: {
+        ...body,
+        customer: {
+          ...body.customer,
+          contact: body.customer.contact
+            ? body.customer.contact.replace(/^(\+?\d{2})\d+(\d{2})$/, '$1******$2')
+            : undefined,
+          ...(body.customer.email ? { email: '[redacted]' } : {}),
+        },
+      },
+    },
+    'razorpay.create_link.request'
+  );
 
   try {
     const res = await withRetry('payment.razorpay.create_link', () =>
@@ -117,11 +154,19 @@ async function fetchStatus({ providerOrderId }) {
       })
     );
     const data = res.data || {};
+    // A link in `created` state with amount_paid=0 and no payment entities means
+    // the customer never attempted a payment (abandoned/closed the link). We
+    // surface `attempted` so /verify can distinguish a genuine in-flight payment
+    // (worth proceed-as-pending) from a clean abandonment (must NOT proceed).
+    const amountPaid = data.amount_paid != null ? Number(data.amount_paid) : 0;
+    const paymentsCount = Array.isArray(data.payments) ? data.payments.length : 0;
     return {
       status: normalizeLinkStatus(data.status),
       rawProviderStatus: data.status,
       // Razorpay stores amount in paise already
       amountInPaise: data.amount != null ? Number(data.amount) : undefined,
+      amountPaidInPaise: amountPaid,
+      attempted: amountPaid > 0 || paymentsCount > 0,
     };
   } catch (err) {
     const status = err.response && err.response.status;

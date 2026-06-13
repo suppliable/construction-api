@@ -314,6 +314,32 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
 }
 
 /**
+ * Customer explicitly closed/cancelled the hosted payment page without paying.
+ * The order is intentionally LEFT in `pending_payment` (so they can retry or
+ * switch to COD), but we flip the Slack card from "Awaiting payment" to
+ * "🚫 Cancelled" so ops isn't left staring at a stale in-flight card forever.
+ *
+ * Guarded: only edits the card while the order is still genuinely awaiting
+ * payment and not already confirmed/proceeding. A cancel signal that races a
+ * webhook (payment actually went through) must NOT overwrite a "Paid" card.
+ * Idempotent and best-effort — purely a Slack-visibility update, no order
+ * mutation, so it never blocks the customer.
+ */
+async function markOnlinePaymentCancelled(orderId, traceContext = null) {
+  if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
+  const order = await getOrderById(orderId, traceContext);
+  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+
+  if (
+    order.status === 'pending_payment' &&
+    order.paymentStatus !== 'confirmed' &&
+    order.slackTs
+  ) {
+    updateOrderPaymentStatus(order, order.slackTs, 'cancelled').catch(() => {});
+  }
+}
+
+/**
  * Transition `pending_payment → warehouse_review` while the online payment is
  * still PENDING with the gateway. Flips paymentStatus to `pending_proceeding`
  * so every UI can surface a "Payment pending" chip on the current lifecycle
@@ -416,5 +442,6 @@ module.exports = {
   confirmOnlinePayment,
   recordFailedPaymentAttempt,
   proceedAsPendingPayment,
+  markOnlinePaymentCancelled,
   convertPendingToCod,
 };

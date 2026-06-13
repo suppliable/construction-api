@@ -3,7 +3,7 @@
 const env = require('../config/env');
 const { getGateway } = require('../services/payments');
 const { getOrderById, updateOrder } = require('../services/firestoreService');
-const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment } = require('../services/orderService');
+const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled } = require('../services/orderService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { ValidationError, NotFoundError, UnauthorizedError, AppError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
@@ -28,7 +28,7 @@ function sendError(res, err, log) {
  */
 async function createSession(req, res) {
   try {
-    const { orderId } = req.body || {};
+    const { orderId, customerPhone: bodyPhone } = req.body || {};
     if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
     const order = await getOrderById(orderId, req.traceContext);
@@ -82,7 +82,7 @@ async function createSession(req, res) {
       currency: 'INR',
       customer: {
         customerId: req.user.uid,
-        customerPhone: req.user.phone || order.customerPhone || '',
+        customerPhone: bodyPhone || req.user.phone || order.customerPhone || '',
         customerName: req.user.name || order.customerName || '',
         customerEmail: req.user.email || '',
       },
@@ -128,7 +128,7 @@ async function createSession(req, res) {
  */
 async function verifyPayment(req, res) {
   try {
-    const { orderId, proceedIfPending } = req.body || {};
+    const { orderId, proceedIfPending, cancelled } = req.body || {};
     if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
     const order = await getOrderById(orderId, req.traceContext);
@@ -188,7 +188,16 @@ async function verifyPayment(req, res) {
     // PENDING. If the caller asked us to proceed anyway (verify-grace exhausted
     // client-side), transition the order to warehouse_review with
     // paymentStatus='pending_proceeding'.
-    if (proceedIfPending === true && order.status === 'pending_payment') {
+    //
+    // BUT: only proceed when a payment was actually attempted. A Razorpay link
+    // still in `created` state with no payment entities means the customer
+    // closed the hosted page without paying — that's an abandonment, not an
+    // in-flight payment, and must leave the order in pending_payment. Without
+    // this guard, closing the link would (via proceed-as-pending) place the
+    // order in warehouse_review. `attempted` is undefined for gateways that
+    // don't report it → default to the old behaviour (treat as attempted).
+    const everAttempted = status.attempted !== false;
+    if (proceedIfPending === true && order.status === 'pending_payment' && everAttempted) {
       const result = await proceedAsPendingPayment(orderId, {
         rawProviderStatus: status.rawProviderStatus,
         source: 'verify_timeout',
@@ -202,6 +211,15 @@ async function verifyPayment(req, res) {
           order: toOrderDTO(result),
         },
       });
+    }
+
+    // Still PENDING and the customer explicitly cancelled (closed the hosted
+    // page). The gateway confirmed it's not PAID/FAILED above, so this is a
+    // genuine abandonment: leave the order in pending_payment (retry/COD still
+    // possible) but flip the stale "Awaiting payment" Slack card to "Cancelled"
+    // so ops isn't left staring at a perpetual in-flight card. Best-effort.
+    if (cancelled === true) {
+      await markOnlinePaymentCancelled(orderId, req.traceContext);
     }
 
     return res.json({
