@@ -74,7 +74,6 @@ async function createSession(req, res) {
 
     const returnUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/return?orderId=${encodeURIComponent(orderId)}`;
     const notifyUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/webhook/${gateway.name}`;
-    const attemptCount = Array.isArray(order.payment?.attempts) ? order.payment.attempts.length : 0;
 
     const session = await gateway.createCheckout({
       orderId,
@@ -88,7 +87,6 @@ async function createSession(req, res) {
       },
       returnUrl,
       notifyUrl,
-      attemptCount,
     });
 
     await updateOrder(orderId, {
