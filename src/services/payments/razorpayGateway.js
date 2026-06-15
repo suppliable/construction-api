@@ -38,6 +38,18 @@ function normalizeContact(raw) {
   return digits || undefined;
 }
 
+// Builds the Razorpay `prefill` object from a resolved customer. Omits keys
+// with empty/invalid values (Razorpay rejects empty strings). Returns {} when
+// nothing is available, so callers can test `Object.keys(...).length`.
+function buildPrefill(customer = {}) {
+  const prefill = {};
+  const contact = normalizeContact(customer.customerPhone);
+  if (contact) prefill.contact = contact;
+  if (customer.customerName?.trim()) prefill.name = customer.customerName.trim();
+  if (customer.customerEmail?.trim()) prefill.email = customer.customerEmail.trim();
+  return prefill;
+}
+
 // Razorpay Orders API statuses → our normalized status.
 // Order statuses: created | attempted | paid
 // Payment statuses: created | authorized | captured | refunded | failed
@@ -80,11 +92,7 @@ async function createCheckout({ orderId, amountInPaise, currency, customer }) {
   };
 
   // Build prefill — omit keys with empty values; Razorpay rejects empty strings.
-  const prefill = {};
-  const contact = normalizeContact(customer.customerPhone);
-  if (contact) prefill.contact = contact;
-  if (customer.customerName?.trim()) prefill.name = customer.customerName.trim();
-  if (customer.customerEmail?.trim()) prefill.email = customer.customerEmail.trim();
+  const prefill = buildPrefill(customer);
 
   logger.debug(
     { orderId, amount: amountInPaise, currency: body.currency },
@@ -243,4 +251,5 @@ module.exports = {
   createCheckout,
   fetchStatus,
   verifyWebhook,
+  buildPrefill,
 };

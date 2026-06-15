@@ -437,6 +437,42 @@ async function convertPendingToCod(orderId, source = 'auto_cod_at_arrived', trac
   return { ...updated, _converted: true };
 }
 
+/**
+ * Soft-cancel a `pending_payment` order that was abandoned before any payment
+ * was attempted (Razorpay: `attempted === false`). Sets status to `cancelled`
+ * so the order disappears from the active list but stays in Firestore for audit.
+ *
+ * Guards:
+ *   - order must be in `pending_payment`
+ *   - no payment session must have been attempted (payment.attempts is empty)
+ * If either guard fails we no-op and return `{ _cancelled: false }` — the
+ * caller (verify flow) should then leave the order alone and show the
+ * "Complete Payment" button instead.
+ */
+async function cancelPendingOrder(orderId, userId, traceContext = null) {
+  if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
+  if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
+
+  const order = await getOrderById(orderId, traceContext);
+  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+  if (order.userId !== userId) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+
+  // Only cancel orders that are still waiting for payment and have had no attempt.
+  if (order.status !== 'pending_payment') return { ...order, _cancelled: false };
+  const attempts = Array.isArray(order.payment?.attempts) ? order.payment.attempts : [];
+  if (attempts.length > 0) return { ...order, _cancelled: false };
+
+  const updated = await updateOrder(orderId, {
+    status: 'cancelled',
+    cancelledReason: 'user_abandoned_payment',
+    cancelledAt: new Date().toISOString(),
+  }, traceContext);
+
+  await invalidateOrder(orderId).catch(() => {});
+
+  return { ...updated, _cancelled: true };
+}
+
 module.exports = {
   createOrder,
   confirmOnlinePayment,
@@ -444,4 +480,5 @@ module.exports = {
   proceedAsPendingPayment,
   markOnlinePaymentCancelled,
   convertPendingToCod,
+  cancelPendingOrder,
 };
