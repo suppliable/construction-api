@@ -2,7 +2,7 @@ const axios = require('axios');
 const { getOrdersByUser, getOrderById, getAddressById } = require('../services/firestoreService');
 const { getAccessToken } = require('../services/zohoService');
 const { toOrderDTO } = require('../models/orderDTO');
-const { createOrder: createOrderService } = require('../services/orderService');
+const { createOrder: createOrderService, cancelPendingOrder } = require('../services/orderService');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
 const { DEFAULT_USER_ORDER_LIMIT } = require('../constants');
@@ -154,4 +154,27 @@ const getCustomerInvoicePdf = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getUserOrders, getOrderDetail, getCustomerInvoice, getCustomerInvoicePdf };
+const cancelOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!orderId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'orderId is required' });
+    const userId = req.user?.uid;
+    if (!userId) return res.status(401).json({ success: false, error: 'UNAUTHORIZED' });
+
+    const result = await cancelPendingOrder(orderId, userId, req.traceContext);
+    if (!result._cancelled) {
+      return res.status(409).json({
+        success: false,
+        error: 'CANCEL_NOT_ALLOWED',
+        message: 'Order cannot be cancelled — payment was already attempted or order is no longer pending.',
+      });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ success: false, error: err.code, message: err.message });
+    req.log.error({ err: err.message }, 'cancelOrder failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+module.exports = { createOrder, getUserOrders, getOrderDetail, getCustomerInvoice, getCustomerInvoicePdf, cancelOrder };
