@@ -78,12 +78,20 @@ async function _doFetchZohoData(traceContext = null) {
     }
   } catch (_) { /* Redis unavailable — fall through to Zoho */ }
 
-  const [items, groups, zohoCategories, ttlMinutes] = await Promise.all([
+  const [items, rawGroups, zohoCategories, ttlMinutes] = await Promise.all([
     getZohoProducts(traceContext),
     getZohoItemGroups(traceContext),
     getZohoCategories(traceContext),
     remoteConfig.getNumber('product_cache_ttl_minutes', 10),
   ]);
+
+  // The /itemgroups list endpoint omits the `status` field, so the `g.status !== 'inactive'`
+  // filter in zohoService is a no-op for groups marked inactive via the UI. Cross-reference
+  // against the already-filtered active items list: drop any group whose variants are all inactive.
+  const activeItemIds = new Set(items.map(i => i.item_id));
+  const groups = rawGroups.filter(g =>
+    Array.isArray(g.items) && g.items.some(v => activeItemIds.has(v.item_id))
+  );
 
   // Build category id → name map
   const categoryMap = {};
