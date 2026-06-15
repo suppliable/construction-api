@@ -38,33 +38,28 @@ function normalizeContact(raw) {
   return digits || undefined;
 }
 
-// Razorpay payment link statuses → our normalized status.
-// Link statuses: created | partially_paid | expired | cancelled | paid
-function normalizeLinkStatus(status) {
-  switch (status) {
-    case 'paid':
-      return 'PAID';
-    case 'created':
-    case 'partially_paid':
-      return 'PENDING';
-    case 'expired':
-    case 'cancelled':
-      return 'FAILED';
-    default:
-      return 'PENDING';
-  }
+// Razorpay Orders API statuses → our normalized status.
+// Order statuses: created | attempted | paid
+// Payment statuses: created | authorized | captured | refunded | failed
+function normalizeOrderStatus(orderStatus, payments) {
+  if (orderStatus === 'paid') return 'PAID';
+
+  if (payments.some(p => p.status === 'captured')) return 'PAID';
+
+  const hasFailed = payments.some(p => p.status === 'failed');
+  const hasInFlight = payments.some(p => p.status !== 'failed');
+  if (hasFailed && !hasInFlight) return 'FAILED';
+
+  return 'PENDING';
 }
 
-// Razorpay sends webhook events like "payment_link.paid", "payment_link.expired",
-// "payment.failed", "payment.authorized", etc.
+// Razorpay webhook events for the Orders API flow.
 function normalizeEvent(event) {
   switch (event) {
-    case 'payment_link.paid':
     case 'payment.captured':
     case 'payment.authorized':
+    case 'order.paid':
       return 'PAYMENT_SUCCESS';
-    case 'payment_link.expired':
-    case 'payment_link.cancelled':
     case 'payment.failed':
       return 'PAYMENT_FAILED';
     default:
@@ -72,72 +67,61 @@ function normalizeEvent(event) {
   }
 }
 
-// Razorpay Payment Links accept a description (max 255 chars) but no custom id ≤ 50 chars.
-// We store our orderId in the `reference_id` field (max 40 chars). The provider's
-// `id` (plink_xxx) is used as providerOrderId since it's what fetchStatus and webhook use.
-async function createCheckout({ orderId, amountInPaise, currency, customer, returnUrl, notifyUrl }) {
+// Creates a Razorpay Order (order_xxx) via the Orders API.
+// Returns providerOrderId, empty paymentUrl, and a client object the controller
+// spreads into the session response for the Flutter SDK to consume directly.
+async function createCheckout({ orderId, amountInPaise, currency, customer }) {
+  const notes = { internalOrderId: String(orderId) };
   const body = {
-    amount: paiseToRupees(amountInPaise), // Razorpay already uses paise
+    amount: amountInPaise, // Orders API takes paise
     currency: currency || 'INR',
-    description: `Order ${orderId}`,
-    reference_id: orderId.slice(0, 40),
-    callback_url: returnUrl,
-    callback_method: 'get',
-    // We deliver fulfilment status via webhook only; never let Razorpay SMS/email
-    // the customer. (notifyUrl is the webhook target, configured on the dashboard.)
-    notify: { sms: false, email: false },
-    customer: {
-      contact: normalizeContact(customer.customerPhone),
-      ...(customer.customerName ? { name: customer.customerName } : {}),
-      ...(customer.customerEmail ? { email: customer.customerEmail } : {}),
-    },
-    expire_by: Math.floor((Date.now() + 30 * 60 * 1000) / 1000), // +30 min, Unix timestamp
+    receipt: orderId.slice(0, 40), // 40-char Razorpay limit
+    notes,
   };
 
-  // Log the exact request body so we can confirm what's sent to Razorpay.
-  // Mask the contact (PII): keep country code + last 2 digits, e.g. "+91******61".
+  // Build prefill — omit keys with empty values; Razorpay rejects empty strings.
+  const prefill = {};
+  const contact = normalizeContact(customer.customerPhone);
+  if (contact) prefill.contact = contact;
+  if (customer.customerName?.trim()) prefill.name = customer.customerName.trim();
+  if (customer.customerEmail?.trim()) prefill.email = customer.customerEmail.trim();
+
   logger.debug(
-    {
-      body: {
-        ...body,
-        customer: {
-          ...body.customer,
-          contact: body.customer.contact
-            ? body.customer.contact.replace(/^(\+?\d{2})\d+(\d{2})$/, '$1******$2')
-            : undefined,
-          ...(body.customer.email ? { email: '[redacted]' } : {}),
-        },
-      },
-    },
-    'razorpay.create_link.request'
+    { orderId, amount: amountInPaise, currency: body.currency },
+    'razorpay.create_order.request'
   );
 
   try {
-    const res = await withRetry('payment.razorpay.create_link', () =>
-      axios.post(`${BASE_URL}/payment_links`, body, {
+    const res = await withRetry('payment.razorpay.create_order', () =>
+      axios.post(`${BASE_URL}/orders`, body, {
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
         timeout: DEFAULT_TIMEOUT_MS,
       })
     );
     const data = res.data || {};
-    if (!data.short_url || !data.id) {
-      throw new ExternalServiceError('Razorpay response missing short_url/id', 'RAZORPAY_BAD_RESPONSE');
+    if (!data.id) {
+      throw new ExternalServiceError('Razorpay response missing id', 'RAZORPAY_BAD_RESPONSE');
     }
     return {
-      providerOrderId: data.id, // plink_xxx — used for fetchStatus and webhook lookup
-      paymentUrl: data.short_url,
+      providerOrderId: data.id, // order_xxx — used for fetchStatus and webhook lookup
+      paymentUrl: '',            // Flutter SDK doesn't use a URL
+      client: {
+        keyId: env.RAZORPAY_KEY_ID,
+        amount: amountInPaise,
+        currency: currency || 'INR',
+        ...(Object.keys(prefill).length ? { prefill } : {}),
+        notes,
+      },
       providerRaw: {
-        rzpLinkId: data.id,
-        referenceId: orderId,
-        paymentUrl: data.short_url,
-        expireBy: data.expire_by,
+        rzpOrderId: data.id,
+        receipt: data.receipt,
       },
     };
   } catch (err) {
     if (err instanceof ExternalServiceError) throw err;
     const status = err.response && err.response.status;
     const respBody = err.response && err.response.data;
-    logger.warn({ status, body: respBody, err: err.message }, 'razorpay.create_link.failed');
+    logger.warn({ status, body: respBody, err: err.message }, 'razorpay.create_order.failed');
     throw new ExternalServiceError(
       `Razorpay createCheckout failed: ${err.message}`,
       'RAZORPAY_CREATE_FAILED'
@@ -147,31 +131,47 @@ async function createCheckout({ orderId, amountInPaise, currency, customer, retu
 
 async function fetchStatus({ providerOrderId }) {
   try {
-    const res = await withRetry('payment.razorpay.fetch_link', () =>
-      axios.get(`${BASE_URL}/payment_links/${encodeURIComponent(providerOrderId)}`, {
+    // 1. Fetch the order to check top-level status.
+    const orderRes = await withRetry('payment.razorpay.fetch_order', () =>
+      axios.get(`${BASE_URL}/orders/${encodeURIComponent(providerOrderId)}`, {
         headers: authHeader(),
         timeout: DEFAULT_TIMEOUT_MS,
       })
     );
-    const data = res.data || {};
-    // A link in `created` state with amount_paid=0 and no payment entities means
-    // the customer never attempted a payment (abandoned/closed the link). We
-    // surface `attempted` so /verify can distinguish a genuine in-flight payment
-    // (worth proceed-as-pending) from a clean abandonment (must NOT proceed).
-    const amountPaid = data.amount_paid != null ? Number(data.amount_paid) : 0;
-    const paymentsCount = Array.isArray(data.payments) ? data.payments.length : 0;
+    const order = orderRes.data || {};
+
+    if (order.status === 'paid') {
+      return {
+        status: 'PAID',
+        rawProviderStatus: order.status,
+        amountInPaise: order.amount != null ? Number(order.amount) : undefined,
+        amountPaidInPaise: order.amount_paid != null ? Number(order.amount_paid) : undefined,
+        attempted: true,
+      };
+    }
+
+    // 2. Fetch payments on this order to distinguish PENDING / FAILED.
+    const paymentsRes = await withRetry('payment.razorpay.fetch_order_payments', () =>
+      axios.get(`${BASE_URL}/orders/${encodeURIComponent(providerOrderId)}/payments`, {
+        headers: authHeader(),
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    const payments = paymentsRes.data?.items || [];
+    const normalized = normalizeOrderStatus(order.status, payments);
+
     return {
-      status: normalizeLinkStatus(data.status),
-      rawProviderStatus: data.status,
-      // Razorpay stores amount in paise already
-      amountInPaise: data.amount != null ? Number(data.amount) : undefined,
-      amountPaidInPaise: amountPaid,
-      attempted: amountPaid > 0 || paymentsCount > 0,
+      status: normalized,
+      rawProviderStatus: order.status,
+      amountInPaise: order.amount != null ? Number(order.amount) : undefined,
+      amountPaidInPaise: order.amount_paid != null ? Number(order.amount_paid) : 0,
+      // attempted=false means the customer never interacted (safe to refuse proceed-as-pending).
+      attempted: payments.length > 0,
     };
   } catch (err) {
     const status = err.response && err.response.status;
     const respBody = err.response && err.response.data;
-    logger.warn({ status, body: respBody, err: err.message, providerOrderId }, 'razorpay.fetch_link.failed');
+    logger.warn({ status, body: respBody, err: err.message, providerOrderId }, 'razorpay.fetch_order.failed');
     throw new ExternalServiceError(
       `Razorpay fetchStatus failed: ${err.message}`,
       'RAZORPAY_FETCH_FAILED'
@@ -212,24 +212,29 @@ function verifyWebhook({ rawBody, headers: hdrs }) {
   const eventType = parsed.event || '';
   const event = normalizeEvent(eventType);
 
-  // payment_link.paid → payload.payment_link.entity.id = plink_xxx
-  // payment.* → payload.payment.entity.order_id or notes.reference_id
-  const linkEntity = (parsed.payload && parsed.payload.payment_link && parsed.payload.payment_link.entity) || {};
-  const paymentEntity = (parsed.payload && parsed.payload.payment) || {};
-  const providerOrderId = linkEntity.id
-    || (paymentEntity.entity && paymentEntity.entity.payment_link_id)
+  // payment.captured / payment.failed → payload.payment.entity.order_id
+  // order.paid                        → payload.order.entity.id
+  const paymentEntity = parsed.payload?.payment?.entity || {};
+  const orderEntity = parsed.payload?.order?.entity || {};
+
+  // providerOrderId is always the Razorpay order_xxx.
+  const providerOrderId = paymentEntity.order_id || orderEntity.id || undefined;
+  // internalOrderId is echoed from notes so the webhook handler can look up our order.
+  const internalOrderId = paymentEntity.notes?.internalOrderId
+    || orderEntity.notes?.internalOrderId
     || undefined;
 
-  const amountInPaise = linkEntity.amount != null
-    ? Number(linkEntity.amount)
-    : (paymentEntity.entity && paymentEntity.entity.amount != null ? Number(paymentEntity.entity.amount) : undefined);
+  const amountInPaise = paymentEntity.amount != null
+    ? Number(paymentEntity.amount)
+    : (orderEntity.amount_paid != null ? Number(orderEntity.amount_paid) : undefined);
 
   return {
     isValid: true,
     event,
     providerOrderId,
+    internalOrderId,
     amountInPaise,
-    rawEvent: { event: eventType, status: linkEntity.status },
+    rawEvent: { event: eventType, status: paymentEntity.status || orderEntity.status },
   };
 }
 

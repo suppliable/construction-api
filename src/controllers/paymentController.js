@@ -44,9 +44,9 @@ async function createSession(req, res) {
     const gateway = getGateway();
 
     // Reuse-when-active: if a prior session exists and is still PENDING with
-    // the provider, return the same paymentUrl. Avoids creating a duplicate
-    // provider session when the user closed the WebView and came back.
-    if (order.payment?.providerOrderId && order.payment?.providerRaw?.paymentUrl) {
+    // the provider, return the same session. Cashfree stores paymentUrl;
+    // Razorpay stores client (keyId/amount/currency/prefill/notes).
+    if (order.payment?.providerOrderId && (order.payment?.providerRaw?.paymentUrl || order.payment?.client)) {
       try {
         const status = await gateway.fetchStatus({ providerOrderId: order.payment.providerOrderId });
         if (status.status === 'PENDING') {
@@ -55,8 +55,9 @@ async function createSession(req, res) {
             success: true,
             data: {
               gateway: gateway.name,
-              paymentUrl: order.payment.providerRaw.paymentUrl,
+              paymentUrl: order.payment.providerRaw?.paymentUrl || '',
               providerOrderId: order.payment.providerOrderId,
+              ...(order.payment.client || {}),
             },
           });
         }
@@ -97,6 +98,7 @@ async function createSession(req, res) {
         providerOrderId: session.providerOrderId,
         attempts: order.payment?.attempts || [],
         ...(session.providerRaw ? { providerRaw: session.providerRaw } : {}),
+        ...(session.client ? { client: session.client } : {}),
       },
     }, req.traceContext);
 
@@ -106,6 +108,7 @@ async function createSession(req, res) {
         gateway: gateway.name,
         paymentUrl: session.paymentUrl,
         providerOrderId: session.providerOrderId,
+        ...(session.client || {}),
       },
     });
   } catch (err) {
@@ -256,14 +259,15 @@ async function handleWebhook(req, res) {
       return res.status(401).json({ success: false, error: 'INVALID_SIGNATURE' });
     }
 
-    const { event, providerOrderId } = verification;
-    if (!providerOrderId) {
+    const { event, providerOrderId, internalOrderId } = verification;
+    if (!providerOrderId && !internalOrderId) {
       req.log.warn({ event }, 'payment.webhook.missing_provider_order_id');
       return res.status(200).json({ received: true });
     }
 
-    // Webhooks carry providerOrderId; we set it == orderId at session creation.
-    const orderId = providerOrderId;
+    // Razorpay Orders: internalOrderId is echoed from notes — use it to look up
+    // our order. Cashfree: internalOrderId is undefined, fall back to providerOrderId.
+    const orderId = internalOrderId || providerOrderId;
 
     try {
       if (event === 'PAYMENT_SUCCESS') {
