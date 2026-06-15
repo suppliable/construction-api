@@ -3,7 +3,7 @@
 const env = require('../config/env');
 const { getGateway } = require('../services/payments');
 const { getOrderById, updateOrder } = require('../services/firestoreService');
-const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment } = require('../services/orderService');
+const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled } = require('../services/orderService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { ValidationError, NotFoundError, UnauthorizedError, AppError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
@@ -28,7 +28,7 @@ function sendError(res, err, log) {
  */
 async function createSession(req, res) {
   try {
-    const { orderId } = req.body || {};
+    const { orderId, customerPhone: bodyPhone } = req.body || {};
     if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
     const order = await getOrderById(orderId, req.traceContext);
@@ -44,9 +44,9 @@ async function createSession(req, res) {
     const gateway = getGateway();
 
     // Reuse-when-active: if a prior session exists and is still PENDING with
-    // the provider, return the same paymentUrl. Avoids creating a duplicate
-    // provider session when the user closed the WebView and came back.
-    if (order.payment?.providerOrderId && order.payment?.providerRaw?.paymentUrl) {
+    // the provider, return the same session. Cashfree stores paymentUrl;
+    // Razorpay stores client (keyId/amount/currency/prefill/notes).
+    if (order.payment?.providerOrderId && (order.payment?.providerRaw?.paymentUrl || order.payment?.client)) {
       try {
         const status = await gateway.fetchStatus({ providerOrderId: order.payment.providerOrderId });
         if (status.status === 'PENDING') {
@@ -55,8 +55,9 @@ async function createSession(req, res) {
             success: true,
             data: {
               gateway: gateway.name,
-              paymentUrl: order.payment.providerRaw.paymentUrl,
+              paymentUrl: order.payment.providerRaw?.paymentUrl || '',
               providerOrderId: order.payment.providerOrderId,
+              ...(order.payment.client || {}),
             },
           });
         }
@@ -74,6 +75,7 @@ async function createSession(req, res) {
 
     const returnUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/return?orderId=${encodeURIComponent(orderId)}`;
     const notifyUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/webhook/${gateway.name}`;
+    const attemptCount = Array.isArray(order.payment?.attempts) ? order.payment.attempts.length : 0;
 
     const session = await gateway.createCheckout({
       orderId,
@@ -81,12 +83,13 @@ async function createSession(req, res) {
       currency: 'INR',
       customer: {
         customerId: req.user.uid,
-        customerPhone: req.user.phone || order.customerPhone || '',
+        customerPhone: bodyPhone || req.user.phone || order.customerPhone || '',
         customerName: req.user.name || order.customerName || '',
         customerEmail: req.user.email || '',
       },
       returnUrl,
       notifyUrl,
+      attemptCount,
     });
 
     await updateOrder(orderId, {
@@ -95,6 +98,7 @@ async function createSession(req, res) {
         providerOrderId: session.providerOrderId,
         attempts: order.payment?.attempts || [],
         ...(session.providerRaw ? { providerRaw: session.providerRaw } : {}),
+        ...(session.client ? { client: session.client } : {}),
       },
     }, req.traceContext);
 
@@ -104,6 +108,7 @@ async function createSession(req, res) {
         gateway: gateway.name,
         paymentUrl: session.paymentUrl,
         providerOrderId: session.providerOrderId,
+        ...(session.client || {}),
       },
     });
   } catch (err) {
@@ -126,7 +131,7 @@ async function createSession(req, res) {
  */
 async function verifyPayment(req, res) {
   try {
-    const { orderId, proceedIfPending } = req.body || {};
+    const { orderId, proceedIfPending, cancelled } = req.body || {};
     if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
     const order = await getOrderById(orderId, req.traceContext);
@@ -186,7 +191,16 @@ async function verifyPayment(req, res) {
     // PENDING. If the caller asked us to proceed anyway (verify-grace exhausted
     // client-side), transition the order to warehouse_review with
     // paymentStatus='pending_proceeding'.
-    if (proceedIfPending === true && order.status === 'pending_payment') {
+    //
+    // BUT: only proceed when a payment was actually attempted. A Razorpay link
+    // still in `created` state with no payment entities means the customer
+    // closed the hosted page without paying — that's an abandonment, not an
+    // in-flight payment, and must leave the order in pending_payment. Without
+    // this guard, closing the link would (via proceed-as-pending) place the
+    // order in warehouse_review. `attempted` is undefined for gateways that
+    // don't report it → default to the old behaviour (treat as attempted).
+    const everAttempted = status.attempted !== false;
+    if (proceedIfPending === true && order.status === 'pending_payment' && everAttempted) {
       const result = await proceedAsPendingPayment(orderId, {
         rawProviderStatus: status.rawProviderStatus,
         source: 'verify_timeout',
@@ -200,6 +214,15 @@ async function verifyPayment(req, res) {
           order: toOrderDTO(result),
         },
       });
+    }
+
+    // Still PENDING and the customer explicitly cancelled (closed the hosted
+    // page). The gateway confirmed it's not PAID/FAILED above, so this is a
+    // genuine abandonment: leave the order in pending_payment (retry/COD still
+    // possible) but flip the stale "Awaiting payment" Slack card to "Cancelled"
+    // so ops isn't left staring at a perpetual in-flight card. Best-effort.
+    if (cancelled === true) {
+      await markOnlinePaymentCancelled(orderId, req.traceContext);
     }
 
     return res.json({
@@ -236,14 +259,15 @@ async function handleWebhook(req, res) {
       return res.status(401).json({ success: false, error: 'INVALID_SIGNATURE' });
     }
 
-    const { event, providerOrderId } = verification;
-    if (!providerOrderId) {
+    const { event, providerOrderId, internalOrderId } = verification;
+    if (!providerOrderId && !internalOrderId) {
       req.log.warn({ event }, 'payment.webhook.missing_provider_order_id');
       return res.status(200).json({ received: true });
     }
 
-    // Webhooks carry providerOrderId; we set it == orderId at session creation.
-    const orderId = providerOrderId;
+    // Razorpay Orders: internalOrderId is echoed from notes — use it to look up
+    // our order. Cashfree: internalOrderId is undefined, fall back to providerOrderId.
+    const orderId = internalOrderId || providerOrderId;
 
     try {
       if (event === 'PAYMENT_SUCCESS') {
