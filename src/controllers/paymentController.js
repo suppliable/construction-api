@@ -2,7 +2,7 @@
 
 const env = require('../config/env');
 const { getGateway } = require('../services/payments');
-const { getOrderById, updateOrder } = require('../services/firestoreService');
+const { getOrderById, updateOrder, getCustomer } = require('../services/firestoreService');
 const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled } = require('../services/orderService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { ValidationError, NotFoundError, UnauthorizedError, AppError } = require('../utils/errors');
@@ -43,6 +43,42 @@ async function createSession(req, res) {
 
     const gateway = getGateway();
 
+    // Resolve the buyer's phone/name authoritatively. The auth token's `phone`
+    // claim is not always present (custom JWTs may omit it), and the
+    // Flutter-sent `bodyPhone` can be empty if the profile hasn't loaded — so
+    // fall back to the customer record (keyed by Firebase UID = order owner),
+    // which always carries a normalized phone. Without this, `prefill.contact`
+    // came back empty and Razorpay asked the user to type their number.
+    let customerPhone = bodyPhone || req.user.phone || order.customerPhone || '';
+    let customerName = req.user.name || order.customerName || '';
+    if (!customerPhone || !customerName) {
+      try {
+        const customer = await getCustomer(req.user.uid, req.traceContext);
+        if (!customerPhone && customer?.phone) customerPhone = customer.phone;
+        if (!customerName && customer?.name) customerName = customer.name;
+      } catch (custErr) {
+        req.log.warn({ err: custErr.message, orderId }, 'payment.session.customer_lookup_failed');
+      }
+    }
+    const customer = {
+      customerId: req.user.uid,
+      customerPhone,
+      customerName,
+      customerEmail: req.user.email || '',
+    };
+    // Fresh prefill rebuilt from the resolved phone, used to self-heal a stored
+    // session whose prefill was empty (created before the phone was available).
+    const freshPrefill = gateway.buildPrefill ? gateway.buildPrefill(customer) : null;
+    req.log.info({
+      orderId,
+      bodyPhone: bodyPhone || null,
+      userPhone: req.user.phone || null,
+      orderPhone: order.customerPhone || null,
+      resolvedPhone: customerPhone || null,
+      prefillContact: freshPrefill?.contact || null,
+      hasStoredClient: !!order.payment?.client,
+    }, 'payment.session.prefill_debug');
+
     // Reuse-when-active: if a prior session exists and is still PENDING with
     // the provider, return the same session. Cashfree stores paymentUrl;
     // Razorpay stores client (keyId/amount/currency/prefill/notes).
@@ -51,13 +87,21 @@ async function createSession(req, res) {
         const status = await gateway.fetchStatus({ providerOrderId: order.payment.providerOrderId });
         if (status.status === 'PENDING') {
           req.log.info({ orderId, providerOrderId: order.payment.providerOrderId }, 'payment.session.reused');
+          const storedClient = order.payment.client || {};
+          // If the stored client has no (or empty) prefill but we now have a
+          // phone, inject the fresh prefill so the reused session is no longer
+          // poisoned by the empty value captured at first creation.
+          const client = (freshPrefill && Object.keys(freshPrefill).length &&
+              !(storedClient.prefill && storedClient.prefill.contact))
+            ? { ...storedClient, prefill: { ...(storedClient.prefill || {}), ...freshPrefill } }
+            : storedClient;
           return res.json({
             success: true,
             data: {
               gateway: gateway.name,
               paymentUrl: order.payment.providerRaw?.paymentUrl || '',
               providerOrderId: order.payment.providerOrderId,
-              ...(order.payment.client || {}),
+              ...client,
             },
           });
         }
@@ -81,12 +125,7 @@ async function createSession(req, res) {
       orderId,
       amountInPaise: rupeesToPaise(order.grand_total),
       currency: 'INR',
-      customer: {
-        customerId: req.user.uid,
-        customerPhone: bodyPhone || req.user.phone || order.customerPhone || '',
-        customerName: req.user.name || order.customerName || '',
-        customerEmail: req.user.email || '',
-      },
+      customer,
       returnUrl,
       notifyUrl,
       attemptCount,
@@ -227,7 +266,14 @@ async function verifyPayment(req, res) {
 
     return res.json({
       success: true,
-      data: { paymentStatus: 'pending', orderStatus: order.status },
+      data: {
+        paymentStatus: 'pending',
+        orderStatus: order.status,
+        // Let the client know whether any payment was ever attempted on this
+        // order. When false (Razorpay: no payment entities on the order),
+        // Flutter can safely call DELETE /orders/:orderId to cancel silently.
+        attempted: everAttempted,
+      },
     });
   } catch (err) {
     sendError(res, err, req.log);
