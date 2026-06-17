@@ -54,7 +54,7 @@ function toOrderDTO(doc) {
     deliveryAddress: normalizeAddress(o.deliveryAddress),
     driverName: o.driverName || o.vehicle?.driverName || null,
     driverPhone: o.driverPhone || o.vehicle?.driverPhone || null,
-    deliveryOtp: o.status === 'arrived' ? o.deliveryOtp : undefined,
+    deliveryOtp: ['accepted', 'packed', 'ready_for_dispatch', 'loading', 'out_for_delivery', 'arrived'].includes(o.status) ? o.deliveryOtp : undefined,
     estimatedDelivery: o.estimatedDelivery || null,
     createdAt: o.createdAt || null,
     acceptedAt: o.acceptedAt || null,
