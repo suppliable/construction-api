@@ -44,6 +44,8 @@ function toOrderDTO(doc) {
           attempts: Array.isArray(o.payment.attempts) ? o.payment.attempts : [],
         }
       : null,
+    customerName: o.customerName || null,
+    customerPhone: o.customerPhone || null,
     items: o.items || [],
     subtotal: Number(o.subtotal ?? 0),
     gstTotal: Number(o.gst_total ?? 0),
