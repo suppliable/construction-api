@@ -11,6 +11,7 @@ const uploadImage = [
       const image_url = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'products');
       res.json({ success: true, image_url });
     } catch (err) {
+      console.error('[Upload] image upload failed:', err.message);
       res.status(500).json({ success: false, message: err.message });
     }
   }
