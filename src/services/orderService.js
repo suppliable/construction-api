@@ -2,6 +2,7 @@
 
 const admin = require('../utils/firebaseAdmin');
 const { getCustomer, getAddressById, saveOrder, getSettings, getOrderById, updateOrder } = require('./firestoreService');
+const { getCheckoutSession, deleteCheckoutSession } = require('../repositories/checkoutSessionRepository');
 const remoteConfig = require('./remoteConfigService');
 const { getCart, saveCart } = require('../data/cart');
 const { getProductById } = require('./productService');
@@ -201,56 +202,81 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   return order;
 }
 
+// Builds a plain order object from a checkout session. The order starts in
+// pending_payment so the existing confirm/proceed transaction logic applies
+// without special-casing. Called inside Firestore transactions.
+function _orderFromSession(orderId, session) {
+  return {
+    orderId,
+    userId: session.userId,
+    addressId: session.addressId,
+    items: session.cartData.lineItems,
+    subtotal: session.cartData.subtotal,
+    gst_total: session.cartData.gst_total,
+    delivery_charge: session.cartData.deliveryCharge,
+    grand_total: session.cartData.grand_total,
+    paymentType: 'ONLINE',
+    paymentStatus: 'pending',
+    status: 'pending_payment',
+    customerName: session.customerName || '',
+    customerPhone: session.customerPhone || '',
+    freeDeliveryApplied: session.cartData.freeDeliveryApplied,
+    payment: {
+      gateway: session.gateway,
+      providerOrderId: session.providerOrderId,
+      attempts: [],
+    },
+    createdAt: session.createdAt,
+  };
+}
+
 /**
- * Confirm a successful online payment for an order. Transitions
- * `pending_payment` → `warehouse_review` (the same state COD orders land in,
- * so the existing admin acceptance flow takes over from here).
+ * Confirm a successful online payment. Transitions pending_payment →
+ * warehouse_review. Works for both the old flow (order already exists at
+ * pending_payment) and the new session flow (no order yet — the order is
+ * created atomically inside the transaction and the session is deleted).
  *
- * Idempotent — if the order is already past `pending_payment`, returns the
- * current order unchanged. Always records the attempt for audit.
- *
- * Does NOT push to Zoho; that happens in `adminController.acceptOrder` when
- * a warehouse user accepts the order, identical to COD.
+ * Idempotent: if paymentStatus is already 'confirmed', records the attempt
+ * for audit and returns unchanged. Webhook + verify can race safely.
  */
 async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
-  // Always log the attempt for audit, even if no state change.
   const attemptRecord = {
     at: new Date().toISOString(),
     status: attempt && attempt.status ? attempt.status : 'unknown',
     rawProviderStatus: attempt && attempt.rawProviderStatus ? attempt.rawProviderStatus : null,
-    source: attempt && attempt.source ? attempt.source : 'unknown', // 'webhook' | 'verify' | 'admin_manual'
+    source: attempt && attempt.source ? attempt.source : 'unknown',
     ...(attempt && attempt.actor ? { actor: attempt.actor } : {}),
   };
 
-  // The webhook and the client /verify poll can both call this for the same
-  // payment and race through a plain read-then-write — both seeing
-  // paymentStatus='pending', both flipping to 'confirmed', both firing side
-  // effects (e.g. the Slack new-order notification, twice). Do the read and the
-  // flip inside a single Firestore transaction so exactly ONE caller wins the
-  // pending→confirmed transition; only the winner reports _transitioned: true.
   const db = admin.firestore();
-  const ref = db.collection('orders').doc(orderId);
-  const { order, update, transitioned } = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
-    const order = snap.data();
+  const orderRef = db.collection('orders').doc(orderId);
+  const sessionRef = db.collection('checkoutSessions').doc(orderId);
 
-    // Idempotency: if paymentStatus is already 'confirmed', nothing changes —
-    // just record the attempt for audit.
+  const { order, update, transitioned } = await db.runTransaction(async (tx) => {
+    const [orderSnap, sessionSnap] = await Promise.all([
+      tx.get(orderRef),
+      tx.get(sessionRef),
+    ]);
+
+    let order;
+    if (orderSnap.exists) {
+      order = orderSnap.data();
+    } else if (sessionSnap.exists) {
+      // Session flow: materialise the order atomically and remove the session
+      order = _orderFromSession(orderId, sessionSnap.data());
+      tx.set(orderRef, order);
+      tx.delete(sessionRef);
+    } else {
+      throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+    }
+
     if (order.paymentStatus === 'confirmed') {
-      tx.update(ref, {
-        'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
-      });
+      tx.update(orderRef, { 'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord) });
       return { order, update: null, transitioned: false };
     }
 
-    // Always flip paymentStatus to 'confirmed' (from either 'pending' or
-    // 'pending_proceeding'). Only flip `status` if the order is still in
-    // pending_payment — past that, the order may have proceeded into the
-    // fulfilment pipeline via proceedAsPendingPayment, and a late webhook here
-    // must NOT jerk it back.
     const update = {
       paymentStatus: 'confirmed',
       paidAt: new Date().toISOString(),
@@ -259,7 +285,7 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     if (order.status === 'pending_payment') {
       update.status = 'warehouse_review';
     }
-    tx.update(ref, update);
+    tx.update(orderRef, update);
     return { order, update, transitioned: true };
   });
 
@@ -267,13 +293,8 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     return { ...order, _transitioned: false };
   }
 
-  // Bust the cached /orders/detail response so the customer's tracking screen
-  // sees paymentStatus='confirmed' on its next poll instead of a stale value.
-  // Best-effort — a cache miss is harmless, a throw here must not fail payment.
   await invalidateOrder(orderId).catch(() => {});
-  // Edit the order's Slack card to "Paid". If the card was never posted (e.g.
-  // Slack was down at checkout), post a fresh one so the confirmed order still
-  // surfaces. Best-effort.
+
   const confirmedOrder = { ...order, ...update };
   if (order.slackTs) {
     updateOrderPaymentStatus(confirmedOrder, order.slackTs, 'paid').catch(() => {});
@@ -281,34 +302,22 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     postNewOrder(confirmedOrder).catch(() => {});
   }
 
-  // Backfill customerName/customerPhone — online orders skip the customer fetch
-  // at creation time, so these fields are missing from the Firestore doc until
-  // payment confirms. Write them now so the order shape matches COD orders.
+  // Backfill name/phone for old-style pending_payment orders that were created
+  // before the customer record was available. Session-based orders already carry
+  // these fields from checkout time so this is a no-op for them.
   if (order.userId && !order.customerName) {
     try {
       const customer = await getCustomer(order.userId, traceContext);
       if (customer) {
-        await ref.update({
-          customerName: customer.name || '',
-          customerPhone: customer.phone || '',
-        });
+        await orderRef.update({ customerName: customer.name || '', customerPhone: customer.phone || '' });
         update.customerName = customer.name || '';
         update.customerPhone = customer.phone || '';
       }
-    } catch (_) {
-      // Non-fatal — order is confirmed; name/phone can be fetched from customer doc.
-    }
+    } catch (_) {}
   }
 
-  // Cart wasn't cleared at order-creation time for ONLINE orders. Clear it
-  // now that payment has succeeded — but only if the cart wasn't already
-  // cleared by an earlier proceedAsPendingPayment transition. Best-effort.
   if (order.userId && order.status === 'pending_payment') {
-    try {
-      await saveCart(order.userId, { items: [] });
-    } catch (cartErr) {
-      // Non-fatal — order is confirmed; cart can be cleared on next checkout.
-    }
+    try { await saveCart(order.userId, { items: [] }); } catch (_) {}
   }
 
   return { ...order, ...update, _transitioned: true };
@@ -328,7 +337,8 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
 async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
   const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+  // Session flow: no order exists yet, the session is still valid for retry — no-op.
+  if (!order) return;
 
   const attemptRecord = {
     at: new Date().toISOString(),
@@ -375,7 +385,11 @@ async function recordFailedPaymentAttempt(orderId, attempt, traceContext = null)
 async function markOnlinePaymentCancelled(orderId, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
   const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+  if (!order) {
+    // Session flow: delete the session so it doesn't linger after an explicit cancel.
+    await deleteCheckoutSession(orderId, traceContext).catch(() => {});
+    return;
+  }
 
   if (
     order.status === 'pending_payment' &&
@@ -399,8 +413,6 @@ async function markOnlinePaymentCancelled(orderId, traceContext = null) {
  */
 async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
   if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
-  const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
 
   const attemptRecord = {
     at: new Date().toISOString(),
@@ -409,7 +421,36 @@ async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
     source: attempt && attempt.source ? attempt.source : 'verify_timeout',
   };
 
-  // Already proceeded or further along — no-op.
+  let order = await getOrderById(orderId, traceContext);
+  if (!order) {
+    // Session flow: materialise the order directly into warehouse_review + pending_proceeding,
+    // skipping the pending_payment state entirely.
+    const session = await getCheckoutSession(orderId, traceContext);
+    if (!session) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+
+    const db = admin.firestore();
+    const newOrder = {
+      ..._orderFromSession(orderId, session),
+      status: 'warehouse_review',
+      paymentStatus: 'pending_proceeding',
+      payment: {
+        gateway: session.gateway,
+        providerOrderId: session.providerOrderId,
+        attempts: [attemptRecord],
+      },
+    };
+    await db.runTransaction(async (tx) => {
+      tx.set(db.collection('orders').doc(orderId), newOrder);
+      tx.delete(db.collection('checkoutSessions').doc(orderId));
+    });
+    await invalidateOrder(orderId).catch(() => {});
+    if (session.userId) {
+      try { await saveCart(session.userId, { items: [] }); } catch (_) {}
+    }
+    postNewOrder(newOrder).catch(() => {});
+    return { ...newOrder, _transitioned: true };
+  }
+
   if (order.status !== 'pending_payment') {
     await updateOrder(orderId, {
       'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
@@ -423,19 +464,9 @@ async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
     'payment.attempts': admin.firestore.FieldValue.arrayUnion(attemptRecord),
   }, traceContext);
 
-  // Bust the cached /orders/detail response — this is the transition that
-  // produced the customer-facing "Payment pending" flicker: the order flipped
-  // to pending_proceeding but the tracking screen kept polling a stale cache.
   await invalidateOrder(orderId).catch(() => {});
-
-  // Cart is no longer needed — the order is proceeding through fulfilment.
-  // Best-effort.
   if (order.userId) {
-    try {
-      await saveCart(order.userId, { items: [] });
-    } catch (cartErr) {
-      // Non-fatal.
-    }
+    try { await saveCart(order.userId, { items: [] }); } catch (_) {}
   }
 
   return { ...updated, _transitioned: true };
@@ -501,7 +532,13 @@ async function cancelPendingOrder(orderId, userId, traceContext = null) {
   if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
 
   const order = await getOrderById(orderId, traceContext);
-  if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+  if (!order) {
+    // Session flow: no order exists yet — delete the session (if it belongs to this user).
+    const session = await getCheckoutSession(orderId, traceContext);
+    if (!session || session.userId !== userId) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+    await deleteCheckoutSession(orderId, traceContext);
+    return { _cancelled: true };
+  }
   if (order.userId !== userId) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
 
   // Only cancel orders that are still waiting for payment and have had no attempt.
