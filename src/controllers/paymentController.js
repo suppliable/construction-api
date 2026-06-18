@@ -3,7 +3,8 @@
 const env = require('../config/env');
 const { getGateway } = require('../services/payments');
 const { getOrderById, updateOrder, getCustomer } = require('../services/firestoreService');
-const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled, buildCartData, buildAndSaveOnlineOrder } = require('../services/orderService');
+const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled, buildCartData } = require('../services/orderService');
+const { saveCheckoutSession, getCheckoutSession } = require('../repositories/checkoutSessionRepository');
 const { toOrderDTO } = require('../models/orderDTO');
 const { ValidationError, NotFoundError, UnauthorizedError, AppError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
@@ -173,27 +174,29 @@ async function verifyPayment(req, res) {
     const { orderId, proceedIfPending, cancelled } = req.body || {};
     if (!orderId) throw new ValidationError('orderId is required', 'MISSING_PARAM');
 
-    const order = await getOrderById(orderId, req.traceContext);
-    if (!order) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
-    if (order.userId !== req.user.uid) throw new UnauthorizedError('Not your order', 'NOT_ORDER_OWNER');
+    // Try existing order first; fall back to checkout session (new flow where
+    // no order exists until payment confirms).
+    let order = await getOrderById(orderId, req.traceContext);
+    let session = null;
+    if (!order) {
+      session = await getCheckoutSession(orderId, req.traceContext);
+      if (!session) throw new NotFoundError('Order not found', 'ORDER_NOT_FOUND');
+      if (session.userId !== req.user.uid) throw new UnauthorizedError('Not your order', 'NOT_ORDER_OWNER');
+    } else {
+      if (order.userId !== req.user.uid) throw new UnauthorizedError('Not your order', 'NOT_ORDER_OWNER');
+    }
 
-    const providerOrderId = order.payment?.providerOrderId;
+    const providerOrderId = order?.payment?.providerOrderId || session?.providerOrderId;
     if (!providerOrderId) {
-      // No session was created yet — nothing to verify.
       return res.json({
         success: true,
-        data: { paymentStatus: order.paymentStatus || 'pending', orderStatus: order.status },
+        data: { paymentStatus: order?.paymentStatus || 'pending', orderStatus: order?.status || null },
       });
     }
 
-    // Trust a webhook-recorded outcome on the order doc over the live link
-    // status. Cashfree's link-status API is blind to a single failed/dropped
-    // attempt (the link stays ACTIVE for retry), so fetchStatus would report
-    // PENDING and the client would show the "Confirming your payment" spinner.
-    // The PAYMENT_FAILED webhook already flipped paymentStatus to 'failed'
-    // (while still pending_payment) — surface that immediately so the client
-    // shows the retry dialog instead.
-    if (order.paymentStatus === 'failed' && order.status === 'pending_payment') {
+    // For existing orders: trust a webhook-recorded failure so the client shows
+    // the retry dialog immediately without re-fetching from the gateway.
+    if (order && order.paymentStatus === 'failed' && order.status === 'pending_payment') {
       return res.json({
         success: true,
         data: { paymentStatus: 'failed', orderStatus: order.status },
@@ -223,23 +226,14 @@ async function verifyPayment(req, res) {
       }, req.traceContext);
       return res.json({
         success: true,
-        data: { paymentStatus: 'failed', orderStatus: order.status },
+        data: { paymentStatus: 'failed', orderStatus: order?.status || null },
       });
     }
 
-    // PENDING. If the caller asked us to proceed anyway (verify-grace exhausted
-    // client-side), transition the order to warehouse_review with
-    // paymentStatus='pending_proceeding'.
-    //
-    // BUT: only proceed when a payment was actually attempted. A Razorpay link
-    // still in `created` state with no payment entities means the customer
-    // closed the hosted page without paying — that's an abandonment, not an
-    // in-flight payment, and must leave the order in pending_payment. Without
-    // this guard, closing the link would (via proceed-as-pending) place the
-    // order in warehouse_review. `attempted` is undefined for gateways that
-    // don't report it → default to the old behaviour (treat as attempted).
+    // PENDING — only proceed when a payment was actually attempted.
     const everAttempted = status.attempted !== false;
-    if (proceedIfPending === true && order.status === 'pending_payment' && everAttempted) {
+    const isPendingPayment = order?.status === 'pending_payment' || !!session;
+    if (proceedIfPending === true && isPendingPayment && everAttempted) {
       const result = await proceedAsPendingPayment(orderId, {
         rawProviderStatus: status.rawProviderStatus,
         source: 'verify_timeout',
@@ -247,33 +241,17 @@ async function verifyPayment(req, res) {
       invalidateOrder(orderId).catch(() => {});
       return res.json({
         success: true,
-        data: {
-          paymentStatus: 'pending_proceeding',
-          orderStatus: result.status,
-          order: toOrderDTO(result),
-        },
+        data: { paymentStatus: 'pending_proceeding', orderStatus: result.status, order: toOrderDTO(result) },
       });
     }
 
-    // Still PENDING and the customer explicitly cancelled (closed the hosted
-    // page). The gateway confirmed it's not PAID/FAILED above, so this is a
-    // genuine abandonment: leave the order in pending_payment (retry/COD still
-    // possible) but flip the stale "Awaiting payment" Slack card to "Cancelled"
-    // so ops isn't left staring at a perpetual in-flight card. Best-effort.
     if (cancelled === true) {
       await markOnlinePaymentCancelled(orderId, req.traceContext);
     }
 
     return res.json({
       success: true,
-      data: {
-        paymentStatus: 'pending',
-        orderStatus: order.status,
-        // Let the client know whether any payment was ever attempted on this
-        // order. When false (Razorpay: no payment entities on the order),
-        // Flutter can safely call DELETE /orders/:orderId to cancel silently.
-        attempted: everAttempted,
-      },
+      data: { paymentStatus: 'pending', orderStatus: order?.status || null, attempted: everAttempted },
     });
   } catch (err) {
     sendError(res, err, req.log);
@@ -413,26 +391,24 @@ async function checkout(req, res) {
       attemptCount: 0,
     });
 
-    // Step 4: only now persist the order — gateway accepted it
-    const order = await buildAndSaveOnlineOrder({
+    // Step 4: save checkout session — order is NOT written to Firestore yet.
+    // The order is created atomically when payment confirms (webhook or verify).
+    await saveCheckoutSession({
       orderId,
       userId,
       addressId,
       cartData,
-      paymentSession: {
-        gateway: gateway.name,
-        providerOrderId: session.providerOrderId,
-        providerRaw: session.providerRaw,
-        client: session.client,
-      },
       customerName,
       customerPhone,
+      gateway: gateway.name,
+      providerOrderId: session.providerOrderId,
+      createdAt: new Date().toISOString(),
     }, req.traceContext);
 
     res.json({
       success: true,
       data: {
-        order: toOrderDTO(order),
+        orderId,
         gateway: gateway.name,
         paymentUrl: session.paymentUrl,
         providerOrderId: session.providerOrderId,
