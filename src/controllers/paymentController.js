@@ -3,7 +3,7 @@
 const env = require('../config/env');
 const { getGateway } = require('../services/payments');
 const { getOrderById, updateOrder, getCustomer } = require('../services/firestoreService');
-const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled } = require('../services/orderService');
+const { confirmOnlinePayment, recordFailedPaymentAttempt, proceedAsPendingPayment, markOnlinePaymentCancelled, buildCartData, buildAndSaveOnlineOrder } = require('../services/orderService');
 const { toOrderDTO } = require('../models/orderDTO');
 const { ValidationError, NotFoundError, UnauthorizedError, AppError } = require('../utils/errors');
 const { invalidateOrder } = require('../cache/invalidate');
@@ -366,4 +366,82 @@ h1{font-size:20px;margin:0 0 8px}p{margin:0;color:#666;font-size:14px}</style>
 </head><body><div class="box"><h1>Payment complete</h1><p>You can return to the app.</p><p style="margin-top:12px;font-size:12px">Order: ${orderId.replace(/[^A-Za-z0-9_-]/g, '')}</p></div></body></html>`);
 }
 
-module.exports = { createSession, verifyPayment, handleWebhook, paymentReturn };
+/**
+ * POST /api/v1/payments/checkout
+ * Body: { addressId, customerPhone? }
+ * Auth: required. Idempotency-Key: recommended.
+ *
+ * Single-shot checkout for online orders:
+ *   1. Validate cart + stock
+ *   2. Create the Razorpay/Cashfree order
+ *   3. Only then write the Firestore order (status=pending_payment)
+ * This ensures no order exists unless the payment gateway accepted it.
+ */
+async function checkout(req, res) {
+  try {
+    const { addressId, customerPhone: bodyPhone } = req.body || {};
+    if (!addressId) throw new ValidationError('addressId is required', 'MISSING_PARAM');
+    const userId = req.user.uid;
+
+    // Step 1: validate cart, stock, and compute totals — no Firestore write yet
+    const cartData = await buildCartData(userId, addressId, req.traceContext);
+
+    // Step 2: resolve customer info
+    let customerPhone = bodyPhone || req.user.phone || '';
+    let customerName = req.user.name || '';
+    if (!customerPhone || !customerName) {
+      try {
+        const customer = await getCustomer(userId, req.traceContext);
+        if (!customerPhone && customer?.phone) customerPhone = customer.phone;
+        if (!customerName && customer?.name) customerName = customer.name;
+      } catch (_) {}
+    }
+
+    const gateway = getGateway();
+    const orderId = 'ORD' + Date.now();
+    const returnUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/return?orderId=${encodeURIComponent(orderId)}`;
+    const notifyUrl = `${env.PAYMENT_RETURN_URL_BASE}/api/v1/payments/webhook/${gateway.name}`;
+
+    // Step 3: create gateway order (fails fast if gateway is down)
+    const session = await gateway.createCheckout({
+      orderId,
+      amountInPaise: rupeesToPaise(cartData.grand_total),
+      currency: 'INR',
+      customer: { customerId: userId, customerPhone, customerName, customerEmail: req.user.email || '' },
+      returnUrl,
+      notifyUrl,
+      attemptCount: 0,
+    });
+
+    // Step 4: only now persist the order — gateway accepted it
+    const order = await buildAndSaveOnlineOrder({
+      orderId,
+      userId,
+      addressId,
+      cartData,
+      paymentSession: {
+        gateway: gateway.name,
+        providerOrderId: session.providerOrderId,
+        providerRaw: session.providerRaw,
+        client: session.client,
+      },
+      customerName,
+      customerPhone,
+    }, req.traceContext);
+
+    res.json({
+      success: true,
+      data: {
+        order: toOrderDTO(order),
+        gateway: gateway.name,
+        paymentUrl: session.paymentUrl,
+        providerOrderId: session.providerOrderId,
+        ...(session.client || {}),
+      },
+    });
+  } catch (err) {
+    sendError(res, err, req.log);
+  }
+}
+
+module.exports = { createSession, verifyPayment, handleWebhook, paymentReturn, checkout };

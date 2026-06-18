@@ -47,7 +47,8 @@ const getUserOrders = async (req, res) => {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'userId is required' });
     const limit = parsePositiveInt(req.query.limit, DEFAULT_USER_ORDER_LIMIT);
-    const orders = await getOrdersByUser(userId, limit, req.traceContext);
+    const raw = await getOrdersByUser(userId, limit, req.traceContext);
+    const orders = raw.filter(o => o.status !== 'pending_payment');
     const enriched = await Promise.all(orders.map(async (o) => {
       if (!o.addressId || o.deliveryAddress) return o;
       const addr = await getAddressById(o.addressId, req.traceContext).catch(() => null);
