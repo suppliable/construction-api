@@ -19,6 +19,10 @@ if (!admin.apps.length) {
       serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
     }
   }
+  // Use the canonical OAuth2 token endpoint instead of the legacy www.googleapis.com/oauth2/v4/token.
+  // The legacy endpoint causes "Premature close" errors on certain Render instances.
+  serviceAccount.token_uri = 'https://oauth2.googleapis.com/token';
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL?.trim(),
