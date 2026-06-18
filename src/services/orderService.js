@@ -253,6 +253,25 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     postNewOrder(confirmedOrder).catch(() => {});
   }
 
+  // Backfill customerName/customerPhone — online orders skip the customer fetch
+  // at creation time, so these fields are missing from the Firestore doc until
+  // payment confirms. Write them now so the order shape matches COD orders.
+  if (order.userId && !order.customerName) {
+    try {
+      const customer = await getCustomer(order.userId, traceContext);
+      if (customer) {
+        await ref.update({
+          customerName: customer.name || '',
+          customerPhone: customer.phone || '',
+        });
+        update.customerName = customer.name || '';
+        update.customerPhone = customer.phone || '';
+      }
+    } catch (_) {
+      // Non-fatal — order is confirmed; name/phone can be fetched from customer doc.
+    }
+  }
+
   // Cart wasn't cleared at order-creation time for ONLINE orders. Clear it
   // now that payment has succeeded — but only if the cart wasn't already
   // cleared by an earlier proceedAsPendingPayment transition. Best-effort.

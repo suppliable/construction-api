@@ -1451,9 +1451,10 @@ function renderWhatsAppButtons(order) {
   }
 
   const rawName = order.customerName || order.customer?.name || 'there';
+  const otp = order.deliveryOtp || '';
   const msgs = {
     warehouse_review: { label: '📋 Order Received', text: `Hi ${rawName}! 👋 We've received your Suppliable order *#${orderId}*. Our team is reviewing it and will confirm shortly. Thank you for choosing us! 🙏` },
-    accepted: { label: '✅ Order Confirmed', text: `Hi ${rawName}! ✅ Your Suppliable order *#${orderId}* has been *confirmed*. Our warehouse team is preparing it for dispatch. We'll keep you updated! 📦` },
+    accepted: { label: '✅ Order Confirmed', text: `Hi ${rawName}! ✅ Your Suppliable order *#${orderId}* has been *confirmed*. Our warehouse team is preparing it for dispatch.\n\nYour delivery OTP is: *${otp}* 🔐\nPlease keep this handy — our driver will ask for it at delivery.\n\nWe'll keep you updated! 📦` },
     packed: { label: '📦 Order Packed', text: `Hi ${rawName}! 📦 Your Suppliable order *#${orderId}* is packed and ready. Our driver will pick it up soon! 🚛` },
     ready_for_dispatch: { label: '🚛 Ready for Dispatch', text: `Hi ${rawName}! 🚛 Your Suppliable order *#${orderId}* is ready and will be dispatched shortly. Stay tuned! ✅` },
     loading: { label: '🔄 Loading onto Vehicle', text: `Hi ${rawName}! 🔄 Your Suppliable order *#${orderId}* is being loaded onto the delivery vehicle. Out for delivery soon! 🚚` },

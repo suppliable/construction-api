@@ -44,6 +44,8 @@ function toOrderDTO(doc) {
           attempts: Array.isArray(o.payment.attempts) ? o.payment.attempts : [],
         }
       : null,
+    customerName: o.customerName || null,
+    customerPhone: o.customerPhone || null,
     items: o.items || [],
     subtotal: Number(o.subtotal ?? 0),
     gstTotal: Number(o.gst_total ?? 0),
@@ -52,7 +54,7 @@ function toOrderDTO(doc) {
     deliveryAddress: normalizeAddress(o.deliveryAddress),
     driverName: o.driverName || o.vehicle?.driverName || null,
     driverPhone: o.driverPhone || o.vehicle?.driverPhone || null,
-    deliveryOtp: o.status === 'arrived' ? o.deliveryOtp : undefined,
+    deliveryOtp: ['accepted', 'packed', 'ready_for_dispatch', 'loading', 'out_for_delivery', 'arrived'].includes(o.status) ? o.deliveryOtp : undefined,
     estimatedDelivery: o.estimatedDelivery || null,
     createdAt: o.createdAt || null,
     acceptedAt: o.acceptedAt || null,
