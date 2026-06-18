@@ -14,6 +14,7 @@ const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
 const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken } = require('./zohoService');
+const { uploadToPath } = require('./storageService');
 const { updateCustomerGST } = require('./customerService');
 
 const db = getTrackedDb();
@@ -652,17 +653,9 @@ async function getPOSQuotationPDF(draftId, traceContext = null) {
   }
   const pdfBuffer = Buffer.from(pdfRes.data);
 
-  // 2. Upload to Firebase Storage (public, matching storageService pattern)
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
-  const bucket = admin.storage().bucket(bucketName);
+  // 2. Upload to Firebase Storage via storageService (uses correct OAuth endpoint)
   const filePath = `pos-quotations/${draftId}.pdf`;
-  const file = bucket.file(filePath);
-  await file.save(pdfBuffer, {
-    metadata: { contentType: 'application/pdf' },
-    public: true,
-    resumable: false,
-  });
-  const pdfUrl = `https://storage.googleapis.com/${bucketName}/${filePath}`;
+  const pdfUrl = await uploadToPath(pdfBuffer, 'application/pdf', filePath);
 
   // 3. Persist URL on draft
   await dbOp('pos.savePdfUrl', () =>
