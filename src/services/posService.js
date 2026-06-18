@@ -640,12 +640,16 @@ async function getPOSQuotationPDF(draftId, traceContext = null) {
   const pdfRes = await axios.get(
     `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates/${draft.zohoQuotationId}`,
     {
-      params: { organization_id: process.env.ZOHO_ORG_ID, accept: 'pdf' },
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      params: { organization_id: process.env.ZOHO_ORG_ID },
+      headers: { Authorization: `Zoho-oauthtoken ${token}`, Accept: 'application/pdf' },
       responseType: 'arraybuffer',
       timeout: 30000,
     }
   );
+  const contentType = pdfRes.headers['content-type'] || '';
+  if (!contentType.includes('pdf')) {
+    throw new Error(`Zoho returned unexpected content-type: ${contentType} — PDF not available yet`);
+  }
   const pdfBuffer = Buffer.from(pdfRes.data);
 
   // 2. Upload to Firebase Storage (public, matching storageService pattern)
