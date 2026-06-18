@@ -466,6 +466,7 @@ router.post('/pos/drafts/:draftId/quotation', async (req, res) => {
     res.json({ success: true, data: result });
   } catch (err) {
     if (err.code === 'DRAFT_NOT_FOUND') return res.status(404).json({ success: false, error: err.code, message: err.message });
+    if (err.code === 'ZOHO_ESTIMATE_FAILED') return res.status(502).json({ success: false, error: err.code, message: err.message, zohoError: err.zohoError || null });
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 });

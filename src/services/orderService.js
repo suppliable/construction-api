@@ -10,20 +10,13 @@ const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
 const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
 
-async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
-  if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
-  if (!addressId) throw new ValidationError('addressId is required', 'MISSING_PARAM');
-  if (!paymentType || !['COD', 'ONLINE'].includes(paymentType)) {
-    throw new ValidationError('paymentType must be COD or ONLINE', 'INVALID_PARAM');
-  }
-
+// Shared cart validation and order-building. Returns computed totals + line
+// items without writing anything to Firestore. Used by both createOrder (COD)
+// and buildAndSaveOnlineOrder (new checkout flow).
+async function _buildCartData(userId, addressId, traceContext) {
   const settings = await getSettings(traceContext);
   if (settings.warehouseOpen === false) {
-    throw new StockError(
-      settings.warehouseClosedMessage || 'We are currently closed.',
-      [],
-      true
-    );
+    throw new StockError(settings.warehouseClosedMessage || 'We are currently closed.', [], true);
   }
 
   const cart = await getCart(userId);
@@ -63,8 +56,6 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     const unitPrice = cartItem.price != null ? cartItem.price : product.price;
     const gstRate = product.gst_percentage || 18;
     const qty = cartItem.quantity;
-
-    // All prices are GST-inclusive — back-calculate base price
     const divisor = 1 + (gstRate / 100);
     const basePrice = parseFloat((unitPrice / divisor).toFixed(2));
     const totalWithoutGST = parseFloat((basePrice * qty).toFixed(2));
@@ -101,9 +92,7 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
     lineItems.push(lineItem);
   }));
 
-  if (stockIssues.length > 0) {
-    throw new StockError('Stock validation failed', stockIssues);
-  }
+  if (stockIssues.length > 0) throw new StockError('Stock validation failed', stockIssues);
 
   const subtotal = parseFloat(lineItems.reduce((sum, i) => sum + i.totalWithoutGST, 0).toFixed(2));
   const gst_total = parseFloat(lineItems.reduce((sum, i) => sum + i.gstAmount, 0).toFixed(2));
@@ -112,10 +101,56 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
   if (freeDeliveryApplied) deliveryCharge = 0;
   const grand_total = parseFloat((subtotal + gst_total + deliveryCharge).toFixed(2));
 
-  // ONLINE orders are saved immediately; Zoho SO is created only after payment confirmation.
-  // IMPORTANT: do NOT clear the cart here — payment may fail/abandon and the user
-  // should still have their cart to switch to COD or retry. Cart is cleared by
-  // `confirmOnlinePayment` once payment succeeds.
+  return { settings, lineItems, subtotal, gst_total, deliveryCharge, grand_total, freeDeliveryApplied };
+}
+
+// Called by the new POST /checkout flow. Cart is validated and Razorpay order
+// is created BEFORE this runs, so the order is only written to Firestore once
+// we know the payment gateway accepted it. Cart is NOT cleared here — that
+// happens in confirmOnlinePayment when payment succeeds.
+async function buildAndSaveOnlineOrder({ orderId, userId, addressId, cartData, paymentSession, customerName, customerPhone }, traceContext) {
+  const order = {
+    orderId,
+    userId,
+    addressId,
+    items: cartData.lineItems,
+    subtotal: cartData.subtotal,
+    gst_total: cartData.gst_total,
+    delivery_charge: cartData.deliveryCharge,
+    grand_total: cartData.grand_total,
+    paymentType: 'ONLINE',
+    paymentStatus: 'pending',
+    status: 'pending_payment',
+    customerName: customerName || '',
+    customerPhone: customerPhone || '',
+    freeDeliveryApplied: cartData.freeDeliveryApplied,
+    payment: {
+      gateway: paymentSession.gateway,
+      providerOrderId: paymentSession.providerOrderId,
+      attempts: [],
+      ...(paymentSession.providerRaw ? { providerRaw: paymentSession.providerRaw } : {}),
+      ...(paymentSession.client ? { client: paymentSession.client } : {}),
+    },
+    createdAt: new Date().toISOString(),
+  };
+  await saveOrder(order, traceContext);
+  try {
+    const { ts, dailyNo } = await postNewOrder(order);
+    if (ts) await updateOrder(orderId, { slackTs: ts, dailyOrderNo: dailyNo }, traceContext);
+  } catch (_) {}
+  return order;
+}
+
+async function createOrder({ userId, addressId, paymentType }, traceContext, _log) {
+  if (!userId) throw new ValidationError('userId is required', 'MISSING_PARAM');
+  if (!addressId) throw new ValidationError('addressId is required', 'MISSING_PARAM');
+  if (!paymentType || !['COD', 'ONLINE'].includes(paymentType)) {
+    throw new ValidationError('paymentType must be COD or ONLINE', 'INVALID_PARAM');
+  }
+
+  const { settings, lineItems, subtotal, gst_total, deliveryCharge, grand_total, freeDeliveryApplied } =
+    await _buildCartData(userId, addressId, traceContext);
+
   if (paymentType === 'ONLINE') {
     const orderId = 'ORD' + Date.now();
     const order = {
@@ -127,17 +162,10 @@ async function createOrder({ userId, addressId, paymentType }, traceContext, _lo
       createdAt: new Date().toISOString()
     };
     await saveOrder(order, traceContext);
-
-    // Post the Slack card now (at checkout) so the order is visible while the
-    // customer is paying, showing "Awaiting payment". Persist the message ts +
-    // daily counter so confirm/fail can edit this same card later. Best-effort.
     try {
       const { ts, dailyNo } = await postNewOrder(order);
       if (ts) await updateOrder(orderId, { slackTs: ts, dailyOrderNo: dailyNo }, traceContext);
-    } catch (slackErr) {
-      // Non-fatal — order is saved; Slack visibility is best-effort.
-    }
-
+    } catch (_) {}
     return order;
   }
 
@@ -494,6 +522,8 @@ async function cancelPendingOrder(orderId, userId, traceContext = null) {
 
 module.exports = {
   createOrder,
+  buildCartData: _buildCartData,
+  buildAndSaveOnlineOrder,
   confirmOnlinePayment,
   recordFailedPaymentAttempt,
   proceedAsPendingPayment,

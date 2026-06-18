@@ -9,6 +9,7 @@ const {
   verifyPayment,
   handleWebhook,
   paymentReturn,
+  checkout,
 } = require('../controllers/paymentController');
 
 // Public — Cashfree redirect lands here on payment completion. Flutter's WebView
@@ -21,6 +22,7 @@ router.get('/return', paymentReturn);
 router.post('/webhook/:gateway', handleWebhook);
 
 // Authenticated — customer-initiated.
+router.post('/checkout', authenticate, idempotency(), checkout);
 router.post('/session', authenticate, idempotency(), createSession);
 router.post('/verify', authenticate, verifyPayment);
 

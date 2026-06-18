@@ -47,6 +47,8 @@ const listOrders = async (req, res) => {
 
     if (status || date) {
       let all = await getAllOrders(req.traceContext);
+      // Never surface pending_payment orders in the admin list unless explicitly requested
+      if (!status) all = all.filter(o => o.status !== 'pending_payment');
       if (status) all = all.filter(o => o.status === status);
       if (date) all = all.filter(o => o.createdAt && o.createdAt.startsWith(date));
       if (startAfter) {
@@ -58,7 +60,8 @@ const listOrders = async (req, res) => {
       lastOrderId = orders.length ? orders[orders.length - 1].orderId : null;
     } else {
       const page = await getOrdersPage(limit, startAfter || null, req.traceContext);
-      orders = page.orders;
+      // Filter ghost pending_payment orders from the default paginated view
+      orders = page.orders.filter(o => o.status !== 'pending_payment');
       hasMore = page.hasMore;
       lastOrderId = page.lastOrderId;
     }
