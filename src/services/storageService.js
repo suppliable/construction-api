@@ -37,18 +37,15 @@ function httpsPost(options, body) {
   });
 }
 
-async function uploadToFirebase(fileBuffer, mimeType, folder) {
+async function uploadToPath(fileBuffer, mimeType, filePath) {
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET
     || `${env.firebaseProjectId}.firebasestorage.app`;
 
   const client = await getGoogleAuth().getClient();
   const { token: accessToken } = await client.getAccessToken();
 
-  const ext = (mimeType.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
   const boundary = `boundary${Date.now()}`;
-  const metadataJson = JSON.stringify({ name: filename, contentType: mimeType });
+  const metadataJson = JSON.stringify({ name: filePath, contentType: mimeType });
 
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadataJson}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
@@ -70,7 +67,13 @@ async function uploadToFirebase(fileBuffer, mimeType, folder) {
     body
   );
 
-  return `https://storage.googleapis.com/${bucketName}/${filename}`;
+  return `https://storage.googleapis.com/${bucketName}/${filePath}`;
 }
 
-module.exports = { uploadToFirebase };
+async function uploadToFirebase(fileBuffer, mimeType, folder) {
+  const ext = (mimeType.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  return uploadToPath(fileBuffer, mimeType, filename);
+}
+
+module.exports = { uploadToFirebase, uploadToPath };
