@@ -448,10 +448,20 @@ async function createPOSQuotation(draftId, traceContext = null) {
     };
   }
 
-  const response = await zohoPost(
-    `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates`,
-    body
-  );
+  let response;
+  try {
+    response = await zohoPost(
+      `${process.env.ZOHO_API_DOMAIN}/books/v3/estimates`,
+      body
+    );
+  } catch (err) {
+    const zohoError = err.response?.data;
+    const detail = zohoError ? JSON.stringify(zohoError) : err.message;
+    throw Object.assign(
+      new Error(`Zoho estimate creation failed: ${detail}`),
+      { code: 'ZOHO_ESTIMATE_FAILED', zohoError }
+    );
+  }
 
   const estimate = response.data.estimate;
   if (!estimate?.estimate_id) {
