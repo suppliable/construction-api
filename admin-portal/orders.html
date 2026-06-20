@@ -1428,6 +1428,8 @@ async function downloadInvoice(orderId) {
 
 // ---- WHATSAPP ----
 const _waMsg = {};
+// Appended to every outbound WhatsApp message so customers are nudged to the app.
+const APP_DOWNLOAD_LINE = `\n\n📲 Download our Suppliable app to order & track: https://play.google.com/store/apps/details?id=com.suppliable.customer`;
 
 function sendWhatsApp(phone, text) {
   const clean = phone.replace(/[^0-9]/g, '');
@@ -1475,7 +1477,7 @@ function renderWhatsAppButtons(order) {
   let html = '';
 
   if (msg) {
-    _waMsg[msgKey] = msg.text;
+    _waMsg[msgKey] = msg.text + APP_DOWNLOAD_LINE;
     html += `<button onclick="sendWhatsApp('${phone}', _waMsg['${msgKey}'])"
       style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#25D366;
         color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;
@@ -1486,7 +1488,7 @@ function renderWhatsAppButtons(order) {
     const cachedInvoiceUrl = order.zohoInvoiceUrl;
     const invoiceUrlIsValid = cachedInvoiceUrl && !cachedInvoiceUrl.includes('books.zoho.in/portal/');
     if (invoiceUrlIsValid) {
-      _waMsg[invoiceKey] = `Hi ${rawName}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${cachedInvoiceUrl}\n\nThank you for choosing Suppliable! 🙏`;
+      _waMsg[invoiceKey] = `Hi ${rawName}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${cachedInvoiceUrl}\n\nThank you for choosing Suppliable! 🙏` + APP_DOWNLOAD_LINE;
       html += `<button onclick="sendWhatsApp('${phone}', _waMsg['${invoiceKey}'])"
         style="display:block;width:100%;margin-bottom:6px;padding:9px 12px;background:#1a73e8;
           color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;
@@ -1519,7 +1521,7 @@ async function fetchAndSendInvoice(orderId, phone, name) {
     const invoiceKey = `${orderId}_invoice`;
     const totalStr = data.total ? `\nAmount: ₹${data.total}` : '';
     const statusStr = data.status ? `\nStatus: ${data.status}` : '';
-    _waMsg[invoiceKey] = `Hi ${name}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${data.invoiceUrl}${totalStr}${statusStr}\n\nThank you for choosing Suppliable! 🙏`;
+    _waMsg[invoiceKey] = `Hi ${name}! 🧾 Your invoice for Suppliable order *#${orderId}* is ready.\n\n📄 View & download here:\n${data.invoiceUrl}${totalStr}${statusStr}\n\nThank you for choosing Suppliable! 🙏` + APP_DOWNLOAD_LINE;
 
     if (btn) {
       btn.textContent = `🧾 Send Invoice (${data.invoiceNumber || 'View'})`;

@@ -38,20 +38,28 @@ async function searchCustomers(q, traceContext = null) {
     }
   }
 
-  // Bulk fetch + in-memory filter for name/partial-phone contains
+  // Bulk fetch + in-memory filter for name/partial-phone contains.
+  // No orderBy('name'): it dropped docs missing a `name` field and, combined
+  // with the limit, alphabetically truncated the candidate set so names later in
+  // the alphabet were silently unsearchable.
   const snap = await dbOp('pos.searchCustomers', () =>
-    db.collection('customers').orderBy('name').limit(500).get(),
+    db.collection('customers').limit(2000).get(),
     traceContext
   );
 
   const lowerQ = normalized.toLowerCase();
+  // Token match so word order/casing don't matter ("kumar raj" → "Raj Kumar").
+  const tokens = lowerQ.split(/\s+/).filter(Boolean);
   snap.docs.forEach(doc => {
     const c = doc.data();
     if (!c.userId || seen.has(c.userId)) return;
-    if (
-      c.name?.toLowerCase().includes(lowerQ) ||
-      (c.phone || '').replace(/\D/g, '').includes(digitsOnly)
-    ) {
+    const nameLower = (c.name || '').toLowerCase();
+    const phoneDigits = (c.phone || '').replace(/\D/g, '');
+    const nameMatch = tokens.length > 0 && tokens.every(t => nameLower.includes(t));
+    // Guard the phone-contains: an empty digitsOnly (pure name query) would make
+    // includes('') true for every customer, returning wrong results.
+    const phoneMatch = digitsOnly.length >= 3 && phoneDigits.includes(digitsOnly);
+    if (nameMatch || phoneMatch) {
       seen.add(c.userId);
       results.push(c);
     }

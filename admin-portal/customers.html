@@ -145,13 +145,22 @@
 
     <!-- SEARCH CARD -->
     <div class="card">
-      <div class="card-title">👥 Search Customer</div>
-      <div class="card-desc">Enter a phone number or userId to view complete customer details</div>
+      <div class="card-title">👥 Customers</div>
+      <div class="card-desc">Search by name or phone, or browse all customers below.</div>
       <div class="search-box" style="margin-top: 16px;">
-        <input type="text" class="search-input" id="phoneInput" placeholder="Phone (e.g. 919876543210) or userId" onkeypress="if(event.key === 'Enter') searchCustomer()">
+        <input type="text" class="search-input" id="phoneInput" placeholder="Search by name or phone…" onkeypress="if(event.key === 'Enter') searchCustomer()">
         <button class="btn btn-primary" onclick="searchCustomer()" id="searchBtn">Search</button>
         <button class="btn btn-ghost" onclick="resetSearch()" id="resetBtn">Clear</button>
       </div>
+    </div>
+
+    <!-- LIST CARD -->
+    <div class="card" id="listCard">
+      <div class="card-title" id="listTitle">All Customers</div>
+      <div id="listContainer" style="margin-top:12px;overflow-x:auto">
+        <div style="color:var(--muted);font-size:13px;padding:16px 0">Loading…</div>
+      </div>
+      <div id="listPager" style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px;font-size:13px;color:var(--muted)"></div>
     </div>
 
     <!-- RESULT CARD -->
@@ -332,61 +341,100 @@ function showToast(message, type = 'info') {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function logout() {
   sessionStorage.removeItem('adminToken');
   window.location.href = 'login.html';
 }
 
-async function searchCustomer() {
-  const query = document.getElementById('phoneInput').value.trim();
-  if (!query) {
-    showToast('Please enter a phone number or userId', 'error');
-    return;
-  }
+// ---- CUSTOMER LIST + SEARCH ----
+let listPage = 1;
+let listQuery = '';
 
-  // All-digits (10–13 chars) → phone; otherwise userId.
-  const isPhone = /^\d{10,13}$/.test(query);
-  const url = isPhone
-    ? `${API_BASE}/customers/phone/${encodeURIComponent(query)}`
-    : `${API_BASE}/customers/${encodeURIComponent(query)}`;
+function searchCustomer() {
+  listQuery = document.getElementById('phoneInput').value.trim();
+  listPage = 1;
+  loadCustomerList();
+}
+
+async function loadCustomerList() {
+  const container = document.getElementById('listContainer');
+  const title = document.getElementById('listTitle');
+  title.textContent = listQuery ? `Search results for “${listQuery}”` : 'All Customers';
+  container.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:16px 0">Loading…</div>`;
+  document.getElementById('listPager').innerHTML = '';
 
   const searchBtn = document.getElementById('searchBtn');
-  searchBtn.disabled = true;
-  searchBtn.textContent = 'Searching...';
+  searchBtn.disabled = true; searchBtn.textContent = 'Searching...';
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-        'Content-Type': 'application/json'
-      }
+    const params = new URLSearchParams({ page: listPage, limit: 25 });
+    if (listQuery) params.set('q', listQuery);
+    const response = await fetch(`${API_BASE}/customers?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}`, 'Content-Type': 'application/json' }
     });
+    if (response.status === 401) { showToast('Unauthorized - Please login again', 'error'); logout(); return; }
+    if (!response.ok) { const e = await response.json().catch(() => ({})); throw new Error(e.message || 'Failed to load customers'); }
+    const { data } = await response.json();
+    renderCustomerList(data);
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--red,#dc2626);font-size:13px;padding:16px 0">${escHtml(err.message || 'Failed to load customers')}</div>`;
+    console.error('List error:', err);
+  } finally {
+    searchBtn.disabled = false; searchBtn.textContent = 'Search';
+  }
+}
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        showToast('Customer not found', 'error');
-        resetSearch();
-        return;
-      }
-      if (response.status === 401) {
-        showToast('Unauthorized - Please login again', 'error');
-        logout();
-        return;
-      }
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to fetch customer');
-    }
+function renderCustomerList(data) {
+  const container = document.getElementById('listContainer');
+  const customers = data.customers || [];
+  if (!customers.length) {
+    container.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:16px 0">No customers found${listQuery ? ' for this search' : ''}.</div>`;
+    return;
+  }
+  const rows = customers.map(c => `
+    <tr style="cursor:pointer" onclick="viewCustomer('${escHtml(c.userId)}')">
+      <td style="font-weight:600">${escHtml(c.name || '—')}</td>
+      <td>${escHtml(c.phone || '—')}</td>
+      <td>${c.isBusiness ? '<span class="badge badge-true">YES</span>' : '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">${escHtml(c.userId)}</td>
+      <td><button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="event.stopPropagation();viewCustomer('${escHtml(c.userId)}')">View</button></td>
+    </tr>`).join('');
+  container.innerHTML = `<table class="mini-table">
+    <thead><tr><th>Name</th><th>Phone</th><th>Business</th><th>User ID</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
 
+  const pages = data.pages || 1;
+  const pager = document.getElementById('listPager');
+  pager.innerHTML = `
+    <span>${data.total} customer${data.total !== 1 ? 's' : ''} · Page ${data.page} / ${pages}</span>
+    <button class="btn btn-ghost" style="padding:6px 12px" ${data.page <= 1 ? 'disabled' : ''} onclick="changeListPage(-1)">← Prev</button>
+    <button class="btn btn-ghost" style="padding:6px 12px" ${data.page >= pages ? 'disabled' : ''} onclick="changeListPage(1)">Next →</button>`;
+}
+
+function changeListPage(delta) {
+  listPage = Math.max(1, listPage + delta);
+  loadCustomerList();
+}
+
+async function viewCustomer(userId) {
+  try {
+    const response = await fetch(`${API_BASE}/customers/${encodeURIComponent(userId)}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}`, 'Content-Type': 'application/json' }
+    });
+    if (response.status === 401) { showToast('Unauthorized - Please login again', 'error'); logout(); return; }
+    if (!response.ok) { const e = await response.json().catch(() => ({})); throw new Error(e.message || 'Customer not found'); }
     const data = await response.json();
     displayCustomerDetails(data.data.customer);
-    showToast('Customer found', 'success');
+    document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     showToast(err.message || 'An error occurred', 'error');
-    console.error('Search error:', err);
-  } finally {
-    searchBtn.disabled = false;
-    searchBtn.textContent = 'Search';
+    console.error('View error:', err);
   }
 }
 
@@ -466,6 +514,9 @@ function resetSearch() {
   document.getElementById('resultCard').classList.remove('show');
   document.getElementById('phoneInput').focus();
   currentCustomer = null;
+  listQuery = '';
+  listPage = 1;
+  loadCustomerList();
 }
 
 async function loadCustomerOrders() {
@@ -553,8 +604,10 @@ function displayOrders(orders) {
 window.addEventListener('load', () => {
   if (!adminToken) {
     window.location.href = 'login.html';
+    return;
   }
   document.getElementById('phoneInput').focus();
+  loadCustomerList();
 });
 
 // ---- GST Edit ----

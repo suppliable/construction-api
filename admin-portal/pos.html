@@ -1581,7 +1581,8 @@ function renderQuotationResult() {
     `Quotation No: ${q.zohoQuotationNumber}\n` +
     `Grand Total: ${fmtMoney(d.grandTotal)}\n` +
     `📄 ${linkLabel}: ${linkUrl}\n\n` +
-    `Payment mode: Cash on Delivery. Our team will confirm the order shortly. Thank you! 🙏`
+    `Payment mode: Cash on Delivery. Our team will confirm the order shortly. Thank you! 🙏\n\n` +
+    `📲 Download our Suppliable app to order & track: https://play.google.com/store/apps/details?id=com.suppliable.customer`
   );
   const pdfWarning = !currentPdfUrl
     ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">⚠️ PDF unavailable — sending portal link instead</div>` : '';

@@ -901,6 +901,58 @@ const getCustomerByUserId = async (req, res) => {
   }
 };
 
+// GET /api/admin/customers?q=&page=&limit=
+// Paginated list of all customers, with optional name/phone search. Bulk-fetched
+// and filtered/paginated in memory (admin scale), consistent with the POS search
+// and abandoned-cart handlers.
+const listCustomers = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const db = getTrackedDb();
+
+    const snap = await db.collection('customers').limit(5000).get();
+    let all = snap.docs.map(d => {
+      const c = d.data();
+      return {
+        userId: c.userId || d.id,
+        name: c.name || '',
+        phone: c.phone || '',
+        email: c.email || null,
+        isBusiness: !!c.isBusiness,
+        businessName: c.business_name || null,
+        gstin: c.gstin || null,
+        createdAt: c.createdAt || null,
+      };
+    });
+
+    if (q) {
+      const lowerQ = q.toLowerCase();
+      const tokens = lowerQ.split(/\s+/).filter(Boolean);
+      const digits = q.replace(/\D/g, '');
+      all = all.filter(c => {
+        const nameLower = (c.name || '').toLowerCase();
+        const phoneDigits = (c.phone || '').replace(/\D/g, '');
+        const nameMatch = tokens.length > 0 && tokens.every(t => nameLower.includes(t));
+        const phoneMatch = digits.length >= 3 && phoneDigits.includes(digits);
+        return nameMatch || phoneMatch;
+      });
+    }
+
+    // Most recent first; customers without createdAt sort last.
+    all.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    const total = all.length;
+    const start = (page - 1) * limit;
+    const customers = all.slice(start, start + limit);
+
+    res.json({ success: true, data: { customers, total, page, limit, pages: Math.ceil(total / limit) } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 // GET /api/admin/customers/:userId/orders?limit=10
 const getCustomerOrders = async (req, res) => {
   try {
@@ -1116,7 +1168,8 @@ const getAbandonedCarts = async (req, res) => {
       };
     }));
 
-    abandoned.sort((a, b) => b.cartTotal - a.cartTotal);
+    // Most recent activity first (lastActivity is an ISO timestamp string).
+    abandoned.sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
 
     return res.json({
       success: true,
@@ -1373,6 +1426,7 @@ module.exports = {
   cancelOrder,
   getCustomerByPhoneNumber,
   getCustomerByUserId,
+  listCustomers,
   getCustomerOrders,
   assignVehicle,
   getPickingList,

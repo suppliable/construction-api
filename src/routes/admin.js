@@ -24,6 +24,7 @@ const {
   getCustomerByPhoneNumber,
   getCustomerByUserId,
   getCustomerOrders,
+  listCustomers,
   markPacked,
   assignVehicle,
   getPickingList,
@@ -142,6 +143,7 @@ router.put('/products/:id/featured', async (req, res, next) => {
   next();
 }, toggleFeatured);
 // Customer lookup by phone (support panel)
+router.get('/customers', listCustomers);
 router.get('/customers/phone/:phone', getCustomerByPhoneNumber);
 router.get('/customers/:userId/orders', getCustomerOrders);
 router.get('/customers/:userId', getCustomerByUserId);
