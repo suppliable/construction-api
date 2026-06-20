@@ -13,7 +13,7 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
 const { uploadToPath } = require('./storageService');
 const { updateCustomerGST } = require('./customerService');
 
@@ -172,6 +172,38 @@ async function addCustomerAddress(userId, { fullAddress, lat, lng, label, addres
 
 // ---- Draft line item calculation ----
 
+// ---- POS live stock (session-cached on the client) ----
+// Fetches authoritative stock + cost straight from Zoho Inventory for a set of
+// item ids. Used by the POS grid so operators see live stock while searching,
+// and so the cart can soft-warn when an overridden price falls below cost.
+// Per-id failures resolve to null so the client can fall back to the cached
+// catalogue figure rather than the whole request failing.
+async function getLiveStock(ids, traceContext = null) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean).map(String))];
+  const result = {};
+  const CONCURRENCY = 5;
+  for (let i = 0; i < uniqueIds.length; i += CONCURRENCY) {
+    const batch = uniqueIds.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      batch.map(id => getZohoProductById(id, traceContext))
+    );
+    settled.forEach((r, idx) => {
+      const id = batch[idx];
+      if (r.status === 'fulfilled' && r.value) {
+        const item = r.value;
+        const stock = item.available_stock ?? item.actual_available_stock ?? null;
+        result[id] = {
+          available_stock: stock === null || stock === undefined ? null : Number(stock),
+          purchase_rate: item.purchase_rate != null ? Number(item.purchase_rate) : null,
+        };
+      } else {
+        result[id] = null;
+      }
+    });
+  }
+  return result;
+}
+
 async function buildDraftLineItems(items, traceContext = null) {
   const lineItems = [];
 
@@ -221,6 +253,25 @@ async function buildDraftLineItems(items, traceContext = null) {
       }
     }
 
+    // Manual selling-price override (POS only) — temporary for this draft alone.
+    // Applied AFTER variant/shade pricing so it wins. The override is treated as
+    // the GST-inclusive selling price, matching how unitPrice is used everywhere
+    // downstream (GST split, totals, quotation rate, sales-order rate). It never
+    // writes back to Zoho's master price and a fresh draft re-derives from list.
+    let priceOverridden = false;
+    let originalUnitPrice = null;
+    if (item.priceOverride !== undefined && item.priceOverride !== null && item.priceOverride !== '') {
+      const override = Number(item.priceOverride);
+      if (!Number.isFinite(override) || override <= 0) {
+        throw Object.assign(new Error('Invalid price override'), { code: 'INVALID_PARAM' });
+      }
+      if (override !== unitPrice) {
+        originalUnitPrice = unitPrice;
+        unitPrice = Math.round(override * 100) / 100;
+        priceOverridden = true;
+      }
+    }
+
     const gstRate = product.gst_percentage || 18;
     const qty = item.quantity;
     const divisor = 1 + (gstRate / 100);
@@ -252,6 +303,10 @@ async function buildDraftLineItems(items, traceContext = null) {
 
     if (item.shadeCode) lineItem.shadeCode = item.shadeCode;
     if (item.shadeTier) lineItem.shadeTier = item.shadeTier;
+    if (priceOverridden) {
+      lineItem.priceOverridden = true;
+      lineItem.originalUnitPrice = originalUnitPrice;
+    }
 
     lineItems.push(lineItem);
   }
@@ -679,4 +734,5 @@ module.exports = {
   listPOSDrafts,
   discardPOSDraft,
   getPOSQuotationPDF,
+  getLiveStock,
 };

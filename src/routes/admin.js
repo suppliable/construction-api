@@ -337,6 +337,7 @@ const {
   listPOSDrafts,
   discardPOSDraft,
   getPOSQuotationPDF,
+  getLiveStock,
 } = require('../services/posService');
 const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
 
@@ -349,6 +350,25 @@ router.get('/pos/customers/search', async (req, res) => {
     }
     const customers = await searchCustomers(q, req.traceContext);
     res.json({ success: true, data: { customers } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Live stock + cost for POS grid — POST /admin/pos/stock { ids: [...] }
+// Returns authoritative figures from Zoho Inventory. The client caches the
+// result for the quotation session, so this is hit once per item per session.
+router.post('/pos/stock', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'ids must be a non-empty array' });
+    }
+    if (ids.length > 50) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'ids must be 50 or fewer' });
+    }
+    const stock = await getLiveStock(ids, req.traceContext);
+    res.json({ success: true, data: { stock } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

@@ -137,6 +137,12 @@
   .product-card-footer { padding:8px 12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
   .variant-select { width:100%; padding:6px 8px; border:1.5px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:12px; background:#fff; outline:none; }
   .variant-select:focus { border-color:var(--blue2); }
+  .stock-line { min-height:18px; }
+  .stock-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:10px; font-size:11px; font-weight:600; }
+  .stock-badge.ok { background:#e7f6ec; color:#137333; }
+  .stock-badge.low { background:#fff3e0; color:#b45309; }
+  .stock-badge.out { background:#fde8e8; color:#c5221f; }
+  .stock-badge.unknown { background:#f1f5f9; color:var(--muted); }
   .btn-add-to-cart { width:100%; padding:7px; border-radius:6px; border:none; background:var(--blue2); color:#fff; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:background 0.15s; }
   .btn-add-to-cart:hover { background:#2563eb; }
   .btn-shade-picker { width:100%; padding:6px; border-radius:6px; border:1.5px solid var(--purple); color:var(--purple); background:#fff; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600; cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:4px; }
@@ -177,6 +183,14 @@
   .cart-item-name { font-size:13px; font-weight:600; line-height:1.3; }
   .cart-item-meta { font-size:11px; color:var(--muted); margin-top:2px; }
   .cart-item-price { font-size:12px; font-weight:700; font-family:'JetBrains Mono',monospace; margin-top:4px; }
+  .cart-price-row { display:flex; align-items:center; gap:4px; margin-top:4px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .cart-price-input { width:74px; padding:3px 6px; border:1.5px solid var(--border); border-radius:5px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; outline:none; }
+  .cart-price-input:focus { border-color:var(--blue2); }
+  .cart-price-input.overridden { border-color:var(--purple); background:#faf5ff; }
+  .cart-price-line { font-size:12px; font-weight:700; }
+  .cip-note { font-size:10.5px; color:var(--muted); margin-top:2px; }
+  .cip-note a { color:var(--blue2); cursor:pointer; text-decoration:underline; }
+  .cip-warn { font-size:10.5px; color:#c5221f; margin-top:2px; font-weight:600; }
   .qty-stepper { display:flex; align-items:center; flex-shrink:0; }
   .qty-btn { width:26px; height:26px; border:1px solid var(--border); background:#fff; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s; }
   .qty-btn:first-child { border-radius:6px 0 0 6px; }
@@ -627,6 +641,9 @@ let productPage = 0;
 const PAGE_SIZE = 20;
 let deliveryDebounceTimer = null;
 let searchResults = [];
+// Live stock + cost, fetched once per item per quotation session. Cleared on
+// resetWizard so the next quotation starts fresh-live. Values: {available_stock, purchase_rate} or null (live fetch failed → fall back to catalogue).
+let stockCache = new Map();
 
 // ── MAPS STATE ──
 const WAREHOUSE = { lat: 12.863326, lng: 80.226196 };
@@ -1015,6 +1032,66 @@ function renderProductGrid() {
   }
   grid.innerHTML = slice.map(p => buildProductCard(p)).join('');
   renderPageControls(page, totalPages, filtered.length);
+  refreshVisibleStock(slice);
+}
+
+// ── LIVE STOCK (session-cached) ──
+// The "active id" of a card is the selected variant's id (variant products) or
+// the product id (simple products) — that's the id we fetch live stock for.
+function cardActiveId(p) {
+  if (p.hasVariants && p.variants && p.variants.length) {
+    const sel = document.getElementById('vs_'+p.id);
+    return sel ? sel.value : p.variants[0].id;
+  }
+  return p.id;
+}
+function catalogueStockFor(p, id) {
+  if (p.hasVariants && p.variants) {
+    const v = p.variants.find(v => v.id === id);
+    if (v) return (v.available_stock ?? null);
+  }
+  return (p.available_stock ?? null);
+}
+function stockBadge(n) {
+  if (n === null || n === undefined) return `<span class="stock-badge unknown">Stock: —</span>`;
+  if (n <= 0) return `<span class="stock-badge out">Out of stock</span>`;
+  if (n <= 5) return `<span class="stock-badge low">Low: ${n}</span>`;
+  return `<span class="stock-badge ok">In stock: ${n}</span>`;
+}
+// Resolve the number to show for a card: prefer live (session-cached) figure,
+// fall back to the catalogue figure if live fetch is absent/failed.
+function resolvedStockFor(p) {
+  const id = cardActiveId(p);
+  const live = stockCache.get(id);
+  return (live && live.available_stock !== null && live.available_stock !== undefined)
+    ? live.available_stock : catalogueStockFor(p, id);
+}
+function applyStockBadges(products) {
+  products.forEach(p => {
+    const el = document.getElementById('stock_'+p.id);
+    if (el) el.innerHTML = stockBadge(resolvedStockFor(p));
+  });
+}
+async function refreshVisibleStock(products) {
+  const ids = [];
+  products.forEach(p => {
+    const id = cardActiveId(p);
+    if (id && !stockCache.has(id)) ids.push(id);
+  });
+  if (ids.length) {
+    try {
+      const res = await apiFetch('/api/v1/admin/pos/stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...new Set(ids)] }),
+      });
+      const data = await res.json();
+      if (res.ok && data.data && data.data.stock) {
+        Object.entries(data.data.stock).forEach(([id, info]) => stockCache.set(id, info));
+      }
+    } catch (e) { /* leave catalogue numbers in place */ }
+  }
+  applyStockBadges(products);
 }
 
 function renderPageControls(page, total, count) {
@@ -1065,6 +1142,7 @@ function buildProductCard(p) {
       <div class="product-card-name">${escHtml(p.name)}</div>
       <div class="product-card-cat">${escHtml(p.category||'')}</div>
       ${priceHtml}
+      <div class="stock-line" id="stock_${pid}">${stockBadge(catalogueStockFor(p, cardActiveId(p)))}</div>
     </div>
     <div class="product-card-footer">
       ${variantHtml}
@@ -1089,6 +1167,14 @@ document.getElementById('productGrid').addEventListener('click', function(e) {
       const pid = panel.id.replace('spi_', '');
       selectShadeInline(pid, swatch.dataset.code, swatch.dataset.name, swatch.dataset.hex);
     }
+  }
+});
+
+document.getElementById('productGrid').addEventListener('change', function(e) {
+  if (e.target.classList.contains('variant-select')) {
+    const pid = e.target.id.replace('vs_', '');
+    const p = productMap[pid];
+    if (p) refreshVisibleStock([p]);
   }
 });
 
@@ -1236,6 +1322,35 @@ async function addToCart(productId) {
   if (needsDeliveryCalc) scheduleDeliveryCalc();
 }
 
+// Effective selling price = manual override if set, else list price. Override is
+// per-line and temporary; it's sent to the server which applies it to this draft
+// only (never to Zoho's master price or future quotations).
+function effPrice(item) { return (item.priceOverride != null) ? item.priceOverride : item.unitPrice; }
+// Soft warning only: compares the GST-exclusive selling price against Zoho's
+// cost (purchase_rate, GST-exclusive). Returns the cost when below it, else null.
+function isBelowCost(item, eff) {
+  const live = stockCache.get(item.zohoItemId);
+  const cost = live && live.purchase_rate;
+  if (!Number.isFinite(cost) || cost <= 0) return null;
+  const exGst = eff / (1 + (item.gstRate||18)/100);
+  return exGst < cost ? cost : null;
+}
+function setPrice(idx, val) {
+  const item = cart[idx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n <= 0) { renderCart(); return; }
+  const rounded = Math.round(n*100)/100;
+  item.priceOverride = (rounded === Math.round(item.unitPrice*100)/100) ? null : rounded;
+  renderCart();
+  scheduleDeliveryCalc();
+}
+function resetPrice(idx) {
+  if (!cart[idx]) return;
+  cart[idx].priceOverride = null;
+  renderCart();
+  scheduleDeliveryCalc();
+}
 function removeFromCart(idx) { cart.splice(idx,1); renderCart(); }
 function changeQty(idx, delta) { cart[idx].quantity = Math.max(1, cart[idx].quantity+delta); renderCart(); }
 function setQty(idx, val) {
@@ -1257,11 +1372,22 @@ function renderCart() {
   }
   list.innerHTML = cart.map((item,idx) => {
     const meta = [item.variantName, item.shadeCode ? `Shade: ${item.shadeCode}` : null].filter(Boolean).join(' · ');
+    const eff = effPrice(item);
+    const overridden = item.priceOverride != null;
+    const belowCost = isBelowCost(item, eff);
     return `<div class="cart-item">
       <div class="cart-item-info">
         <div class="cart-item-name">${escHtml(item.name)}</div>
         ${meta ? `<div class="cart-item-meta">${escHtml(meta)}</div>` : ''}
-        <div class="cart-item-price">${fmtMoney(item.unitPrice * item.quantity)}</div>
+        <div class="cart-price-row">
+          <span>₹</span>
+          <input class="cart-price-input ${overridden?'overridden':''}" type="number" min="0" step="0.01"
+            value="${eff.toFixed(2)}" title="Selling price incl. GST — temporary for this order"
+            onchange="setPrice(${idx}, this.value)" onkeydown="if(event.key==='Enter')this.blur()">
+          <span class="cart-price-line">× ${item.quantity} = ${fmtMoney(eff * item.quantity)}</span>
+        </div>
+        ${overridden ? `<div class="cip-note">List ₹${Number(item.unitPrice).toFixed(2)} · <a onclick="resetPrice(${idx})">reset</a></div>` : ''}
+        ${belowCost ? `<div class="cip-warn">⚠ Below cost (₹${belowCost.toFixed(2)})</div>` : ''}
       </div>
       <div class="qty-stepper">
         <button class="qty-btn" onclick="changeQty(${idx},-1)">−</button>
@@ -1273,8 +1399,8 @@ function renderCart() {
       <button class="btn-remove-cart" onclick="removeFromCart(${idx})" title="Remove">✕</button>
     </div>`;
   }).join('');
-  const subtotal = cart.reduce((s,i) => s + (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity, 0);
-  const gstTotal = cart.reduce((s,i) => s + (i.unitPrice*i.quantity - (i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity), 0);
+  const subtotal = cart.reduce((s,i) => { const e=effPrice(i); return s + (e/(1+(i.gstRate||18)/100))*i.quantity; }, 0);
+  const gstTotal = cart.reduce((s,i) => { const e=effPrice(i); return s + (e*i.quantity - (e/(1+(i.gstRate||18)/100))*i.quantity); }, 0);
   const avgGst = cart.length ? Math.round(cart[0].gstRate||18) : 18;
   document.getElementById('totGstLabel').textContent = `GST (${avgGst}%)`;
   // Use cached delivery from last draft fetch; null = still calculating for the first time
@@ -1346,7 +1472,7 @@ function buildDraftBody() {
     gstNumber: gstNumber||null,
     gstName: gstName||null,
     gstAddress: gstAddress||null,
-    items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null }))
+    items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null, priceOverride:(i.priceOverride!=null?i.priceOverride:null) }))
   };
 }
 
@@ -1750,6 +1876,7 @@ function resetWizard() {
   selectedCustomer=null; selectedAddress=null; savedGst=null; gstNumber=''; gstName=''; gstAddress=null; cart=[];
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
+  stockCache = new Map();
   allShades=[]; _currentShadePid=null;
   addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null; _lastAddressComponents=null;
   document.getElementById('addressMapDiv').style.display='none';
@@ -1916,7 +2043,11 @@ async function resumeDraft(idx) {
     variantName: item.variantId || null,
     name: item.name,
     unit: item.unit || '',
-    unitPrice: item.unitPrice,
+    // Stored unitPrice is the overridden value when priceOverridden; restore the
+    // list price (originalUnitPrice) and the override separately so the cart UI
+    // shows the same editable/reset state it was saved with.
+    unitPrice: item.priceOverridden ? item.originalUnitPrice : item.unitPrice,
+    priceOverride: item.priceOverridden ? item.unitPrice : null,
     gstRate: item.gstRate || 18,
     quantity: item.quantity,
     shadeCode: item.shadeCode || null,

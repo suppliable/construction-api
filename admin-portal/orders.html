@@ -1452,14 +1452,19 @@ function renderWhatsAppButtons(order) {
 
   const rawName = order.customerName || order.customer?.name || 'there';
   const otp = order.deliveryOtp || '';
+  // Delivery OTP reminder appended to every status message from acceptance
+  // through arrival (the window where the OTP is actionable). The order DTO only
+  // exposes deliveryOtp for statuses accepted→arrived, so `otp` is empty (and the
+  // line is omitted) once the order is delivered/completed.
+  const otpLine = otp ? `\n\n🔐 Delivery OTP: *${otp}* — please share this with our driver at delivery.` : '';
   const msgs = {
     warehouse_review: { label: '📋 Order Received', text: `Hi ${rawName}! 👋 We've received your Suppliable order *#${orderId}*. Our team is reviewing it and will confirm shortly. Thank you for choosing us! 🙏` },
-    accepted: { label: '✅ Order Confirmed', text: `Hi ${rawName}! ✅ Your Suppliable order *#${orderId}* has been *confirmed*. Our warehouse team is preparing it for dispatch.\n\nYour delivery OTP is: *${otp}* 🔐\nPlease keep this handy — our driver will ask for it at delivery.\n\nWe'll keep you updated! 📦` },
-    packed: { label: '📦 Order Packed', text: `Hi ${rawName}! 📦 Your Suppliable order *#${orderId}* is packed and ready. Our driver will pick it up soon! 🚛` },
-    ready_for_dispatch: { label: '🚛 Ready for Dispatch', text: `Hi ${rawName}! 🚛 Your Suppliable order *#${orderId}* is ready and will be dispatched shortly. Stay tuned! ✅` },
-    loading: { label: '🔄 Loading onto Vehicle', text: `Hi ${rawName}! 🔄 Your Suppliable order *#${orderId}* is being loaded onto the delivery vehicle. Out for delivery soon! 🚚` },
-    out_for_delivery: { label: '🚚 Out for Delivery', text: `Hi ${rawName}! 🚚 Your Suppliable order *#${orderId}* is *out for delivery*! Our driver is on the way. Please keep your phone handy. 📲` },
-    arrived: { label: '🏠 Driver Has Arrived', text: `Hi ${rawName}! 🏠 Our driver has *arrived* at your location with order *#${orderId}*. Please share the OTP to complete delivery. 🔐` },
+    accepted: { label: '✅ Order Confirmed', text: `Hi ${rawName}! ✅ Your Suppliable order *#${orderId}* has been *confirmed*. Our warehouse team is preparing it for dispatch.\n\nWe'll keep you updated! 📦${otpLine}` },
+    packed: { label: '📦 Order Packed', text: `Hi ${rawName}! 📦 Your Suppliable order *#${orderId}* is packed and ready. Our driver will pick it up soon! 🚛${otpLine}` },
+    ready_for_dispatch: { label: '🚛 Ready for Dispatch', text: `Hi ${rawName}! 🚛 Your Suppliable order *#${orderId}* is ready and will be dispatched shortly. Stay tuned! ✅${otpLine}` },
+    loading: { label: '🔄 Loading onto Vehicle', text: `Hi ${rawName}! 🔄 Your Suppliable order *#${orderId}* is being loaded onto the delivery vehicle. Out for delivery soon! 🚚${otpLine}` },
+    out_for_delivery: { label: '🚚 Out for Delivery', text: `Hi ${rawName}! 🚚 Your Suppliable order *#${orderId}* is *out for delivery*! Our driver is on the way. Please keep your phone handy. 📲${otpLine}` },
+    arrived: { label: '🏠 Driver Has Arrived', text: `Hi ${rawName}! 🏠 Our driver has *arrived* at your location with order *#${orderId}*. Please share the OTP to complete delivery. 🔐${otpLine}` },
     delivered: { label: '⭐ Delivered — Thank You!', text: `Hi ${rawName}! 🎉 Your Suppliable order *#${orderId}* has been *delivered successfully*. Thank you for choosing us! ⭐` },
     cancelled: { label: '❌ Order Cancelled', text: `Hi ${rawName}, we're sorry to inform you that your Suppliable order *#${orderId}* has been *cancelled*. Please contact us for any queries.` }
   };
