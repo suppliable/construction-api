@@ -137,6 +137,10 @@
   .product-card-footer { padding:8px 12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
   .variant-select { width:100%; padding:6px 8px; border:1.5px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:12px; background:#fff; outline:none; }
   .variant-select:focus { border-color:var(--blue2); }
+  .deliv-edit { background:none; border:none; cursor:pointer; font-size:12px; padding:0 2px; opacity:0.7; }
+  .deliv-edit:hover { opacity:1; }
+  .deliv-input { width:72px; padding:2px 5px; border:1.5px solid var(--blue2); border-radius:5px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; outline:none; text-align:right; }
+  .deliv-note-link { color:var(--blue2); cursor:pointer; text-decoration:underline; }
   .stock-line { min-height:18px; }
   .stock-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:10px; font-size:11px; font-weight:600; }
   .stock-badge.ok { background:#e7f6ec; color:#137333; }
@@ -511,6 +515,7 @@
               <div class="totals-row"><span>Subtotal</span><span class="amt" id="totSubtotal">₹0</span></div>
               <div class="totals-row"><span id="totGstLabel">GST</span><span class="amt" id="totGst">₹0</span></div>
               <div class="totals-row"><span>Delivery</span><span class="amt" id="totDelivery"><span class="totals-loading">calculating...</span></span></div>
+              <div id="deliveryOverrideNote" class="hidden" style="font-size:11px;color:var(--muted);text-align:right;margin:-4px 0 2px"></div>
               <div class="totals-row grand"><span>Grand Total</span><span class="amt" id="totGrand">₹0</span></div>
               <div id="deliveryWarning" class="hidden" style="margin-top:8px;padding:7px 10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e">
                 ⚠️ <span id="deliveryWarningText"></span>
@@ -644,6 +649,8 @@ let searchResults = [];
 // Live stock + cost, fetched once per item per quotation session. Cleared on
 // resetWizard so the next quotation starts fresh-live. Values: {available_stock, purchase_rate} or null (live fetch failed → fall back to catalogue).
 let stockCache = new Map();
+// Per-order delivery charge override (number) or null = use auto-calculated charge.
+let deliveryChargeOverride = null;
 
 // ── MAPS STATE ──
 const WAREHOUSE = { lat: 12.863326, lng: 80.226196 };
@@ -1072,6 +1079,47 @@ function applyStockBadges(products) {
     if (el) el.innerHTML = stockBadge(resolvedStockFor(p));
   });
 }
+// Per-variant stock suffix for dropdown options — prefers the live (session-
+// cached) figure, falls back to the catalogue value. Shows each variant's own
+// stock (not the product group's).
+function variantStockSuffix(id, v) {
+  const live = stockCache.get(id);
+  const n = (live && live.available_stock != null) ? live.available_stock : (v.available_stock ?? null);
+  if (n === null || n === undefined) return '';
+  if (n <= 0) return '  ·  Out of stock';
+  return `  ·  ${n} in stock`;
+}
+function applyVariantStockLabels(p) {
+  if (!p || !p.hasVariants || !p.variants) return;
+  const sel = document.getElementById('vs_'+p.id);
+  if (!sel) return;
+  Array.from(sel.options).forEach(opt => {
+    const v = p.variants.find(vv => vv.id === opt.value);
+    if (v) opt.text = `${v.name} — ${fmtMoney(v.price)}${variantStockSuffix(v.id, v)}`;
+  });
+}
+// Engagement-triggered: fetch live stock for ALL of a product's variants the
+// first time its dropdown is touched, cache for the session, then refresh the
+// option labels and badge. One batched call per product, only when inspected.
+async function refreshProductVariants(p) {
+  if (!p || !p.hasVariants || !p.variants) return;
+  const ids = p.variants.map(v => v.id).filter(id => id && !stockCache.has(id));
+  if (ids.length) {
+    try {
+      const res = await apiFetch('/api/v1/admin/pos/stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids.slice(0, 50) }),
+      });
+      const data = await res.json();
+      if (res.ok && data.data && data.data.stock) {
+        Object.entries(data.data.stock).forEach(([id, info]) => stockCache.set(id, info));
+      }
+    } catch (e) { /* keep catalogue labels */ }
+  }
+  applyVariantStockLabels(p);
+  applyStockBadges([p]);
+}
 async function refreshVisibleStock(products) {
   const ids = [];
   products.forEach(p => {
@@ -1119,7 +1167,7 @@ function buildProductCard(p) {
   if (p.hasVariants && p.variants && p.variants.length) {
     priceHtml = `<div class="product-card-price range">${escHtml(p.priceRange||'')}</div>`;
     variantHtml = `<select class="variant-select" id="vs_${pid}">` +
-      p.variants.map(v => `<option value="${escHtml(v.id)}" data-price="${Number(v.price)||0}">${escHtml(v.name)} — ${fmtMoney(v.price)}</option>`).join('') +
+      p.variants.map(v => `<option value="${escHtml(v.id)}" data-price="${Number(v.price)||0}">${escHtml(v.name)} — ${fmtMoney(v.price)}${variantStockSuffix(v.id, v)}</option>`).join('') +
       `</select>`;
   } else {
     priceHtml = `<div class="product-card-price">${fmtMoney(p.price)}</div>`;
@@ -1170,11 +1218,17 @@ document.getElementById('productGrid').addEventListener('click', function(e) {
   }
 });
 
+// Fetch live per-variant stock when a variant dropdown is first opened/changed.
+document.getElementById('productGrid').addEventListener('focusin', function(e) {
+  if (e.target.classList.contains('variant-select')) {
+    const p = productMap[e.target.id.replace('vs_', '')];
+    if (p) refreshProductVariants(p);
+  }
+});
 document.getElementById('productGrid').addEventListener('change', function(e) {
   if (e.target.classList.contains('variant-select')) {
-    const pid = e.target.id.replace('vs_', '');
-    const p = productMap[pid];
-    if (p) refreshVisibleStock([p]);
+    const p = productMap[e.target.id.replace('vs_', '')];
+    if (p) refreshProductVariants(p);
   }
 });
 
@@ -1413,33 +1467,88 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   document.getElementById('totGst').textContent = fmtMoney(gstTotal);
   const warnEl = document.getElementById('deliveryWarning');
   const warnText = document.getElementById('deliveryWarningText');
+  const noteEl = document.getElementById('deliveryOverrideNote');
+  const delivEl = document.getElementById('totDelivery');
+  noteEl.classList.add('hidden');
+
   if (deliveryResult === null) {
-    document.getElementById('totDelivery').innerHTML = '<span class="totals-loading">calculating...</span>';
+    delivEl.innerHTML = '<span class="totals-loading">calculating...</span>';
     document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
     warnEl.classList.add('hidden');
-  } else if (deliveryResult === 'error') {
-    document.getElementById('totDelivery').innerHTML = '<span style="color:var(--muted);font-size:12px">—</span>';
-    document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
-    warnEl.classList.add('hidden');
-  } else {
-    document.getElementById('totDelivery').textContent = fmtMoney(deliveryResult.deliveryCharge||0);
-    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + (deliveryResult.deliveryCharge||0));
-    // Serviceability warning + gate
-    const dr = deliveryResult.deliveryResult;
-    const step2NextBtn = document.getElementById('step2Next');
-    if (!dr) {
-      warnText.textContent = 'No pincode on this address — delivery charge could not be calculated';
-      warnEl.classList.remove('hidden');
-      if (step2NextBtn) step2NextBtn.disabled = false;
-    } else if (dr.serviceable === false) {
-      warnText.textContent = (dr.message || 'Delivery not available to this area') + ' — cannot proceed';
-      warnEl.classList.remove('hidden');
-      if (step2NextBtn) step2NextBtn.disabled = true;
-    } else {
-      warnEl.classList.add('hidden');
-      if (step2NextBtn) step2NextBtn.disabled = false;
-    }
+    return;
   }
+  if (deliveryResult === 'error') {
+    // Even when the auto-calc fails, allow a manual delivery charge.
+    const effErr = deliveryChargeOverride != null ? deliveryChargeOverride : 0;
+    delivEl.innerHTML = deliveryRowHtml(effErr, deliveryChargeOverride != null);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + effErr);
+    if (deliveryChargeOverride != null) {
+      noteEl.innerHTML = `auto: — · <span class="deliv-note-link" onclick="resetDeliveryOverride()">reset to auto</span>`;
+      noteEl.classList.remove('hidden');
+    }
+    warnEl.classList.add('hidden');
+    return;
+  }
+
+  // Auto charge is always available for reference; the override only changes the effective figure.
+  const autoCharge = (deliveryResult.autoDeliveryCharge != null) ? deliveryResult.autoDeliveryCharge : (deliveryResult.deliveryCharge || 0);
+  const overridden = deliveryChargeOverride != null;
+  const effDeliv = overridden ? deliveryChargeOverride : (deliveryResult.deliveryCharge || 0);
+  delivEl.innerHTML = deliveryRowHtml(effDeliv, overridden);
+  document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + effDeliv);
+  if (overridden) {
+    noteEl.innerHTML = `auto: ${fmtMoney(autoCharge)} · <span class="deliv-note-link" onclick="resetDeliveryOverride()">reset to auto</span>`;
+    noteEl.classList.remove('hidden');
+  }
+
+  // Serviceability warning + gate (driven by the auto-calc; unaffected by the override)
+  const dr = deliveryResult.deliveryResult;
+  const step2NextBtn = document.getElementById('step2Next');
+  if (!dr) {
+    warnText.textContent = 'No pincode on this address — delivery charge could not be calculated';
+    warnEl.classList.remove('hidden');
+    if (step2NextBtn) step2NextBtn.disabled = false;
+  } else if (dr.serviceable === false) {
+    warnText.textContent = (dr.message || 'Delivery not available to this area') + ' — cannot proceed';
+    warnEl.classList.remove('hidden');
+    if (step2NextBtn) step2NextBtn.disabled = true;
+  } else {
+    warnEl.classList.add('hidden');
+    if (step2NextBtn) step2NextBtn.disabled = false;
+  }
+}
+
+// ── DELIVERY CHARGE OVERRIDE ──
+// Auto-calc always runs first (server-side); the operator can then edit the
+// charge for this order only. The override is held client-side, sent on every
+// draft update, and never alters the delivery-calc logic.
+function deliveryRowHtml(amount, overridden) {
+  return `<span style="${overridden ? 'color:var(--purple);font-weight:700' : ''}">${fmtMoney(amount)}</span>`
+    + `<button class="deliv-edit" title="Edit delivery charge for this order" onclick="editDeliveryCharge(${Number(amount) || 0})">✏️</button>`;
+}
+function editDeliveryCharge(current) {
+  const delivEl = document.getElementById('totDelivery');
+  delivEl.innerHTML = `<span>₹</span><input class="deliv-input" id="delivInput" type="number" min="0" step="1" value="${Number(current || 0)}"
+    onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.dataset.cancel='1';this.blur()}"
+    onblur="commitDeliveryEdit(this.value, this.dataset.cancel)">`;
+  const inp = document.getElementById('delivInput');
+  inp.focus(); inp.select();
+}
+function commitDeliveryEdit(val, cancel) {
+  if (cancel) { renderCart(); return; }
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) { renderCart(); return; }
+  const rounded = Math.round(n * 100) / 100;
+  // Entering the auto-calculated value clears the override.
+  const auto = (draftData && draftData.autoDeliveryCharge != null) ? Math.round(draftData.autoDeliveryCharge * 100) / 100 : null;
+  deliveryChargeOverride = (auto != null && rounded === auto) ? null : rounded;
+  renderCart();            // immediate local feedback
+  scheduleDeliveryCalc();  // persist override to the draft
+}
+function resetDeliveryOverride() {
+  deliveryChargeOverride = null;
+  renderCart();
+  scheduleDeliveryCalc();
 }
 
 function scheduleDeliveryCalc() {
@@ -1459,9 +1568,9 @@ async function fetchDraftForTotals() {
     if (!res.ok) return;
     const d = data.data.draft;
     draftId = d.draftId; draftData = d;
-    const subtotal = cart.reduce((s,i) => s+(i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity,0);
-    const gstTotal = cart.reduce((s,i) => s+(i.unitPrice*i.quantity-(i.unitPrice/(1+(i.gstRate||18)/100))*i.quantity),0);
-    renderCartTotals(subtotal, gstTotal, d);
+    // Use the server's authoritative totals — they already reflect per-line price
+    // overrides and the delivery override.
+    renderCartTotals(d.subtotal, d.gstTotal, d);
   } catch(e) { /* silent */ }
 }
 
@@ -1472,6 +1581,7 @@ function buildDraftBody() {
     gstNumber: gstNumber||null,
     gstName: gstName||null,
     gstAddress: gstAddress||null,
+    deliveryChargeOverride: (deliveryChargeOverride != null ? deliveryChargeOverride : null),
     items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null, priceOverride:(i.priceOverride!=null?i.priceOverride:null) }))
   };
 }
@@ -1878,6 +1988,7 @@ function resetWizard() {
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
   stockCache = new Map();
+  deliveryChargeOverride = null;
   allShades=[]; _currentShadePid=null;
   addressMap=null; addressMarker=null; addressAutocomplete=null; lastMapCoords=null; _lastAddressComponents=null;
   document.getElementById('addressMapDiv').style.display='none';
@@ -2036,6 +2147,8 @@ async function resumeDraft(idx) {
     ? { userId: draft.customer.userId, name: draft.customer.name, phone: draft.customer.phone, email: draft.customer.email || null, addresses: draft.address ? [draft.address] : [] }
     : null;
   selectedAddress = draft.address || null;
+  // Restore a manual delivery-charge override if one was saved on the draft.
+  deliveryChargeOverride = draft.deliveryOverridden ? draft.deliveryCharge : null;
 
   cart = (draft.items || []).map(item => ({
     productId: item.productId,

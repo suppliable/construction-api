@@ -322,11 +322,12 @@ async function buildDraftLineItems(items, traceContext = null) {
   return lineItems;
 }
 
-async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null) {
+async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null, deliveryChargeOverride = null) {
   const subtotal = Math.round(lineItems.reduce((s, i) => s + i.totalWithoutGST, 0) * 100) / 100;
   const gstTotal = Math.round(lineItems.reduce((s, i) => s + i.gstAmount, 0) * 100) / 100;
 
-  let deliveryCharge = 0;
+  // Auto-calculated charge — always computed via our delivery logic first.
+  let autoDeliveryCharge = 0;
   let deliveryResult = null;
 
   if (addressId) {
@@ -341,22 +342,35 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null) 
         traceContext
       ).catch(() => null);
       if (deliveryResult?.serviceable) {
-        deliveryCharge = deliveryResult.delivery_charge || 0;
+        autoDeliveryCharge = deliveryResult.delivery_charge || 0;
       }
     } else {
       console.warn('Delivery skipped — no pincode for address:', addressId);
     }
   }
 
+  // Manual per-order override (POS only). The auto-calc above is untouched and
+  // preserved as autoDeliveryCharge; the override only changes the effective
+  // charge and grand total. Serviceability (deliveryResult) is unaffected.
+  let deliveryCharge = autoDeliveryCharge;
+  let deliveryOverridden = false;
+  if (deliveryChargeOverride !== null && deliveryChargeOverride !== undefined && deliveryChargeOverride !== '') {
+    const override = Number(deliveryChargeOverride);
+    if (Number.isFinite(override) && override >= 0) {
+      deliveryCharge = Math.round(override * 100) / 100;
+      deliveryOverridden = deliveryCharge !== autoDeliveryCharge;
+    }
+  }
+
   const grandTotal = Math.round((subtotal + gstTotal + deliveryCharge) * 100) / 100;
-  return { subtotal, gstTotal, deliveryCharge, grandTotal, deliveryResult };
+  return { subtotal, gstTotal, deliveryCharge, autoDeliveryCharge, deliveryOverridden, grandTotal, deliveryResult };
 }
 
 // ---- Draft CRUD ----
 
-async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
+async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride = null }, traceContext = null) {
   const lineItems = await buildDraftLineItems(items, traceContext);
-  const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext);
+  const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext, deliveryChargeOverride);
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -393,13 +407,17 @@ async function getPOSDraft(draftId, traceContext = null) {
   }, traceContext);
 }
 
-async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress }, traceContext = null) {
+async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride }, traceContext = null) {
   const existing = await getPOSDraft(draftId, traceContext);
   if (!existing) return null;
 
   const lineItems = await buildDraftLineItems(items, traceContext);
   const resolvedAddressId = addressId !== undefined ? addressId : existing.addressId;
-  const totals = await calcTotalsAndDelivery(lineItems, resolvedAddressId, traceContext);
+  // Preserve an existing override when the client doesn't send the field.
+  const resolvedOverride = deliveryChargeOverride !== undefined
+    ? deliveryChargeOverride
+    : (existing.deliveryOverridden ? existing.deliveryCharge : null);
+  const totals = await calcTotalsAndDelivery(lineItems, resolvedAddressId, traceContext, resolvedOverride);
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
