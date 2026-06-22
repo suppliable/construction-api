@@ -1210,7 +1210,10 @@ const recordCodPayment = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.paymentType !== 'COD') return res.status(400).json({ success: false, error: 'NOT_COD_ORDER', message: 'Order is not a COD order' });
     if (order.status !== 'delivered') return res.status(400).json({ success: false, error: 'ORDER_NOT_DELIVERED', message: 'Order must be delivered first' });
-    if (!order.codCollectedByDriver) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    // Force-completed orders never get a driver COD-collection mark, but the
+    // admin reconciles them manually, so allow recording once reconciled.
+    if (!order.codCollectedByDriver && !order.forcedComplete) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    if (order.forcedComplete && !order.codCollected) return res.status(400).json({ success: false, error: 'NOT_RECONCILED', message: 'Reconcile the force-completed order before recording payment' });
     if (order.zohoPaymentRecorded) return res.status(400).json({ success: false, error: 'PAYMENT_ALREADY_RECORDED', message: 'Payment already recorded in Zoho Books' });
 
     if (!order.zoho_invoice_id) {
