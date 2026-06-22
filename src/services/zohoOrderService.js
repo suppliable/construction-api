@@ -1,27 +1,27 @@
 const { createSpan } = require('../utils/spanTracer');
 const { zohoPost, zohoPut } = require('./zohoHttp');
 
-// Zoho rejects an address/street2 line of 100+ chars ("must be less than 100
-// characters"), so each line is capped just under that.
-const ZOHO_ADDRESS_LINE_MAX = 99;
+// Zoho rejects a shipping_address whose *combined* field text reaches 100
+// characters ("must be less than 100 characters") — it's a limit on the whole
+// object, not a single field. So we pack the address into one consolidated
+// `address` line and keep attention + address comfortably under the limit.
+const ZOHO_ADDRESS_TOTAL_MAX = 90;
+const ZOHO_ATTENTION_MAX = 30;
 
 /**
- * Maps a Firestore delivery-address document to Zoho's structured address
- * object (the same shape Zoho uses for contact billing_address). Shared by the
- * sales order and the invoice so both always render the same Ship To.
+ * Maps a Firestore delivery-address document to Zoho's address object. All the
+ * address parts are joined into the single `address` line (the shape Zoho
+ * reliably accepts), and attention + address are budgeted to stay under Zoho's
+ * 100-char combined limit. Shared by the sales order and the invoice so both
+ * render the same Ship To.
  */
 function buildZohoShippingAddress(shippingAddress = {}, attention = '') {
   const addr = shippingAddress || {};
-  return {
-    attention: attention || '',
-    address: [addr.flatNo, addr.buildingName, addr.streetAddress]
-      .filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_LINE_MAX),
-    street2: [addr.landmark, addr.area].filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_LINE_MAX),
-    city: addr.city || '',
-    state: addr.state || '',
-    zip: addr.pincode || '',
-    country: 'India',
-  };
+  const att = (attention || '').substring(0, ZOHO_ATTENTION_MAX);
+  const addressBudget = Math.max(0, ZOHO_ADDRESS_TOTAL_MAX - att.length);
+  const address = [addr.flatNo, addr.buildingName, addr.streetAddress, addr.landmark, addr.area, addr.city, addr.state, addr.pincode]
+    .filter(Boolean).join(', ').substring(0, addressBudget);
+  return att ? { attention: att, address } : { address };
 }
 
 async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}, attention = '') {
