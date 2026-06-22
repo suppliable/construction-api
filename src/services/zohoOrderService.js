@@ -1,30 +1,28 @@
 const { createSpan } = require('../utils/spanTracer');
 const { zohoPost, zohoPut } = require('./zohoHttp');
 
-// Zoho rejects a shipping_address whose *combined* field text reaches 100
-// characters ("must be less than 100 characters") — it's a limit on the whole
-// object, not a single field. So we pack the address into one consolidated
-// `address` line and keep attention + address comfortably under the limit.
-const ZOHO_ADDRESS_TOTAL_MAX = 90;
-const ZOHO_ATTENTION_MAX = 30;
+// Zoho rejects shipping_address when the *serialized* object reaches 100 chars
+// ("must be less than 100 characters") — keys, braces and quotes are counted,
+// not just the values. `{"address":"<value>"}` is a 14-char wrapper, so the
+// value must stay <= 85 to keep the whole object under 100. Adding any extra
+// key (attention, city, etc.) spends that budget on wrapper text and breaks it,
+// which is why the original code used a single 85-char `address` field.
+const ZOHO_ADDRESS_VALUE_MAX = 85;
 
 /**
- * Maps a Firestore delivery-address document to Zoho's address object. All the
- * address parts are joined into the single `address` line (the shape Zoho
- * reliably accepts), and attention + address are budgeted to stay under Zoho's
- * 100-char combined limit. Shared by the sales order and the invoice so both
- * render the same Ship To.
+ * Maps a Firestore delivery-address document to Zoho's address object. Every
+ * part is joined into the single `address` line (the only shape that fits
+ * Zoho's <100-char serialized limit) and capped at 85. Shared by the sales
+ * order and the invoice so both render the same Ship To.
  */
-function buildZohoShippingAddress(shippingAddress = {}, attention = '') {
+function buildZohoShippingAddress(shippingAddress = {}) {
   const addr = shippingAddress || {};
-  const att = (attention || '').substring(0, ZOHO_ATTENTION_MAX);
-  const addressBudget = Math.max(0, ZOHO_ADDRESS_TOTAL_MAX - att.length);
   const address = [addr.flatNo, addr.buildingName, addr.streetAddress, addr.landmark, addr.area, addr.city, addr.state, addr.pincode]
-    .filter(Boolean).join(', ').substring(0, addressBudget);
-  return att ? { attention: att, address } : { address };
+    .filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_VALUE_MAX);
+  return { address };
 }
 
-async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}, attention = '') {
+async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}) {
   const span = createSpan(traceContext, 'zoho.api.createSalesOrder', {
     'peer.service': 'zoho',
     contact_id: zohoContactId,
@@ -51,9 +49,9 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       };
     });
     console.log('[Zoho SO] Line items being sent:', JSON.stringify(zohoLineItems, null, 2));
-    const shipping_address = buildZohoShippingAddress(shippingAddress, attention);
+    const shipping_address = buildZohoShippingAddress(shippingAddress);
     console.log('[Zoho SO] shipping_address being sent:', JSON.stringify(shipping_address),
-      '| field lengths:', Object.fromEntries(Object.entries(shipping_address).map(([k, v]) => [k, String(v).length])));
+      '| serialized length:', JSON.stringify(shipping_address).length);
     const body = {
       customer_id: zohoContactId,
       line_items: zohoLineItems,
@@ -152,7 +150,7 @@ async function updateZohoSOOrderId(salesorder_id, orderId, traceContext = null) 
   }
 }
 
-async function updateZohoInvoiceShippingAddress(invoice_id, shippingAddress, attention, traceContext = null) {
+async function updateZohoInvoiceShippingAddress(invoice_id, shippingAddress, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.updateInvoiceShippingAddress', {
     'peer.service': 'zoho',
     invoice_id,
@@ -164,7 +162,7 @@ async function updateZohoInvoiceShippingAddress(invoice_id, shippingAddress, att
     // here to populate the invoice's Ship To.
     await zohoPut(
       `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoice_id}`,
-      { shipping_address: buildZohoShippingAddress(shippingAddress, attention) }
+      { shipping_address: buildZohoShippingAddress(shippingAddress) }
     );
     span.end({ success: true, invoice_id });
   } catch (error) {

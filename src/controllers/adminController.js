@@ -222,8 +222,7 @@ const acceptOrder = async (req, res) => {
       order.delivery_charge || 0,
       customer.phone || null,
       req.traceContext,
-      gstDetails,
-      contactDisplayName || ''
+      gstDetails
     );
 
     // Write internal orderId to Zoho SO custom field (non-blocking)
@@ -251,7 +250,7 @@ const acceptOrder = async (req, res) => {
       // Invoice-from-SO doesn't carry the delivery address, so set it explicitly
       // before marking sent so the Ship To shows the actual delivery address.
       try {
-        await updateZohoInvoiceShippingAddress(zohoInvoice.invoice_id, address, contactDisplayName, req.traceContext);
+        await updateZohoInvoiceShippingAddress(zohoInvoice.invoice_id, address, req.traceContext);
       } catch (shipErr) {
         req.log.warn({ err: shipErr.response?.data || shipErr.message }, 'Set invoice shipping address failed (non-fatal)');
       }
