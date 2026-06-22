@@ -1107,6 +1107,11 @@ const getAbandonedCarts = async (req, res) => {
   try {
     const minutes = Math.max(1, parseInt(req.query.minutes) || 30);
     const cutoffMs = Date.now() - minutes * 60 * 1000;
+    // Only surface carts active within this window — extremely old carts drop
+    // off the admin panel. This filters the admin view ONLY; the customer's
+    // cart in the `carts` collection is never modified.
+    const windowHours = Math.max(1, parseInt(req.query.windowHours) || 48);
+    const windowFloorMs = Date.now() - windowHours * 60 * 60 * 1000;
     const db = getTrackedDb();
 
     // Fetch in parallel: all carts, recent orders (last 24h), product name map
@@ -1138,7 +1143,9 @@ const getAbandonedCarts = async (req, res) => {
       if (!items.length) return false;
       if (recentOrderUserIds.has(cartDoc.id)) return false;
       const updatedMs = cartDoc.updateTime?.toMillis?.() || 0;
-      return updatedMs > 0 && updatedMs < cutoffMs;
+      // Abandoned = idle at least `minutes` (upper time bound) but active within
+      // the last `windowHours` (lower time bound) — i.e. last 48h by default.
+      return updatedMs > 0 && updatedMs < cutoffMs && updatedMs >= windowFloorMs;
     });
 
     const abandoned = await Promise.all(candidateDocs.map(async cartDoc => {
@@ -1184,6 +1191,7 @@ const getAbandonedCarts = async (req, res) => {
         abandonedCarts: abandoned,
         total: abandoned.length,
         cutoffMinutes: minutes,
+        windowHours,
         generatedAt: new Date().toISOString(),
       },
     });
