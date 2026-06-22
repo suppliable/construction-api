@@ -1,20 +1,25 @@
 const { createSpan } = require('../utils/spanTracer');
 const { zohoPost, zohoPut } = require('./zohoHttp');
 
+// Zoho rejects an address/street2 line of 100+ chars ("must be less than 100
+// characters"), so each line is capped just under that.
+const ZOHO_ADDRESS_LINE_MAX = 99;
+
 /**
  * Maps a Firestore delivery-address document to Zoho's structured address
  * object (the same shape Zoho uses for contact billing_address). Shared by the
  * sales order and the invoice so both always render the same Ship To.
  */
 function buildZohoShippingAddress(shippingAddress = {}, attention = '') {
+  const addr = shippingAddress || {};
   return {
     attention: attention || '',
-    address: [shippingAddress.flatNo, shippingAddress.buildingName, shippingAddress.streetAddress]
-      .filter(Boolean).join(', '),
-    street2: [shippingAddress.landmark, shippingAddress.area].filter(Boolean).join(', '),
-    city: shippingAddress.city || '',
-    state: shippingAddress.state || '',
-    zip: shippingAddress.pincode || '',
+    address: [addr.flatNo, addr.buildingName, addr.streetAddress]
+      .filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_LINE_MAX),
+    street2: [addr.landmark, addr.area].filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_LINE_MAX),
+    city: addr.city || '',
+    state: addr.state || '',
+    zip: addr.pincode || '',
     country: 'India',
   };
 }
