@@ -1,7 +1,25 @@
 const { createSpan } = require('../utils/spanTracer');
 const { zohoPost, zohoPut } = require('./zohoHttp');
 
-async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}) {
+/**
+ * Maps a Firestore delivery-address document to Zoho's structured address
+ * object (the same shape Zoho uses for contact billing_address). Shared by the
+ * sales order and the invoice so both always render the same Ship To.
+ */
+function buildZohoShippingAddress(shippingAddress = {}, attention = '') {
+  return {
+    attention: attention || '',
+    address: [shippingAddress.flatNo, shippingAddress.buildingName, shippingAddress.streetAddress]
+      .filter(Boolean).join(', '),
+    street2: [shippingAddress.landmark, shippingAddress.area].filter(Boolean).join(', '),
+    city: shippingAddress.city || '',
+    state: shippingAddress.state || '',
+    zip: shippingAddress.pincode || '',
+    country: 'India',
+  };
+}
+
+async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}, attention = '') {
   const span = createSpan(traceContext, 'zoho.api.createSalesOrder', {
     'peer.service': 'zoho',
     contact_id: zohoContactId,
@@ -32,12 +50,7 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       customer_id: zohoContactId,
       line_items: zohoLineItems,
       shipping_charge: deliveryCharge || 0,
-      shipping_address: {
-        address: [
-          shippingAddress.flatNo, shippingAddress.buildingName, shippingAddress.streetAddress,
-          shippingAddress.city, shippingAddress.state, shippingAddress.pincode
-        ].filter(Boolean).join(', ').substring(0, 85)
-      },
+      shipping_address: buildZohoShippingAddress(shippingAddress, attention),
       notes: `Suppliable B2B Order${phone ? ` | Phone: ${phone}` : ''}`
     };
     if (gstDetails.gstNumber) {
@@ -131,6 +144,27 @@ async function updateZohoSOOrderId(salesorder_id, orderId, traceContext = null) 
   }
 }
 
+async function updateZohoInvoiceShippingAddress(invoice_id, shippingAddress, attention, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.updateInvoiceShippingAddress', {
+    'peer.service': 'zoho',
+    invoice_id,
+    endpoint: '/inventory/v1/invoices/:id'
+  });
+  try {
+    // Invoices created via fromsalesorder inherit the contact's stored shipping
+    // address (none, in our case) — so we set the delivery address explicitly
+    // here to populate the invoice's Ship To.
+    await zohoPut(
+      `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoice_id}`,
+      { shipping_address: buildZohoShippingAddress(shippingAddress, attention) }
+    );
+    span.end({ success: true, invoice_id });
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
 async function markZohoInvoiceAsSent(invoiceId, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.markInvoiceAsSent', {
     'peer.service': 'zoho',
@@ -149,4 +183,4 @@ async function markZohoInvoiceAsSent(invoiceId, traceContext = null) {
   }
 }
 
-module.exports = { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoShipment, updateZohoSOOrderId, markZohoInvoiceAsSent };
+module.exports = { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoShipment, updateZohoSOOrderId, updateZohoInvoiceShippingAddress, markZohoInvoiceAsSent };

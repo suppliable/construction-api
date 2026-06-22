@@ -29,7 +29,7 @@ function formatDuration(ms) {
   if (h === 0) return `${m}m`;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
-const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
+const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, updateZohoInvoiceShippingAddress, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
 const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks, createZohoContact, searchZohoContactByPhone } = require('../services/zohoService');
 const { uploadToFirebase } = require('../services/storageService');
 const { setFeatured } = require('../services/firestoreService');
@@ -222,7 +222,8 @@ const acceptOrder = async (req, res) => {
       order.delivery_charge || 0,
       customer.phone || null,
       req.traceContext,
-      gstDetails
+      gstDetails,
+      contactDisplayName || ''
     );
 
     // Write internal orderId to Zoho SO custom field (non-blocking)
@@ -247,6 +248,13 @@ const acceptOrder = async (req, res) => {
     }
 
     if (zohoInvoice?.invoice_id) {
+      // Invoice-from-SO doesn't carry the delivery address, so set it explicitly
+      // before marking sent so the Ship To shows the actual delivery address.
+      try {
+        await updateZohoInvoiceShippingAddress(zohoInvoice.invoice_id, address, contactDisplayName, req.traceContext);
+      } catch (shipErr) {
+        req.log.warn({ err: shipErr.response?.data || shipErr.message }, 'Set invoice shipping address failed (non-fatal)');
+      }
       try {
         await markZohoInvoiceAsSent(zohoInvoice.invoice_id);
         req.log.info({ invoiceId: zohoInvoice.invoice_id }, 'Invoice marked as sent');
