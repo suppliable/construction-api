@@ -1217,7 +1217,7 @@ const recordCodPayment = async (req, res) => {
     const amount = order.codAmountCollected || order.grand_total || order.grandTotal || 0;
     const paymentMethod = order.codPaymentMethod || 'cash';
 
-    const { zohoPaymentId, zohoPaymentNumber } = await recordPaymentInZohoBooks({
+    const { zohoPaymentId, zohoPaymentNumber, amountApplied } = await recordPaymentInZohoBooks({
       invoiceId: order.zoho_invoice_id,
       customerId: customer.zoho_contact_id,
       amount,
@@ -1237,7 +1237,7 @@ const recordCodPayment = async (req, res) => {
 
     return res.json({
       success: true,
-      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
+      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount: amountApplied ?? amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
     });
   } catch (err) {
     req.log.error({ err: err.response?.data || err.message }, 'recordCodPayment failed');
