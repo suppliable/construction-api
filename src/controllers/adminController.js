@@ -1228,7 +1228,7 @@ const recordCodPayment = async (req, res) => {
     const amount = order.codAmountCollected || order.grand_total || order.grandTotal || 0;
     const paymentMethod = order.codPaymentMethod || 'cash';
 
-    const { zohoPaymentId, zohoPaymentNumber, amountApplied } = await recordPaymentInZohoBooks({
+    const { zohoPaymentId, zohoPaymentNumber, amountApplied, alreadyPaid } = await recordPaymentInZohoBooks({
       invoiceId: order.zoho_invoice_id,
       customerId: customer.zoho_contact_id,
       amount,
@@ -1237,18 +1237,20 @@ const recordCodPayment = async (req, res) => {
       notes
     });
 
+    // alreadyPaid: the Zoho invoice was already settled, so no new payment was
+    // created — we just sync the order flag so it clears from the pending list.
     await getTrackedDb().collection('orders').doc(orderId).update({
       zohoPaymentRecorded: true,
-      zohoPaymentId,
-      zohoPaymentNumber,
+      zohoPaymentId: zohoPaymentId || null,
+      zohoPaymentNumber: zohoPaymentNumber || null,
       zohoPaymentDate: date || new Date().toISOString().split('T')[0],
       zohoPaymentRecordedAt: new Date().toISOString(),
-      zohoPaymentRecordedBy: 'admin'
+      zohoPaymentRecordedBy: alreadyPaid ? 'admin (synced — already paid in Zoho)' : 'admin'
     });
 
     return res.json({
       success: true,
-      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount: amountApplied ?? amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
+      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount: amountApplied ?? amount, paymentMethod, alreadyPaid: !!alreadyPaid, message: alreadyPaid ? 'Invoice was already paid in Zoho — order marked as recorded' : 'Payment recorded in Zoho Books' }
     });
   } catch (err) {
     req.log.error({ err: err.response?.data || err.message }, 'recordCodPayment failed');

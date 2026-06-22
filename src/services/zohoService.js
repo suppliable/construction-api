@@ -373,9 +373,23 @@ async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, payment
     authConfig
   );
   if (invoiceRes.data.code !== 0) throw new Error(`Zoho invoice lookup failed: ${invoiceRes.data.message}`);
-  const balanceDue = Number(invoiceRes.data.invoice?.balance_due ?? 0);
+  const invoice = invoiceRes.data.invoice || {};
+  const balanceDue = Number(invoice.balance_due ?? 0);
   if (balanceDue <= 0) {
-    throw new Error('Zoho invoice already fully paid (balance due is 0)');
+    // The invoice is already settled in Zoho (a payment landed there but the
+    // order's flag was never synced — e.g. a payment recorded directly in Zoho,
+    // or a prior attempt where the Zoho call succeeded but the DB update didn't).
+    // Don't error and strand the order; report it as already paid so the caller
+    // can sync the flag and clear it from the pending list.
+    const existing = Array.isArray(invoice.payments) && invoice.payments.length
+      ? invoice.payments[invoice.payments.length - 1]
+      : null;
+    return {
+      alreadyPaid: true,
+      zohoPaymentId: existing?.payment_id || null,
+      zohoPaymentNumber: existing?.payment_number || null,
+      amountApplied: 0,
+    };
   }
   // Apply the lesser of what was collected and what the invoice still owes.
   const amountApplied = Math.round(Math.min(Number(amount), balanceDue) * 100) / 100;
@@ -405,6 +419,7 @@ async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, payment
   if (res.data.code !== 0) throw new Error(`Zoho payment failed: ${res.data.message}`);
 
   return {
+    alreadyPaid: false,
     zohoPaymentId: res.data.payment.payment_id,
     zohoPaymentNumber: res.data.payment.payment_number,
     amountApplied
