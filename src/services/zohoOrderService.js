@@ -51,11 +51,14 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
       };
     });
     console.log('[Zoho SO] Line items being sent:', JSON.stringify(zohoLineItems, null, 2));
+    const shipping_address = buildZohoShippingAddress(shippingAddress, attention);
+    console.log('[Zoho SO] shipping_address being sent:', JSON.stringify(shipping_address),
+      '| field lengths:', Object.fromEntries(Object.entries(shipping_address).map(([k, v]) => [k, String(v).length])));
     const body = {
       customer_id: zohoContactId,
       line_items: zohoLineItems,
       shipping_charge: deliveryCharge || 0,
-      shipping_address: buildZohoShippingAddress(shippingAddress, attention),
+      shipping_address,
       notes: `Suppliable B2B Order${phone ? ` | Phone: ${phone}` : ''}`
     };
     if (gstDetails.gstNumber) {
