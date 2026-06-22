@@ -10,16 +10,33 @@ const { zohoPost, zohoPut } = require('./zohoHttp');
 const ZOHO_ADDRESS_VALUE_MAX = 85;
 
 /**
- * Maps a Firestore delivery-address document to Zoho's address object. Every
- * part is joined into the single `address` line (the only shape that fits
- * Zoho's <100-char serialized limit) and capped at 85. Shared by the sales
- * order and the invoice so both render the same Ship To.
+ * Single-line address for the sales-order create payload, where Zoho enforces
+ * the <100-char serialized limit. Everything is joined into one `address`
+ * field capped at 85.
  */
 function buildZohoShippingAddress(shippingAddress = {}) {
   const addr = shippingAddress || {};
   const address = [addr.flatNo, addr.buildingName, addr.streetAddress, addr.landmark, addr.area, addr.city, addr.state, addr.pincode]
     .filter(Boolean).join(', ').substring(0, ZOHO_ADDRESS_VALUE_MAX);
   return { address };
+}
+
+/**
+ * Structured address for the dedicated invoice shipping-address endpoint
+ * (PUT /invoices/:id/address/shipping), which accepts separate fields and is
+ * not subject to the create-payload serialized limit. This is what actually
+ * populates the invoice's printed Ship To.
+ */
+function buildInvoiceShippingAddress(shippingAddress = {}) {
+  const addr = shippingAddress || {};
+  return {
+    address: [addr.flatNo, addr.buildingName, addr.streetAddress, addr.landmark, addr.area]
+      .filter(Boolean).join(', ').substring(0, 100),
+    city: (addr.city || '').substring(0, 100),
+    state: (addr.state || '').substring(0, 100),
+    zip: (addr.pincode || '').toString().substring(0, 20),
+    country: 'India',
+  };
 }
 
 async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, deliveryCharge, phone, traceContext = null, gstDetails = {}) {
@@ -154,18 +171,23 @@ async function updateZohoInvoiceShippingAddress(invoice_id, shippingAddress, tra
   const span = createSpan(traceContext, 'zoho.api.updateInvoiceShippingAddress', {
     'peer.service': 'zoho',
     invoice_id,
-    endpoint: '/inventory/v1/invoices/:id'
+    endpoint: '/inventory/v1/invoices/:id/address/shipping'
   });
   try {
     // Invoices created via fromsalesorder inherit the contact's stored shipping
     // address (none, in our case) — so we set the delivery address explicitly
-    // here to populate the invoice's Ship To.
-    await zohoPut(
-      `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoice_id}`,
-      { shipping_address: buildZohoShippingAddress(shippingAddress) }
+    // here via Zoho's dedicated shipping-address endpoint. A plain PUT to
+    // /invoices/:id with a shipping_address body is ignored by Zoho.
+    const body = buildInvoiceShippingAddress(shippingAddress);
+    console.log('[Zoho INV] setting shipping address:', invoice_id, JSON.stringify(body));
+    const res = await zohoPut(
+      `${process.env.ZOHO_API_DOMAIN}/inventory/v1/invoices/${invoice_id}/address/shipping`,
+      body
     );
+    console.log('[Zoho INV] shipping address response:', res.data?.code, res.data?.message);
     span.end({ success: true, invoice_id });
   } catch (error) {
+    console.log('[Zoho INV] shipping address ERROR:', JSON.stringify(error.response?.data) || error.message);
     span.end({ success: false, error: error.message });
     throw error;
   }
