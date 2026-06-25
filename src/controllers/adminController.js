@@ -1433,6 +1433,42 @@ const toggleFeatured = async (req, res) => {
   }
 };
 
+// POST /api/admin/notifications/broadcast
+// Marketing/broadcast push (title + body, no deep link). Targets either an
+// explicit `userIds` array or, by default, all users with a registered token.
+// `dryRun: true` returns the audience size without sending.
+const sendMarketingNotification = async (req, res) => {
+  try {
+    const { title, body, userIds, dryRun } = req.body || {};
+
+    const targets = Array.isArray(userIds) && userIds.length
+      ? userIds.filter(Boolean)
+      : await fcm.getAllTokenUserIds();
+
+    // Audience preview — no copy required, just report reach.
+    if (dryRun) {
+      return res.json({ success: true, data: { dryRun: true, targeted: targets.length } });
+    }
+
+    if (!title || !String(title).trim() || !body || !String(body).trim()) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'title and body are required' });
+    }
+    if (String(title).length > 100 || String(body).length > 240) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'title must be <=100 and body <=240 characters' });
+    }
+    if (!targets.length) {
+      return res.json({ success: true, data: { targeted: 0, message: 'No users with notification tokens' } });
+    }
+
+    const summary = await fcm.sendCampaign({ userIds: targets, title: String(title).trim(), body: String(body).trim() });
+    req.log.info({ summary }, 'marketing notification broadcast sent');
+    return res.json({ success: true, data: summary });
+  } catch (err) {
+    req.log.error({ err: err.message }, 'sendMarketingNotification failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
   listOrders,
   getOrderStats,
@@ -1474,5 +1510,6 @@ module.exports = {
   listBanners,
   uploadBanner,
   updateBanner,
-  deleteBanner
+  deleteBanner,
+  sendMarketingNotification
 };
