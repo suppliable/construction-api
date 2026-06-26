@@ -149,6 +149,41 @@ async function getOrdersPage(limit = 10, startAfterOrderId = null, traceContext 
   }, traceContext);
 }
 
+// Cursor-paginated page of orders restricted to a set of statuses (≤ 10,
+// Firestore `in` limit). Used by the admin History view so pagination only ever
+// returns terminal orders — no client-side filtering that empties pages.
+async function getOrdersPageByStatuses(statuses, limit = 10, startAfterOrderId = null, traceContext = null) {
+  return dbOp('getOrdersPageByStatuses', async () => {
+    let q = db.collection('orders')
+      .where('status', 'in', statuses.slice(0, 10))
+      .orderBy('createdAt', 'desc')
+      .limit(limit + 1);
+    if (startAfterOrderId) {
+      const cursorDoc = await db.collection('orders').doc(startAfterOrderId).get();
+      if (cursorDoc.exists) q = q.startAfter(cursorDoc);
+    }
+    const snapshot = await q.get();
+    const docs = snapshot.docs;
+    const hasMore = docs.length > limit;
+    const orders = (hasMore ? docs.slice(0, limit) : docs).map(doc => doc.data());
+    return { orders, hasMore, lastOrderId: orders.length ? orders[orders.length - 1].orderId : null };
+  }, traceContext);
+}
+
+// Count orders of a given status created at/after an ISO timestamp, using a
+// Firestore aggregation (count) query — billed ~1 read instead of fetching the
+// documents. Needs the (status ASC, createdAt …) composite index, which exists.
+async function countOrdersByStatusSince(status, sinceISO, traceContext = null) {
+  return dbOp('countOrdersByStatusSince', async () => {
+    const snap = await db.collection('orders')
+      .where('status', '==', status)
+      .where('createdAt', '>=', sinceISO)
+      .count()
+      .get();
+    return snap.data().count;
+  }, traceContext);
+}
+
 module.exports = {
   saveOrder,
   getOrdersByUser,
@@ -159,4 +194,6 @@ module.exports = {
   getOrdersByDriver,
   getOrdersByDriverFiltered,
   getOrdersPage,
+  getOrdersPageByStatuses,
+  countOrdersByStatusSince,
 };

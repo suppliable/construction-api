@@ -854,10 +854,13 @@ async function fetchOrders(startAfter = null) {
   try {
     let url = `/api/v1/admin/orders?limit=10`;
     if (startAfter) url += `&startAfter=${encodeURIComponent(startAfter)}`;
-    // history_all = all completed orders (no server status filter; terminal-only
-    // filtering is applied client-side in getFiltered). A specific terminal
-    // status (delivered/declined/cancelled) is filtered server-side.
-    if (currentFilter !== 'history_all') url += `&status=${encodeURIComponent(currentFilter)}`;
+    // history_all = all completed orders → server pages over the terminal set so
+    // every page is full of completed orders (no client-side filtering that
+    // empties pages). A specific pill filters by that single status server-side.
+    // History always pages over a status set (cursor-paginated, terminal-only):
+    // "All" = every completed status; a specific pill = just that one.
+    const histStatuses = currentFilter === 'history_all' ? HISTORY_STATUSES : [currentFilter];
+    url += `&statuses=${encodeURIComponent(histStatuses.join(','))}`;
     const res = await apiFetch(url);
     const data = await res.json();
     if (data.success) {
