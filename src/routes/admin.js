@@ -301,6 +301,38 @@ router.post('/cache/invalidate-zoho', async (req, res) => {
   }
 });
 
+// Firebase custom token for the admin live view (RTDB push).
+// The admin portal is not a Firebase Auth client — it authenticates with the
+// shared ADMIN_TOKEN (middleware above). To subscribe to liveOrders via the
+// RTDB SDK it needs a Firebase identity, so we mint a custom token carrying an
+// `admin` claim that the database rules grant whole-node read to.
+const admin = require('../utils/firebaseAdmin');
+const env = require('../config/env');
+router.post('/firebase-token', async (req, res) => {
+  try {
+    const token = await admin.auth().createCustomToken('admin-portal', { admin: true });
+    res.json({ success: true, data: { token } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
+// Firebase Web SDK config for the admin portal's liveOrders subscription.
+// databaseURL + projectId come from existing server config; apiKey/authDomain
+// are browser-config-only values supplied via env (default authDomain to the
+// standard <projectId>.firebaseapp.com when not set).
+router.get('/firebase-config', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      apiKey: env.FIREBASE_WEB_API_KEY || null,
+      authDomain: env.FIREBASE_AUTH_DOMAIN || `${env.firebaseProjectId}.firebaseapp.com`,
+      projectId: env.firebaseProjectId,
+      databaseURL: env.FIREBASE_DATABASE_URL || null,
+    },
+  });
+});
+
 // Firestore usage profiling
 router.get('/firestore-usage', (req, res) => {
   res.json({ success: true, data: getGlobalReport() });

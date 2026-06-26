@@ -35,6 +35,12 @@ const schema = z.object({
   OTLP_ENDPOINT: z.string().url().optional(),
   FIREBASE_DATABASE_URL: z.string().url().optional(),
   FIREBASE_STORAGE_BUCKET: z.string().optional(),
+  // Firebase Web SDK config — served to the admin portal for the liveOrders
+  // RTDB subscription (signInWithCustomToken + onValue). databaseURL/projectId
+  // are derived from the values above + the service account; these two are the
+  // only browser-config pieces not already present.
+  FIREBASE_WEB_API_KEY: z.string().optional(),
+  FIREBASE_AUTH_DOMAIN: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   WAREHOUSE_LAT: z.coerce.number().optional(),
   WAREHOUSE_LNG: z.coerce.number().optional(),
