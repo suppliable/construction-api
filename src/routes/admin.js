@@ -52,7 +52,8 @@ const {
   listBanners,
   uploadBanner,
   updateBanner,
-  deleteBanner
+  deleteBanner,
+  sendMarketingNotification
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
@@ -136,6 +137,9 @@ router.delete('/banners/:bannerId', async (req, res, next) => { await invalidate
 
 // Abandoned carts
 router.get('/abandoned-carts', getAbandonedCarts);
+
+// Marketing/broadcast push notifications (title + body, no deep link)
+router.post('/notifications/broadcast', sendMarketingNotification);
 
 // Product management — invalidate all product/home/search/category caches on featured toggle
 router.put('/products/:id/featured', async (req, res, next) => {

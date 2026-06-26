@@ -356,6 +356,52 @@ async function updateZohoContact(zohoContactId, contactData, traceContext = null
 async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, paymentMethod, date, notes }) {
   const token = await getAccessToken();
   const orgId = process.env.ZOHO_ORG_ID;
+  const authConfig = {
+    headers: { Authorization: `Zoho-oauthtoken ${token}`, 'Content-Type': 'application/json' },
+    params: { organization_id: orgId },
+    timeout: DEFAULT_TIMEOUT_MS
+  };
+
+  // The app's order total and Zoho's invoice total can differ by a few paise
+  // because Zoho recomputes GST per line with its own rounding. Applying the
+  // app total verbatim makes Zoho reject the payment ("amount entered is more
+  // than the balance due"). So we read the invoice's actual balance_due and
+  // apply at most that — settling the invoice in full while absorbing the
+  // sub-rupee rounding difference.
+  const invoiceRes = await axios.get(
+    `https://www.zohoapis.in/books/v3/invoices/${invoiceId}`,
+    authConfig
+  );
+  if (invoiceRes.data.code !== 0) throw new Error(`Zoho invoice lookup failed: ${invoiceRes.data.message}`);
+  const invoice = invoiceRes.data.invoice || {};
+  // The Zoho Books invoice GET returns the outstanding amount as `balance`
+  // (NOT `balance_due`, which is undefined here — reading that made every
+  // invoice look like 0/already-paid). Fall back to total - paid - credits.
+  const total = Number(invoice.total ?? 0);
+  const paymentMade = Number(invoice.payment_made ?? 0);
+  const creditsApplied = Number(invoice.credits_applied ?? 0);
+  const rawBalance = invoice.balance != null ? Number(invoice.balance)
+    : invoice.balance_due != null ? Number(invoice.balance_due)
+    : (total - paymentMade - creditsApplied);
+  const balanceDue = Math.round(rawBalance * 100) / 100;
+  if (balanceDue <= 0) {
+    // The invoice is already settled in Zoho (a payment landed there but the
+    // order's flag was never synced — e.g. a payment recorded directly in Zoho,
+    // or a prior attempt where the Zoho call succeeded but the DB update didn't).
+    // Don't error and strand the order; report it as already paid so the caller
+    // can sync the flag and clear it from the pending list.
+    const existing = Array.isArray(invoice.payments) && invoice.payments.length
+      ? invoice.payments[invoice.payments.length - 1]
+      : null;
+    return {
+      alreadyPaid: true,
+      zohoPaymentId: existing?.payment_id || null,
+      zohoPaymentNumber: existing?.payment_number || null,
+      amountApplied: 0,
+    };
+  }
+  // Apply the lesser of what was collected and what the invoice still owes.
+  const amountApplied = Math.round(Math.min(Number(amount), balanceDue) * 100) / 100;
 
   const modeMap = {
     cash: { payment_mode: 'cash', account_id: process.env.ZOHO_CASH_ACCOUNT_ID },
@@ -366,28 +412,26 @@ async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, payment
   const payload = {
     customer_id: customerId,
     payment_mode: modeConfig.payment_mode,
-    amount: Number(amount),
+    amount: amountApplied,
     date: date || new Date().toISOString().split('T')[0],
     description: notes || `COD payment via ${(paymentMethod || 'cash').toUpperCase()} — Suppliable`,
-    invoices: [{ invoice_id: invoiceId, amount_applied: Number(amount) }]
+    invoices: [{ invoice_id: invoiceId, amount_applied: amountApplied }]
   };
   if (modeConfig.account_id) payload.account_id = modeConfig.account_id;
 
   const res = await axios.post(
     'https://www.zohoapis.in/books/v3/customerpayments',
     payload,
-    {
-      headers: { Authorization: `Zoho-oauthtoken ${token}`, 'Content-Type': 'application/json' },
-      params: { organization_id: orgId },
-      timeout: DEFAULT_TIMEOUT_MS
-    }
+    authConfig
   );
 
   if (res.data.code !== 0) throw new Error(`Zoho payment failed: ${res.data.message}`);
 
   return {
+    alreadyPaid: false,
     zohoPaymentId: res.data.payment.payment_id,
-    zohoPaymentNumber: res.data.payment.payment_number
+    zohoPaymentNumber: res.data.payment.payment_number,
+    amountApplied
   };
 }
 

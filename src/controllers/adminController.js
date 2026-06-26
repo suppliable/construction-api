@@ -1107,6 +1107,11 @@ const getAbandonedCarts = async (req, res) => {
   try {
     const minutes = Math.max(1, parseInt(req.query.minutes) || 30);
     const cutoffMs = Date.now() - minutes * 60 * 1000;
+    // Only surface carts active within this window — extremely old carts drop
+    // off the admin panel. This filters the admin view ONLY; the customer's
+    // cart in the `carts` collection is never modified.
+    const windowHours = Math.max(1, parseInt(req.query.windowHours) || 48);
+    const windowFloorMs = Date.now() - windowHours * 60 * 60 * 1000;
     const db = getTrackedDb();
 
     // Fetch in parallel: all carts, recent orders (last 24h), product name map
@@ -1138,7 +1143,9 @@ const getAbandonedCarts = async (req, res) => {
       if (!items.length) return false;
       if (recentOrderUserIds.has(cartDoc.id)) return false;
       const updatedMs = cartDoc.updateTime?.toMillis?.() || 0;
-      return updatedMs > 0 && updatedMs < cutoffMs;
+      // Abandoned = idle at least `minutes` (upper time bound) but active within
+      // the last `windowHours` (lower time bound) — i.e. last 48h by default.
+      return updatedMs > 0 && updatedMs < cutoffMs && updatedMs >= windowFloorMs;
     });
 
     const abandoned = await Promise.all(candidateDocs.map(async cartDoc => {
@@ -1184,6 +1191,7 @@ const getAbandonedCarts = async (req, res) => {
         abandonedCarts: abandoned,
         total: abandoned.length,
         cutoffMinutes: minutes,
+        windowHours,
         generatedAt: new Date().toISOString(),
       },
     });
@@ -1202,7 +1210,10 @@ const recordCodPayment = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.paymentType !== 'COD') return res.status(400).json({ success: false, error: 'NOT_COD_ORDER', message: 'Order is not a COD order' });
     if (order.status !== 'delivered') return res.status(400).json({ success: false, error: 'ORDER_NOT_DELIVERED', message: 'Order must be delivered first' });
-    if (!order.codCollectedByDriver) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    // Force-completed orders never get a driver COD-collection mark, but the
+    // admin reconciles them manually, so allow recording once reconciled.
+    if (!order.codCollectedByDriver && !order.forcedComplete) return res.status(400).json({ success: false, error: 'COD_NOT_COLLECTED', message: 'Driver has not marked COD collected' });
+    if (order.forcedComplete && !order.codCollected) return res.status(400).json({ success: false, error: 'NOT_RECONCILED', message: 'Reconcile the force-completed order before recording payment' });
     if (order.zohoPaymentRecorded) return res.status(400).json({ success: false, error: 'PAYMENT_ALREADY_RECORDED', message: 'Payment already recorded in Zoho Books' });
 
     if (!order.zoho_invoice_id) {
@@ -1217,7 +1228,7 @@ const recordCodPayment = async (req, res) => {
     const amount = order.codAmountCollected || order.grand_total || order.grandTotal || 0;
     const paymentMethod = order.codPaymentMethod || 'cash';
 
-    const { zohoPaymentId, zohoPaymentNumber } = await recordPaymentInZohoBooks({
+    const { zohoPaymentId, zohoPaymentNumber, amountApplied, alreadyPaid } = await recordPaymentInZohoBooks({
       invoiceId: order.zoho_invoice_id,
       customerId: customer.zoho_contact_id,
       amount,
@@ -1226,18 +1237,20 @@ const recordCodPayment = async (req, res) => {
       notes
     });
 
+    // alreadyPaid: the Zoho invoice was already settled, so no new payment was
+    // created — we just sync the order flag so it clears from the pending list.
     await getTrackedDb().collection('orders').doc(orderId).update({
       zohoPaymentRecorded: true,
-      zohoPaymentId,
-      zohoPaymentNumber,
+      zohoPaymentId: zohoPaymentId || null,
+      zohoPaymentNumber: zohoPaymentNumber || null,
       zohoPaymentDate: date || new Date().toISOString().split('T')[0],
       zohoPaymentRecordedAt: new Date().toISOString(),
-      zohoPaymentRecordedBy: 'admin'
+      zohoPaymentRecordedBy: alreadyPaid ? 'admin (synced — already paid in Zoho)' : 'admin'
     });
 
     return res.json({
       success: true,
-      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount, paymentMethod, message: 'Payment recorded in Zoho Books' }
+      data: { orderId, zohoPaymentId, zohoPaymentNumber, amount: amountApplied ?? amount, paymentMethod, alreadyPaid: !!alreadyPaid, message: alreadyPaid ? 'Invoice was already paid in Zoho — order marked as recorded' : 'Payment recorded in Zoho Books' }
     });
   } catch (err) {
     req.log.error({ err: err.response?.data || err.message }, 'recordCodPayment failed');
@@ -1420,6 +1433,42 @@ const toggleFeatured = async (req, res) => {
   }
 };
 
+// POST /api/admin/notifications/broadcast
+// Marketing/broadcast push (title + body, no deep link). Targets either an
+// explicit `userIds` array or, by default, all users with a registered token.
+// `dryRun: true` returns the audience size without sending.
+const sendMarketingNotification = async (req, res) => {
+  try {
+    const { title, body, userIds, dryRun } = req.body || {};
+
+    const targets = Array.isArray(userIds) && userIds.length
+      ? userIds.filter(Boolean)
+      : await fcm.getAllTokenUserIds();
+
+    // Audience preview — no copy required, just report reach.
+    if (dryRun) {
+      return res.json({ success: true, data: { dryRun: true, targeted: targets.length } });
+    }
+
+    if (!title || !String(title).trim() || !body || !String(body).trim()) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'title and body are required' });
+    }
+    if (String(title).length > 100 || String(body).length > 240) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'title must be <=100 and body <=240 characters' });
+    }
+    if (!targets.length) {
+      return res.json({ success: true, data: { targeted: 0, message: 'No users with notification tokens' } });
+    }
+
+    const summary = await fcm.sendCampaign({ userIds: targets, title: String(title).trim(), body: String(body).trim() });
+    req.log.info({ summary }, 'marketing notification broadcast sent');
+    return res.json({ success: true, data: summary });
+  } catch (err) {
+    req.log.error({ err: err.message }, 'sendMarketingNotification failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
   listOrders,
   getOrderStats,
@@ -1461,5 +1510,6 @@ module.exports = {
   listBanners,
   uploadBanner,
   updateBanner,
-  deleteBanner
+  deleteBanner,
+  sendMarketingNotification
 };

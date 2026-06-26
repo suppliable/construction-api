@@ -159,6 +159,7 @@
     <a class="nav-item" href="categories.html">📂 Categories</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="shades.html">🎨 Shades</a>
+    <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
@@ -254,7 +255,7 @@
         <div class="table-card">
           <table>
             <thead>
-              <tr><th>Order</th><th>Customer</th><th>Amount</th><th>Delivered At</th><th>Idle Time</th></tr>
+              <tr><th>Order</th><th>Customer</th><th>Amount</th><th>Delivered At</th><th>Idle Time</th><th>Action</th></tr>
             </thead>
             <tbody id="awaitingTableBody"></tbody>
           </table>
@@ -481,12 +482,19 @@ function renderAwaitingTable(orders) {
     const delivered = o.deliveredAt ? new Date(o.deliveredAt) : null;
     const idleMs = delivered ? Date.now() - delivered.getTime() : null;
     const idleStr = idleMs ? formatDuration(idleMs) : '—';
-    return `<tr>
-      <td><span class="order-id">${o.orderId}</span></td>
+    // Force-completed orders never get a driver collection mark, so the admin
+    // reconciles them manually here; genuinely-awaiting orders wait on the driver.
+    const action = o.forcedComplete
+      ? `<button class="btn-reconcile" id="btn-${o.orderId}" onclick="reconcile('${o.orderId}', ${o.grand_total || 0})">✓ Reconcile</button>`
+      : `<span class="awaiting-text">⏳ Awaiting driver</span>`;
+    const forcedTag = o.forcedComplete ? ` <span style="font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:8px;">⚡ FORCED</span>` : '';
+    return `<tr id="row-${o.orderId}">
+      <td><span class="order-id">${o.orderId}</span>${forcedTag}</td>
       <td>${customerName(o)}</td>
       <td><span class="amount">₹${(o.grand_total || 0).toLocaleString('en-IN')}</span></td>
       <td style="color:var(--muted);font-size:12px">${fmtDate(o.deliveredAt)}</td>
       <td style="color:var(--orange);font-size:12px;font-weight:600">${idleStr}</td>
+      <td>${action}</td>
     </tr>`;
   }).join('');
 }
