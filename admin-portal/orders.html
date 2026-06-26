@@ -773,6 +773,10 @@ function liveToRow(orderId, p) {
 function liveRows() {
   return Object.entries(liveOrders)
     .map(([id, p]) => liveToRow(id, p))
+    // Defensive: only ever show non-terminal orders in the live view. Stale
+    // terminal entries can linger in the node (e.g. a delivery-cleanup timeout
+    // lost to a server restart); never render them as "live".
+    .filter(o => LIVE_STATUSES.includes(o.status))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
 
