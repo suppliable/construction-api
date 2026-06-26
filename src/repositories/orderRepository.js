@@ -3,8 +3,17 @@
 const { dbOp } = require('../utils/dbOp');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { DEFAULT_ORDER_QUERY_LIMIT } = require('../constants');
+const { syncLiveOrder } = require('../services/realtimeDBService');
 
 const db = getTrackedDb();
+
+// Mirror an order's live-view membership into RTDB after a Firestore write.
+// Non-fatal: the live view is a cache of Firestore, so a failure here must
+// never break the order write that just succeeded.
+function mirrorLiveOrder(order) {
+  if (!order || !order.orderId) return;
+  syncLiveOrder(order.orderId, order).catch(() => {});
+}
 
 function getDayBounds(date) {
   const start = new Date(`${date}T00:00:00.000Z`);
@@ -63,6 +72,7 @@ async function runOrderQuery(filters, traceContext = null) {
 async function saveOrder(order, traceContext = null) {
   return dbOp('saveOrder', async () => {
     await db.collection('orders').doc(order.orderId).set(order);
+    mirrorLiveOrder(order);
     return order;
   }, traceContext);
 }
@@ -102,7 +112,9 @@ async function updateOrder(orderId, data, traceContext = null) {
   return dbOp('updateOrder', async () => {
     await db.collection('orders').doc(orderId).update(data);
     const doc = await db.collection('orders').doc(orderId).get();
-    return doc.data();
+    const order = doc.data();
+    mirrorLiveOrder(order);
+    return order;
   }, traceContext);
 }
 
