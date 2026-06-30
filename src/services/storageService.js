@@ -8,7 +8,10 @@ let _googleAuth = null;
 
 function getGoogleAuth() {
   if (_googleAuth) return _googleAuth;
-  let sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT.trim());
+  // FIREBASE_SERVICE_ACCOUNT is either a file path (local dev) or a JSON string
+  // (Docker / Render). Mirror the dual handling in firebaseAdmin.js.
+  const val = env.FIREBASE_SERVICE_ACCOUNT.trim();
+  let sa = (val.startsWith('/') || val.startsWith('.')) ? require(val) : JSON.parse(val);
   if (sa.private_key) sa.private_key = sa.private_key.replace(/\\n/g, '\n');
   _googleAuth = new GoogleAuth({
     credentials: sa,
