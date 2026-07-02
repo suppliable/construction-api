@@ -126,8 +126,8 @@
   .modal-divider { border:none; border-top:1px solid var(--border); margin:16px 0; }
   .modal-field { margin-bottom:14px; }
   .modal-field label { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; display:block; margin-bottom:6px; }
-  .modal-field input, .modal-field textarea { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; outline:none; }
-  .modal-field input:focus, .modal-field textarea:focus { border-color:var(--blue); }
+  .modal-field input, .modal-field textarea, .modal-field select { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; outline:none; background:#fff; }
+  .modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus { border-color:var(--blue); }
   .modal-field textarea { resize:vertical; height:70px; }
   .modal-actions { display:flex; gap:10px; margin-top:20px; }
   .btn-confirm { flex:1; padding:11px; background:var(--green); color:#fff; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; cursor:pointer; }
@@ -321,6 +321,28 @@
   </div>
 </div>
 
+<!-- RECONCILE MODAL -->
+<div class="modal-overlay" id="reconcileModal">
+  <div class="modal">
+    <div class="modal-title">Reconcile COD</div>
+    <div class="modal-sub">Confirm the cash/UPI received from the driver for this order.</div>
+    <div class="modal-row"><span>Order</span><span id="rec-order-id" style="font-family:'JetBrains Mono',monospace"></span></div>
+    <div class="modal-row amount"><span>Amount</span><span id="rec-amount-display"></span></div>
+    <hr class="modal-divider">
+    <div class="modal-field">
+      <label>Payment Method</label>
+      <select id="rec-method">
+        <option value="cash">💵 Cash</option>
+        <option value="upi">📱 UPI</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-confirm" id="rec-confirm-btn" onclick="confirmReconcile()">✓ Confirm Reconcile</button>
+      <button class="btn-cancel" onclick="closeReconcileModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -506,29 +528,49 @@ function formatDuration(ms) {
   return `${m}m`;
 }
 
-// Reconcile (admin confirms physical receipt)
-async function reconcile(orderId, amount) {
-  if (!confirm(`Confirm received ₹${amount.toLocaleString('en-IN')} for ${orderId}?`)) return;
-  const btn = document.getElementById('btn-' + orderId);
-  if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+// Reconcile (admin confirms physical receipt) — opens a modal to capture method
+let reconcileOrderId = null;
+let reconcileAmount = 0;
+function reconcile(orderId, amount) {
+  reconcileOrderId = orderId;
+  reconcileAmount = amount;
+  const order = allOrders.find(o => o.orderId === orderId);
+  document.getElementById('rec-order-id').textContent = orderId;
+  document.getElementById('rec-amount-display').textContent = '₹' + Number(amount).toLocaleString('en-IN');
+  // Prefill with the existing method if the driver already recorded one.
+  document.getElementById('rec-method').value = (order?.codPaymentMethod === 'upi') ? 'upi' : 'cash';
+  document.getElementById('reconcileModal').classList.add('open');
+}
+function closeReconcileModal() {
+  document.getElementById('reconcileModal').classList.remove('open');
+  reconcileOrderId = null;
+}
+
+async function confirmReconcile() {
+  const orderId = reconcileOrderId;
+  const amount = reconcileAmount;
+  const paymentMethod = document.getElementById('rec-method').value;
+  const btn = document.getElementById('rec-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Processing...';
   try {
     const res = await apiFetch(`/api/v1/admin/cod/${orderId}/reconcile`, {
       method: 'POST',
-      body: JSON.stringify({ amountReceived: amount })
+      body: JSON.stringify({ amountReceived: amount, paymentMethod })
     });
     const data = await res.json();
     if (data.success) {
       const order = allOrders.find(o => o.orderId === orderId);
-      if (order) { order.codCollected = true; order.codAmount = amount; }
+      if (order) { order.codCollected = true; order.codAmount = amount; order.codPaymentMethod = paymentMethod; }
+      closeReconcileModal();
       renderPending();
       showToast('Reconciled! Now click "Record Payment" to log in Zoho Books.', 'success');
     } else {
       showToast(data.message || 'Failed', 'error');
-      if (btn) { btn.disabled = false; btn.textContent = '✓ Reconcile'; }
     }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '✓ Reconcile'; }
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Confirm Reconcile';
   }
 }
 
