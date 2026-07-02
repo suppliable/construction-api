@@ -48,7 +48,15 @@ async function uploadToPath(fileBuffer, mimeType, filePath) {
   const { token: accessToken } = await client.getAccessToken();
 
   const boundary = `boundary${Date.now()}`;
-  const metadataJson = JSON.stringify({ name: filePath, contentType: mimeType });
+  // Every upload gets a content-unique filename (Date.now()-random for images,
+  // timestamped path for POS PDFs), so a given URL never changes content — it's
+  // safe to cache it forever. This lets browsers/CDNs serve repeat views without
+  // re-hitting the bucket, which is the main lever on Storage egress cost.
+  const metadataJson = JSON.stringify({
+    name: filePath,
+    contentType: mimeType,
+    cacheControl: 'public, max-age=31536000, immutable',
+  });
 
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadataJson}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
