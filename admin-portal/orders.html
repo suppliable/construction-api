@@ -535,6 +535,20 @@
       <div class="action-modal-label">Note <span style="color:var(--muted);font-weight:400">(optional)</span></div>
       <textarea class="action-modal-textarea" id="forceNote" placeholder="Additional details..."></textarea>
     </div>
+    <div id="forceCodSection" style="display:none;border-top:1px solid var(--border);margin-top:8px;padding-top:12px;">
+      <label class="action-modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+        <input type="checkbox" id="forceCodCollected" onchange="onForceCodToggle()" style="width:auto;"> 💰 Cash on Delivery was collected
+      </label>
+      <div id="forceCodFields" style="display:none;margin-top:10px;">
+        <div class="action-modal-label">Method</div>
+        <select class="action-modal-select" id="forceCodMethod">
+          <option value="cash">💵 Cash</option>
+          <option value="upi">📱 UPI</option>
+        </select>
+        <div class="action-modal-label" style="margin-top:8px;">Amount collected (₹)</div>
+        <input id="forceCodAmount" type="number" min="0" step="1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+      </div>
+    </div>
     <div class="action-modal-footer">
       <button class="btn-modal-cancel" onclick="closeForceModal()">Cancel</button>
       <button class="btn-modal-confirm orange" onclick="submitForceComplete()">Confirm Force Complete</button>
@@ -1246,20 +1260,41 @@ function openForceModal(orderId) {
   forceOrderId = orderId;
   document.getElementById('forceReason').value = '';
   document.getElementById('forceNote').value = '';
+  // Show the COD-collection capture only for COD orders.
+  const order = ordersData.find(o => o.orderId === orderId);
+  const isCod = (order?.paymentType === 'COD');
+  document.getElementById('forceCodSection').style.display = isCod ? 'block' : 'none';
+  document.getElementById('forceCodCollected').checked = false;
+  document.getElementById('forceCodFields').style.display = 'none';
+  document.getElementById('forceCodMethod').value = 'cash';
+  document.getElementById('forceCodAmount').value = order ? (order.grand_total ?? order.grandTotal ?? '') : '';
   document.getElementById('forceModal').classList.add('show');
 }
 function closeForceModal() { document.getElementById('forceModal').classList.remove('show'); forceOrderId = null; }
+function onForceCodToggle() {
+  const on = document.getElementById('forceCodCollected').checked;
+  document.getElementById('forceCodFields').style.display = on ? 'block' : 'none';
+}
 
 async function submitForceComplete() {
   const reason = document.getElementById('forceReason').value;
   const note = document.getElementById('forceNote').value.trim();
   if (!reason) { showToast('Please select a reason', 'error'); return; }
+  const body = { reason, note: note || undefined };
+  if (document.getElementById('forceCodSection').style.display !== 'none'
+      && document.getElementById('forceCodCollected').checked) {
+    const amt = parseFloat(document.getElementById('forceCodAmount').value);
+    if (isNaN(amt) || amt <= 0) { showToast('Enter the amount collected', 'error'); return; }
+    body.codCollected = true;
+    body.codPaymentMethod = document.getElementById('forceCodMethod').value;
+    body.codAmount = amt;
+  }
   const btn = document.querySelector('#forceModal .btn-modal-confirm');
   btn.disabled = true; btn.textContent = 'Processing...';
   try {
     const res = await apiFetch(`/api/v1/admin/orders/${forceOrderId}/force-complete`, {
       method: 'POST',
-      body: JSON.stringify({ reason, note: note || undefined })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.success) {
