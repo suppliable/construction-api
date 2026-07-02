@@ -70,6 +70,12 @@
     min-height:72px; outline:none; transition:border-color 0.2s;
   }
   textarea.closed-msg:focus { border-color:var(--blue); }
+  select.wh-input, input.wh-input {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text);
+    background:#fff; outline:none; transition:border-color 0.2s; box-sizing:border-box;
+  }
+  select.wh-input:focus, input.wh-input:focus { border-color:var(--blue); }
 
   /* BUTTONS */
   .btn { padding:9px 18px; border-radius:7px; border:none; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; }
@@ -207,6 +213,18 @@
             <span class="toggle-slider"></span>
           </label>
           <span class="status-text" id="warehouseStatusText">Loading...</span>
+        </div>
+        <div class="closed-msg-wrap" id="closeForWrap">
+          <label>Reopen automatically after</label>
+          <select class="wh-input" id="closeForSelect" onchange="onCloseForChange()">
+            <option value="">Until I reopen (indefinite)</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+            <option value="240">4 hours</option>
+            <option value="custom">Custom time…</option>
+          </select>
+          <input type="datetime-local" class="wh-input" id="closeUntilInput" style="display:none;margin-top:8px;">
         </div>
         <div class="closed-msg-wrap" id="closedMsgWrap">
           <label>Message shown to customers when closed</label>
@@ -351,23 +369,45 @@ async function fetchWarehouseStatus() {
   try {
     const res = await apiFetch('/api/v1/config/warehouse-status');
     const data = await res.json();
-    if (data.success) applyWarehouseState(data.data?.isOpen, data.data?.closedMessage);
+    if (data.success) applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil);
   } catch(e) {}
 }
 
-function applyWarehouseState(isOpen, closedMessage) {
+// Format an ISO instant for a datetime-local input (browser local time).
+function toLocalInputValue(iso) {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function applyWarehouseState(isOpen, closedMessage, closedUntil) {
   const toggle = document.getElementById('warehouseToggle');
   const statusText = document.getElementById('warehouseStatusText');
   const card = document.getElementById('warehouseCard');
   const closedWrap = document.getElementById('closedMsgWrap');
+  const closeForWrap = document.getElementById('closeForWrap');
   const msgArea = document.getElementById('closedMsg');
+  const closeForSelect = document.getElementById('closeForSelect');
+  const closeUntilInput = document.getElementById('closeUntilInput');
 
   toggle.checked = isOpen;
   statusText.textContent = isOpen ? '🟢 Open — Accepting Orders' : '🔴 Closed — Orders Paused';
   statusText.className = 'status-text ' + (isOpen ? 'open' : 'closed');
   card.className = 'settings-card ' + (isOpen ? 'border-green' : 'border-red');
   closedWrap.classList.toggle('show', !isOpen);
+  closeForWrap.classList.toggle('show', !isOpen);
   if (closedMessage !== undefined) msgArea.value = closedMessage;
+
+  // Reflect an active timed close, otherwise default to indefinite.
+  if (!isOpen && closedUntil) {
+    closeForSelect.value = 'custom';
+    closeUntilInput.value = toLocalInputValue(closedUntil);
+    closeUntilInput.style.display = 'block';
+  } else {
+    closeForSelect.value = '';
+    closeUntilInput.value = '';
+    closeUntilInput.style.display = 'none';
+  }
 }
 
 function onToggleChange() {
@@ -376,20 +416,45 @@ function onToggleChange() {
   applyWarehouseState(isOpen, closedMsg);
 }
 
+function onCloseForChange() {
+  const custom = document.getElementById('closeForSelect').value === 'custom';
+  document.getElementById('closeUntilInput').style.display = custom ? 'block' : 'none';
+}
+
 async function saveWarehouseStatus() {
   const isOpen = document.getElementById('warehouseToggle').checked;
   const closedMessage = document.getElementById('closedMsg').value.trim();
+  const body = { isOpen, closedMessage };
+
+  if (!isOpen) {
+    const sel = document.getElementById('closeForSelect').value;
+    if (sel === 'custom') {
+      const val = document.getElementById('closeUntilInput').value;
+      if (!val) { showToast('Pick a reopen time or choose a preset', 'error'); return; }
+      const iso = new Date(val).toISOString();
+      if (new Date(iso).getTime() <= Date.now()) { showToast('Reopen time must be in the future', 'error'); return; }
+      body.closedUntil = iso;
+    } else if (sel) {
+      body.closedForMinutes = Number(sel);
+    }
+    // else: indefinite — send neither field
+  }
+
   const btn = document.getElementById('saveWarehouseBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
     const res = await apiFetch('/api/v1/config/warehouse-status', {
       method: 'PUT',
-      body: JSON.stringify({ isOpen, closedMessage })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.success) {
-      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage);
-      showToast(data.data?.isOpen ? '✅ Warehouse is now Open' : '🔴 Warehouse is now Closed', 'success');
+      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil);
+      const openMsg = '✅ Warehouse is now Open';
+      const closedMsg = data.data?.closedUntil
+        ? '🔴 Closed — auto-reopens ' + new Date(data.data.closedUntil).toLocaleString()
+        : '🔴 Warehouse is now Closed';
+      showToast(data.data?.isOpen ? openMsg : closedMsg, 'success');
     } else { showToast(data.message || 'Save failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Status'; }
