@@ -128,6 +128,21 @@ class TrackedQuery {
     recordRead(this._col, snapshot.size);
     return snapshot;
   }
+
+  // Aggregation count — billed at ~1 read per 1000 matched index entries.
+  // Returns the AggregateQuerySnapshot (use .data().count). Recorded as 1
+  // logical read, far cheaper than fetching the documents to count them.
+  count() {
+    const aggQuery = this._q.count();
+    const col = this._col;
+    return {
+      async get() {
+        const snap = await aggQuery.get();
+        recordRead(col, 1);
+        return snap;
+      },
+    };
+  }
 }
 
 class TrackedDoc {
@@ -174,6 +189,7 @@ class TrackedCollection {
   where(...args) { return new TrackedQuery(this._ref.where(...args), this._col); }
   orderBy(...args) { return new TrackedQuery(this._ref.orderBy(...args), this._col); }
   limit(...args) { return new TrackedQuery(this._ref.limit(...args), this._col); }
+  count() { return new TrackedQuery(this._ref, this._col).count(); }
 
   async get() {
     const snapshot = await this._ref.get();

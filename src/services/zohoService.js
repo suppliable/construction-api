@@ -139,9 +139,13 @@ async function getZohoItemGroupById(groupId, traceContext = null) {
 
 async function createZohoContact(contactData, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.createContact', { 'peer.service': 'zoho', phone: contactData.phone, endpoint: '/books/v3/contacts' });
+  // Zoho requires contact_name to be globally unique. Two customers can share a
+  // display name (e.g. "Arun"), so disambiguate with the phone to avoid the
+  // 3062 "already exists" collision. company_name keeps the human-readable name.
+  const displayName = contactData.business_name || contactData.name || contactData.phone;
   const contactBody = {
-    contact_name: contactData.business_name || contactData.name || contactData.phone,
-    company_name: contactData.business_name || contactData.name || contactData.phone,
+    contact_name: contactData.phone ? `${displayName} (${contactData.phone})` : displayName,
+    company_name: displayName,
     contact_type: 'customer',
     gst_treatment: contactData.is_business ? 'business_gst' : 'consumer',
     gst_no: contactData.gstin || '',
@@ -374,7 +378,16 @@ async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, payment
   );
   if (invoiceRes.data.code !== 0) throw new Error(`Zoho invoice lookup failed: ${invoiceRes.data.message}`);
   const invoice = invoiceRes.data.invoice || {};
-  const balanceDue = Number(invoice.balance_due ?? 0);
+  // The Zoho Books invoice GET returns the outstanding amount as `balance`
+  // (NOT `balance_due`, which is undefined here — reading that made every
+  // invoice look like 0/already-paid). Fall back to total - paid - credits.
+  const total = Number(invoice.total ?? 0);
+  const paymentMade = Number(invoice.payment_made ?? 0);
+  const creditsApplied = Number(invoice.credits_applied ?? 0);
+  const rawBalance = invoice.balance != null ? Number(invoice.balance)
+    : invoice.balance_due != null ? Number(invoice.balance_due)
+    : (total - paymentMade - creditsApplied);
+  const balanceDue = Math.round(rawBalance * 100) / 100;
   if (balanceDue <= 0) {
     // The invoice is already settled in Zoho (a payment landed there but the
     // order's flag was never synced — e.g. a payment recorded directly in Zoho,

@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
-  findOrders, getAllOrders, getOrdersPage, getOrderById, updateOrder,
+  findOrders, getAllOrders, getOrdersPage, getOrdersPageByStatuses, countOrdersByStatusSince, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
   getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver, updateVehicle,
@@ -40,12 +40,22 @@ const { formatTimestamps } = require('../utils/formatDoc');
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
   try {
-    const { status, date, startAfter } = req.query;
+    const { status, statuses, date, startAfter } = req.query;
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
 
     let orders, hasMore = false, lastOrderId = null;
 
-    if (status || date) {
+    // Multi-status, cursor-paginated path — used by the admin History "All" view
+    // to page through completed orders (delivered/declined/cancelled) only.
+    const statusList = typeof statuses === 'string'
+      ? statuses.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    if (statusList.length > 0 && !date) {
+      const page = await getOrdersPageByStatuses(statusList, limit, startAfter || null, req.traceContext);
+      orders = page.orders;
+      hasMore = page.hasMore;
+      lastOrderId = page.lastOrderId;
+    } else if (status || date) {
       let all = await getAllOrders(req.traceContext);
       // Never surface pending_payment orders in the admin list unless explicitly requested
       if (!status) all = all.filter(o => o.status !== 'pending_payment');
@@ -88,18 +98,17 @@ const listOrders = async (req, res) => {
 };
 
 // GET /api/admin/orders/stats
+// The admin live view derives today's/pending-review/out-for-delivery counts from
+// the RTDB liveOrders snapshot client-side. This endpoint now only supplies
+// delivered_today (a terminal metric absent from liveOrders), computed via a
+// Firestore count() aggregation — ~1 read instead of scanning 30 documents.
 const getOrderStats = async (req, res) => {
   try {
-    const orders = await getAllOrders(req.traceContext);
-    const today = new Date().toISOString().slice(0, 10);
+    const todayStartISO = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+    const deliveredToday = await countOrdersByStatusSince('delivered', todayStartISO, req.traceContext);
     res.json({
       success: true,
-      data: {
-        today: orders.filter(o => o.createdAt?.startsWith(today)).length,
-        warehouse_review: orders.filter(o => o.status === 'warehouse_review').length,
-        out_for_delivery: orders.filter(o => ['out_for_delivery', 'loading', 'arrived'].includes(o.status)).length,
-        delivered_today: orders.filter(o => o.status === 'delivered' && o.createdAt?.startsWith(today)).length,
-      }
+      data: { delivered_today: deliveredToday },
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });

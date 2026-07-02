@@ -88,6 +88,17 @@
   .stat-num { font-size:32px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--text); }
   .stat-label { font-size:12px; color:var(--muted); margin-top:4px; font-weight:500; }
 
+  /* VIEW TABS (Live / History) */
+  .view-tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:2px solid var(--border); }
+  .view-tab {
+    padding:10px 20px; font-size:14px; font-weight:600; color:var(--muted);
+    background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px;
+    cursor:pointer; transition:all 0.15s; display:flex; align-items:center; gap:8px;
+  }
+  .view-tab:hover { color:var(--text); }
+  .view-tab.active { color:var(--navy); border-bottom-color:var(--navy); }
+  .view-tab .live-dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
+
   /* FILTERS */
   .filters-row { display:flex; gap:8px; margin-bottom:16px; overflow-x:auto; padding-bottom:4px; flex-wrap:wrap; }
   .filter-pill {
@@ -461,14 +472,25 @@
       <div class="stat-card green"><div class="stat-num mono" id="stat-delivered">—</div><div class="stat-label">Delivered Today</div></div>
     </div>
 
-    <!-- FILTERS -->
-    <div class="filters-row" id="filterRow">
+    <!-- VIEW TABS -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tabLive" onclick="switchView('live')"><span class="live-dot"></span>Live Orders</button>
+      <button class="view-tab" id="tabHistory" onclick="switchView('history')">History</button>
+    </div>
+
+    <!-- LIVE FILTERS (RTDB) -->
+    <div class="filters-row" id="liveFilters">
       <button class="filter-pill active-all" data-filter="all" onclick="setFilter('all',this)">All</button>
       <button class="filter-pill" data-filter="warehouse_review" onclick="setFilter('warehouse_review',this)">Review</button>
       <button class="filter-pill" data-filter="accepted" onclick="setFilter('accepted',this)">Accepted</button>
       <button class="filter-pill" data-filter="packing" onclick="setFilter('packing',this)">Packing</button>
       <button class="filter-pill" data-filter="ready_for_dispatch" onclick="setFilter('ready_for_dispatch',this)">Ready</button>
       <button class="filter-pill" data-filter="out_for_delivery" onclick="setFilter('out_for_delivery',this)">Out for Delivery</button>
+    </div>
+
+    <!-- HISTORY FILTERS (Firestore, on demand) -->
+    <div class="filters-row" id="historyFilters" style="display:none">
+      <button class="filter-pill active-all" data-filter="history_all" onclick="setFilter('history_all',this)">All</button>
       <button class="filter-pill" data-filter="delivered" onclick="setFilter('delivered',this)">Delivered</button>
       <button class="filter-pill" data-filter="declined" onclick="setFilter('declined',this)">Declined</button>
       <button class="filter-pill" data-filter="cancelled" onclick="setFilter('cancelled',this)">Cancelled</button>
@@ -622,6 +644,11 @@
   </div>
 </div>
 
+<!-- Firebase Web SDK (compat) — for the liveOrders RTDB subscription -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
 <script>
 const API_BASE = window.location.origin;
 
@@ -731,8 +758,102 @@ function logout() {
 // ---- DATA ----
 let ordersData = [];
 let currentFilter = 'all';
+let currentView = 'live';      // 'live' (RTDB) | 'history' (Firestore, on demand)
+let historyLoaded = false;     // history is fetched lazily on first switch
 let currentOrder = null;
 let lastNewCount = 0;
+
+// ---- LIVE ORDERS (RTDB push) ----
+// Active orders are pushed from RTDB liveOrders/{orderId}. The live view (the
+// "all" + non-terminal status filters, the stats cards, the pending badge and
+// the new-order beep) renders entirely from this snapshot — no Firestore polling.
+// History filters (delivered/declined/cancelled) still fetch from Firestore on demand.
+const LIVE_STATUSES = ['warehouse_review','accepted','packing','ready_for_dispatch','loading','out_for_delivery','arrived'];
+const HISTORY_STATUSES = ['delivered','declined','cancelled'];
+let liveOrders = {};           // { orderId: projection } latest RTDB snapshot
+let liveReady = false;         // true once the first snapshot has arrived
+function isLiveFilter(f) { return f === 'all' || LIVE_STATUSES.includes(f); }
+
+// Normalise an RTDB liveOrders projection into the shape renderTable/openPanel expect.
+function liveToRow(orderId, p) {
+  return {
+    ...p,
+    orderId,
+    customer: { name: p.customerName || '', phone: p.customerPhone || '' },
+    paymentType: p.paymentType || '',
+  };
+}
+
+function liveRows() {
+  return Object.entries(liveOrders)
+    .map(([id, p]) => liveToRow(id, p))
+    // Defensive: only ever show non-terminal orders in the live view. Stale
+    // terminal entries can linger in the node (e.g. a delivery-cleanup timeout
+    // lost to a server restart); never render them as "live".
+    .filter(o => LIVE_STATUSES.includes(o.status))
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+// Stats + pending badge + new-order beep, all derived from the live snapshot.
+function applyLiveSnapshot() {
+  const rows = liveRows();
+  const today = new Date().toISOString().slice(0, 10);
+  const reviewCount = rows.filter(o => o.status === 'warehouse_review').length;
+  setText('stat-today', rows.filter(o => (o.createdAt || '').startsWith(today)).length);
+  setText('stat-review', reviewCount);
+  setText('stat-delivering', rows.filter(o => ['out_for_delivery','loading','arrived'].includes(o.status)).length);
+  // delivered_today is terminal (removed from liveOrders), so it isn't tracked here.
+
+  // Pending badge — count of orders awaiting review.
+  const badge = document.getElementById('pendingBadge');
+  if (badge) {
+    if (reviewCount > 0) { badge.textContent = reviewCount; badge.classList.remove('hidden'); }
+    else { badge.classList.add('hidden'); }
+  }
+
+  // New-order beep/toast — fires on increases in the review count (skips first load).
+  if (liveReady && reviewCount > lastNewCount) {
+    if (localStorage.getItem('soundEnabled') !== 'false') playBeep();
+    const diff = reviewCount - lastNewCount;
+    showToast(`🔔 ${diff} new order${diff>1?'s':''}!`);
+  }
+  lastNewCount = reviewCount;
+  liveReady = true;
+
+  // Re-render the table if we're showing a live view.
+  if (isLiveFilter(currentFilter)) renderTable();
+}
+
+function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+
+// Sign in with a backend-minted custom token, then subscribe to liveOrders.
+async function initLiveOrders() {
+  try {
+    const [cfgRes, tokRes] = await Promise.all([
+      apiFetch('/api/v1/admin/firebase-config'),
+      apiFetch('/api/v1/admin/firebase-token', { method: 'POST' }),
+    ]);
+    const cfg = (await cfgRes.json()).data;
+    const customToken = (await tokRes.json()).data?.token;
+    if (!cfg?.databaseURL || !cfg?.apiKey || !customToken) {
+      console.error('Live orders unavailable: missing firebase config or token');
+      return;
+    }
+    firebase.initializeApp({
+      apiKey: cfg.apiKey,
+      authDomain: cfg.authDomain,
+      projectId: cfg.projectId,
+      databaseURL: cfg.databaseURL,
+    });
+    await firebase.auth().signInWithCustomToken(customToken);
+    firebase.database().ref('liveOrders').on('value', (snap) => {
+      liveOrders = snap.val() || {};
+      applyLiveSnapshot();
+    });
+  } catch (e) {
+    console.error('initLiveOrders failed', e);
+  }
+}
 
 // ---- PAGINATION STATE ----
 let currentPage = 1;
@@ -740,16 +861,25 @@ let pageHistory = [null]; // stack of startAfter cursors; null = first page
 let currentLastOrderId = null;
 let currentHasMore = false;
 
-// ---- FETCH ORDERS (paginated) ----
+// ---- FETCH ORDERS (paginated, Firestore — history only) ----
 async function fetchOrders(startAfter = null) {
+  // Live views render from the RTDB snapshot — no Firestore read.
+  if (isLiveFilter(currentFilter)) { renderTable(); updatePagination(); return; }
   try {
     let url = `/api/v1/admin/orders?limit=10`;
     if (startAfter) url += `&startAfter=${encodeURIComponent(startAfter)}`;
-    if (currentFilter !== 'all') url += `&status=${encodeURIComponent(currentFilter)}`;
+    // history_all = all completed orders → server pages over the terminal set so
+    // every page is full of completed orders (no client-side filtering that
+    // empties pages). A specific pill filters by that single status server-side.
+    // History always pages over a status set (cursor-paginated, terminal-only):
+    // "All" = every completed status; a specific pill = just that one.
+    const histStatuses = currentFilter === 'history_all' ? HISTORY_STATUSES : [currentFilter];
+    url += `&statuses=${encodeURIComponent(histStatuses.join(','))}`;
     const res = await apiFetch(url);
     const data = await res.json();
     if (data.success) {
       ordersData = data.data?.orders || [];
+      historyLoaded = true;
       currentHasMore = data.data?.hasMore || false;
       currentLastOrderId = data.data?.lastOrderId || null;
       renderTable();
@@ -758,16 +888,14 @@ async function fetchOrders(startAfter = null) {
   } catch(e) {}
 }
 
-async function fetchStats() {
+// "Delivered today" is a terminal metric, so it isn't in the RTDB live snapshot.
+// Fetch it once on load (single Firestore-backed read, not on a timer). The
+// other three stat cards are driven live by applyLiveSnapshot.
+async function fetchDeliveredToday() {
   try {
     const res = await apiFetch('/api/v1/admin/orders/stats');
     const data = await res.json();
-    if (data.success) {
-      document.getElementById('stat-today').textContent = data.data.today;
-      document.getElementById('stat-review').textContent = data.data.warehouse_review;
-      document.getElementById('stat-delivering').textContent = data.data.out_for_delivery;
-      document.getElementById('stat-delivered').textContent = data.data.delivered_today;
-    }
+    if (data.success) setText('stat-delivered', data.data.delivered_today);
   } catch(e) {}
 }
 
@@ -791,6 +919,34 @@ function prevPage() {
   fetchOrders(pageHistory[pageHistory.length - 1]);
 }
 
+// ---- VIEW TABS (Live / History) ----
+function switchView(view) {
+  if (view === currentView) return;
+  currentView = view;
+  const isLive = view === 'live';
+
+  document.getElementById('tabLive').classList.toggle('active', isLive);
+  document.getElementById('tabHistory').classList.toggle('active', !isLive);
+  document.getElementById('liveFilters').style.display = isLive ? '' : 'none';
+  document.getElementById('historyFilters').style.display = isLive ? 'none' : '';
+
+  // Reset pagination and pills, then activate the default pill for this view.
+  currentPage = 1; pageHistory = [null]; currentLastOrderId = null; currentHasMore = false;
+  document.querySelectorAll('.filter-pill').forEach(p => { p.className = 'filter-pill'; });
+  const defaultPill = document.querySelector(
+    `#${isLive ? 'liveFilters' : 'historyFilters'} .filter-pill[data-filter="${isLive ? 'all' : 'history_all'}"]`
+  );
+  if (defaultPill) defaultPill.classList.add('active-all');
+
+  currentFilter = isLive ? 'all' : 'history_all';
+  if (isLive) {
+    renderTable();          // straight from the live snapshot, no fetch
+    updatePagination();
+  } else {
+    fetchOrders(null);      // lazy Firestore load of completed orders
+  }
+}
+
 // ---- FILTER + SEARCH ----
 function setFilter(f, el) {
   currentFilter = f;
@@ -798,7 +954,8 @@ function setFilter(f, el) {
   currentPage = 1; pageHistory = [null]; currentLastOrderId = null; currentHasMore = false;
   document.querySelectorAll('.filter-pill').forEach(p => { p.className = 'filter-pill'; });
   const colorMap = {
-    all:'active-all', warehouse_review:'active-amber', accepted:'active-blue2',
+    all:'active-all', history_all:'active-all',
+    warehouse_review:'active-amber', accepted:'active-blue2',
     packing:'active-purple', ready_for_dispatch:'active-purple',
     out_for_delivery:'active-orange', delivered:'active-green', declined:'active-red2',
     cancelled:'active-cancelled'
@@ -808,8 +965,17 @@ function setFilter(f, el) {
 }
 
 function getFiltered() {
-  // Status filter is server-side; apply only local search
-  let list = ordersData;
+  // Live filters source from the RTDB snapshot; history filters from Firestore.
+  let list;
+  if (isLiveFilter(currentFilter)) {
+    list = liveRows();
+    if (currentFilter !== 'all') list = list.filter(o => o.status === currentFilter);
+  } else if (currentFilter === 'history_all') {
+    // All completed orders — restrict the paginated page to terminal statuses.
+    list = ordersData.filter(o => HISTORY_STATUSES.includes(o.status));
+  } else {
+    list = ordersData;
+  }
   const q = document.getElementById('searchInput').value.trim().toLowerCase();
   if (q) {
     list = list.filter(o =>
@@ -830,14 +996,15 @@ function renderTable() {
   }
   tbody.innerHTML = list.map(o => {
     const rowClass = o.status === 'warehouse_review' ? 'row-review' : '';
-    const itemCount = o.items?.length || 0;
+    // Live rows carry no items array (slim RTDB projection); show a dash there.
+    const itemCell = Array.isArray(o.items) ? `${o.items.length} item${o.items.length!==1?'s':''}` : '—';
     const amt = '₹' + (o.grandTotal || o.grand_total || 0).toLocaleString('en-IN');
     return `<tr class="${rowClass}" onclick="openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">
       <td style="color:var(--muted);font-size:12px">${timeAgo(o.createdAt)}</td>
       <td><span class="mono order-id-link">${o.orderId}</span></td>
       <td>${o.customer?.name || '—'}</td>
       <td style="font-size:12px;color:var(--muted)">${o.customer?.phone || '—'}</td>
-      <td style="color:var(--muted)">${itemCount} item${itemCount!==1?'s':''}</td>
+      <td style="color:var(--muted)">${itemCell}</td>
       <td><span class="amount">${amt}</span></td>
       <td><span class="pill ${o.paymentType==='COD'?'pill-cod':'pill-online'}">${o.paymentType}</span></td>
       <td>${statusPill(o.status)}</td>
@@ -1301,7 +1468,6 @@ async function submitForceComplete() {
       closeForceModal();
       showToast('Order marked as delivered', 'success');
       await fetchOrders(pageHistory[pageHistory.length - 1]);
-      fetchStats();
       const updated = ordersData.find(o => o.orderId === forceOrderId);
       if (updated) openPanel(updated); else closePanel();
     } else {
@@ -1337,7 +1503,6 @@ async function submitCancelOrder() {
       closeCancelModal();
       showToast('Order cancelled. Remember to void the Zoho SO manually.', 'success');
       await fetchOrders(pageHistory[pageHistory.length - 1]);
-      fetchStats();
       closePanel();
     } else {
       showToast(data.message || 'Failed', 'error');
@@ -1371,28 +1536,8 @@ function toggleSound() {
 document.getElementById('soundToggle').textContent =
   localStorage.getItem('soundEnabled') === 'false' ? '🔕' : '🔔';
 
-async function pollNewOrders() {
-  try {
-    const res = await apiFetch('/api/v1/admin/orders/new-count');
-    const data = await res.json();
-    if (data.success) {
-      const count = data.data?.count || 0;
-      const badge = document.getElementById('pendingBadge');
-      if (count > 0) {
-        badge.textContent = count;
-        badge.classList.remove('hidden');
-      } else {
-        badge.classList.add('hidden');
-      }
-      if (count > lastNewCount && lastNewCount >= 0) {
-        if (localStorage.getItem('soundEnabled') !== 'false') playBeep();
-        const diff = count - lastNewCount;
-        showToast(`🔔 ${diff} new order${diff>1?'s':''}!`);
-      }
-      lastNewCount = count;
-    }
-  } catch(e) {}
-}
+// Live new-order alerting (badge + beep) is handled in applyLiveSnapshot from
+// the RTDB push; the old /orders/new-count polling has been removed.
 
 // ---- HELPERS ----
 function timeAgo(iso) {
@@ -1653,11 +1798,11 @@ document.getElementById('plModal').addEventListener('click', function(e) {
 });
 
 // ---- INIT ----
-fetchOrders(null);
-fetchStats();
-pollNewOrders();
-setInterval(pollNewOrders, 30000);
-setInterval(() => { fetchOrders(pageHistory[pageHistory.length - 1]); fetchStats(); }, 60000);
+// The live view (table + stats + badge + new-order beep) is driven entirely by
+// the RTDB liveOrders subscription below — no polling, no recurring Firestore
+// reads. History filters fetch from Firestore only when selected.
+initLiveOrders();
+fetchDeliveredToday();
 </script>
 </body>
 </html>
