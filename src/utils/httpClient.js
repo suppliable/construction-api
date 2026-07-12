@@ -2,8 +2,8 @@
 
 const logger = require('./logger');
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_ATTEMPTS = 3;
+const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_ATTEMPTS = 2;
 const DEFAULT_BASE_MS = 200;
 const RETRYABLE_CODES = new Set([
   'ECONNABORTED', // axios timeout
@@ -53,7 +53,7 @@ function isRetryable(err) {
  * @param {string} label  Identifier for logs (e.g. 'zoho.api.getProducts').
  * @param {() => Promise<any>} fn  Thunk performing the HTTP call.
  * @param {object} [opts]
- * @param {number} [opts.attempts]  Total attempts including the first (default 3).
+ * @param {number} [opts.attempts]  Total attempts including the first (default 2).
  * @param {number} [opts.baseMs]    Backoff base in ms (default 200).
  * @param {object} [opts.log]       Pino logger; defaults to module logger. Pass req.log
  *                                  in request-scoped paths so retries inherit trace IDs.

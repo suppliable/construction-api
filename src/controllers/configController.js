@@ -1,5 +1,6 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
 const remoteConfig = require('../services/remoteConfigService');
+const { computeWarehouseStatus, resolveClosedUntil } = require('../utils/warehouseStatus');
 
 const getCodThreshold = async (req, res) => {
   try {
@@ -30,13 +31,7 @@ const updateCodThreshold = async (req, res) => {
 const getWarehouseStatus = async (req, res) => {
   try {
     const settings = await getSettings(req.traceContext);
-    res.json({
-      success: true,
-      data: {
-        isOpen: settings.warehouseOpen !== false,
-        closedMessage: settings.warehouseClosedMessage || 'We are currently closed. You can add items to cart and place your order when we reopen.'
-      }
-    });
+    res.json({ success: true, data: computeWarehouseStatus(settings) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -50,15 +45,22 @@ const updateWarehouseStatus = async (req, res) => {
     }
     const update = { warehouseOpen: Boolean(isOpen) };
     if (closedMessage !== undefined) update.warehouseClosedMessage = closedMessage;
+
+    if (isOpen) {
+      // Reopening clears any pending timed maintenance close.
+      update.warehouseClosedUntil = null;
+    } else {
+      const { until, error } = resolveClosedUntil(req.body, new Date());
+      if (error) {
+        return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: error });
+      }
+      // A timed close sets an expiry; an indefinite close clears any stale one.
+      update.warehouseClosedUntil = until || null;
+    }
+
     await updateSettings(update, req.traceContext);
     const settings = await getSettings(req.traceContext);
-    res.json({
-      success: true,
-      data: {
-        isOpen: settings.warehouseOpen !== false,
-        closedMessage: settings.warehouseClosedMessage || ''
-      }
-    });
+    res.json({ success: true, data: computeWarehouseStatus(settings) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }

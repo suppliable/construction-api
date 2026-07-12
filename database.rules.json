@@ -1,6 +1,7 @@
 {
   "rules": {
     "liveOrders": {
+      ".read": "auth != null && auth.token.admin === true",
       "$orderId": {
         ".read": "auth != null",
         ".write": false

@@ -36,6 +36,25 @@ const ACTIVE_DRIVER_ORDER_STATUSES = [
   'accepted', 'ready_for_dispatch', 'loading', 'out_for_delivery', 'arrived',
 ];
 
+// liveOrders (RTDB) membership. NON_TERMINAL statuses are pushed to the admin
+// live view via RTDB; TERMINAL statuses are removed. Pre-warehouse_review
+// statuses (pending_payment/pending_proceeding) never enter liveOrders.
+const NON_TERMINAL_ORDER_STATUSES = [
+  'warehouse_review', 'accepted', 'packing', 'ready_for_dispatch',
+  'loading', 'out_for_delivery', 'arrived',
+];
+const TERMINAL_ORDER_STATUSES = [
+  'delivered', 'declined', 'cancelled', 'failed', 'converted_to_cod',
+  'pending_payment', 'pending_proceeding',
+];
+
+// Slim projection written to liveOrders/{orderId} — enough to render the admin
+// live table without per-order Firestore enrichment.
+const LIVE_ORDER_PROJECTION_FIELDS = [
+  'status', 'customerName', 'customerPhone', 'grand_total', 'paymentType',
+  'createdAt', 'acceptedAt', 'driverId', 'dailyOrderNo',
+];
+
 // Customer-facing labels (used in orderDTO)
 const ORDER_STATUS_LABELS = {
   pending_payment:   'Awaiting Payment',
@@ -92,6 +111,9 @@ module.exports = {
   MAX_ACTIVE_ORDERS_PER_ASSIGNMENT,
   NEW_ORDER_THRESHOLD_MS,
   ACTIVE_DRIVER_ORDER_STATUSES,
+  NON_TERMINAL_ORDER_STATUSES,
+  TERMINAL_ORDER_STATUSES,
+  LIVE_ORDER_PROJECTION_FIELDS,
   ORDER_STATUS_LABELS,
   DRIVER_STATUS_LABELS,
   DEFAULT_PINCODES,

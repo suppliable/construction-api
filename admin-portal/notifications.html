@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Notifications</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --red:#e53935; --blue:#1565c0;
+    --bg:#f0f2f7; --card:#ffffff; --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --green:#10b981; --red2:#ef4444; --amber:#f59e0b;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
+
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
+  .topbar { height:60px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
+  .btn-logout:hover { background:var(--bg); }
+
+  .content { padding:24px; max-width:680px; display:flex; flex-direction:column; gap:20px; }
+
+  .settings-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
+  .card-head { padding:20px 24px 0; }
+  .card-body { padding:16px 24px 24px; }
+  .card-title { font-size:15px; font-weight:700; color:var(--text); }
+  .card-desc { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.5; }
+
+  .input-group { margin-bottom:16px; }
+  .input-group label { display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+  .input-group input[type=text], .input-group textarea {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text); outline:none; transition:border-color 0.2s; resize:vertical;
+  }
+  .input-group input:focus, .input-group textarea:focus { border-color:var(--blue); }
+  .char-count { font-weight:600; color:var(--muted); }
+  .char-count.over { color:var(--red2); }
+
+  .audience { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+  .radio-row { display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+  .radio-row input { accent-color:var(--blue); }
+
+  .btn { padding:10px 18px; border-radius:8px; border:none; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+  .btn-primary { background:var(--blue); color:#fff; }
+  .btn-primary:hover { background:#0d47a1; }
+  .btn-primary:disabled { background:#aaa; cursor:not-allowed; }
+  .btn-ghost { background:none; border:1px solid var(--border); color:var(--muted); }
+  .btn-ghost:hover { background:var(--bg); }
+  .btn-row { display:flex; gap:10px; margin-top:6px; }
+
+  .result { margin-top:16px; padding:14px 16px; border-radius:8px; background:#f8f9fc; border:1px solid var(--border); font-size:13px; display:none; }
+  .result.show { display:block; }
+  .result .summary-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 16px; margin-top:8px; }
+  .result .k { color:var(--muted); }
+  .result .v { font-family:'JetBrains Mono',monospace; font-weight:600; color:var(--navy); }
+
+  .preview-card { margin-top:6px; padding:12px 14px; border-radius:10px; background:#eef1f8; border:1px solid var(--border); }
+  .preview-label { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+  .preview-title { font-size:14px; font-weight:700; color:var(--text); }
+  .preview-body { font-size:13px; color:var(--text); margin-top:2px; }
+
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.success { background:var(--green); }
+  #toast.error { background:var(--red2); }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item active" href="notifications.html">📣 Notifications</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Marketing Notifications</div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+  <div class="content">
+
+    <div class="settings-card">
+      <div class="card-head">
+        <div class="card-title">📣 Send Push Notification</div>
+        <div class="card-desc">Sends a title + message to app users. No deep link — tapping just opens the app. Reaches logged-in users who have the app installed and notifications enabled.</div>
+      </div>
+      <div class="card-body">
+
+        <div class="input-group">
+          <label>Title <span class="char-count" id="titleCount">0 / 100</span></label>
+          <input type="text" id="title" maxlength="100" placeholder="e.g. Weekend Sale" oninput="onInput()">
+        </div>
+
+        <div class="input-group">
+          <label>Message <span class="char-count" id="bodyCount">0 / 240</span></label>
+          <textarea id="body" rows="3" maxlength="240" placeholder="e.g. 10% off all waterproofing this weekend." oninput="onInput()"></textarea>
+        </div>
+
+        <div class="preview-card">
+          <div class="preview-label">Preview</div>
+          <div class="preview-title" id="pvTitle">Title</div>
+          <div class="preview-body" id="pvBody">Message preview…</div>
+        </div>
+
+        <div class="input-group" style="margin-top:16px;">
+          <label>Audience</label>
+          <div class="audience">
+            <label class="radio-row"><input type="radio" name="aud" value="all" checked onchange="onAudChange()"> All app users (everyone with a registered device)</label>
+            <label class="radio-row"><input type="radio" name="aud" value="specific" onchange="onAudChange()"> Specific user IDs</label>
+          </div>
+          <textarea id="userIds" rows="2" placeholder="Paste user IDs separated by commas or new lines (use this to send a test to yourself first)" style="display:none;width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="previewBtn" onclick="previewAudience()">👀 Preview audience</button>
+          <button class="btn btn-primary" id="sendBtn" onclick="send()">📣 Send Notification</button>
+        </div>
+
+        <div class="result" id="result"></div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._t); t._t = setTimeout(() => { t.className = ''; }, 4000);
+}
+
+function onInput() {
+  const title = document.getElementById('title').value;
+  const body = document.getElementById('body').value;
+  const tc = document.getElementById('titleCount');
+  const bc = document.getElementById('bodyCount');
+  tc.textContent = `${title.length} / 100`;
+  bc.textContent = `${body.length} / 240`;
+  tc.classList.toggle('over', title.length > 100);
+  bc.classList.toggle('over', body.length > 240);
+  document.getElementById('pvTitle').textContent = title || 'Title';
+  document.getElementById('pvBody').textContent = body || 'Message preview…';
+}
+
+function onAudChange() {
+  const specific = document.querySelector('input[name=aud]:checked').value === 'specific';
+  document.getElementById('userIds').style.display = specific ? 'block' : 'none';
+}
+
+function parseUserIds() {
+  return document.getElementById('userIds').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+}
+
+function buildPayload() {
+  const payload = {
+    title: document.getElementById('title').value.trim(),
+    body: document.getElementById('body').value.trim(),
+  };
+  if (document.querySelector('input[name=aud]:checked').value === 'specific') {
+    payload.userIds = parseUserIds();
+  }
+  return payload;
+}
+
+async function previewAudience() {
+  const btn = document.getElementById('previewBtn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const res = await apiFetch('/api/v1/admin/notifications/broadcast', {
+      method: 'POST', body: JSON.stringify({ ...buildPayload(), dryRun: true })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const n = data.data.targeted;
+      showResult(`👀 This will reach <strong>${n}</strong> device user${n === 1 ? '' : 's'}.`);
+    } else { showToast(data.message || 'Failed', 'error'); }
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '👀 Preview audience'; }
+}
+
+async function send() {
+  const payload = buildPayload();
+  if (!payload.title || !payload.body) { showToast('Title and message are required', 'error'); return; }
+  if (payload.userIds && payload.userIds.length === 0) { showToast('Enter at least one user ID, or pick "All app users"', 'error'); return; }
+
+  const audienceLabel = payload.userIds ? `${payload.userIds.length} specific user(s)` : 'ALL app users';
+  if (!confirm(`Send "${payload.title}" to ${audienceLabel}? This cannot be undone.`)) return;
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res = await apiFetch('/api/v1/admin/notifications/broadcast', {
+      method: 'POST', body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      const d = data.data;
+      if (d.targeted === 0) {
+        showResult('No users with notification tokens were found.');
+        showToast('No recipients', 'error');
+      } else {
+        showResult(`✅ Sent.
+          <div class="summary-grid">
+            <span class="k">Targeted</span><span class="v">${d.targeted}</span>
+            <span class="k">Reached (had a device)</span><span class="v">${d.reached}</span>
+            <span class="k">No device</span><span class="v">${d.noToken}</span>
+            <span class="k">Delivered</span><span class="v">${d.delivered}</span>
+            <span class="k">Failed</span><span class="v">${d.failed}</span>
+          </div>`);
+        showToast('Notification sent', 'success');
+      }
+    } else { showToast(data.message || 'Failed', 'error'); }
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📣 Send Notification'; }
+}
+
+function showResult(html) {
+  const el = document.getElementById('result');
+  el.innerHTML = html;
+  el.classList.add('show');
+}
+
+onInput();
+</script>
+</body>
+</html>

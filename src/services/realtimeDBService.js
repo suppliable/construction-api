@@ -1,6 +1,11 @@
 'use strict';
 
 const { getDatabase } = require('firebase-admin/database');
+const {
+  NON_TERMINAL_ORDER_STATUSES,
+  TERMINAL_ORDER_STATUSES,
+  LIVE_ORDER_PROJECTION_FIELDS,
+} = require('../constants');
 
 async function writeLiveOrder(orderId, data) {
   const db = getDatabase();
@@ -30,4 +35,37 @@ async function deleteLiveOrder(orderId) {
   await db.ref(`liveOrders/${orderId}`).remove();
 }
 
-module.exports = { writeLiveOrder, updateLiveOrderStatus, deleteLiveOrder };
+// Slim projection of an order onto the liveOrders node. Uses update() so it
+// merges with any delivery-tracking fields (eta/lat/lng) written separately by
+// the driver flow rather than clobbering them.
+async function upsertLiveOrder(orderId, order) {
+  const db = getDatabase();
+  const projection = {};
+  for (const field of LIVE_ORDER_PROJECTION_FIELDS) {
+    projection[field] = order[field] != null ? order[field] : null;
+  }
+  projection.updatedAt = new Date().toISOString();
+  await db.ref(`liveOrders/${orderId}`).update(projection);
+}
+
+// Reconciles liveOrders membership from a full order object:
+//   non-terminal (≥ warehouse_review) → upsert the slim projection
+//   terminal                          → remove from the node
+// Pre-warehouse_review statuses (pending_payment/pending_proceeding) are
+// terminal here and are never written to liveOrders.
+async function syncLiveOrder(orderId, order) {
+  if (!order || !order.status) return;
+  if (NON_TERMINAL_ORDER_STATUSES.includes(order.status)) {
+    await upsertLiveOrder(orderId, order);
+  } else if (TERMINAL_ORDER_STATUSES.includes(order.status)) {
+    await deleteLiveOrder(orderId);
+  }
+}
+
+module.exports = {
+  writeLiveOrder,
+  updateLiveOrderStatus,
+  deleteLiveOrder,
+  upsertLiveOrder,
+  syncLiveOrder,
+};

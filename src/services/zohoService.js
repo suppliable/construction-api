@@ -139,9 +139,13 @@ async function getZohoItemGroupById(groupId, traceContext = null) {
 
 async function createZohoContact(contactData, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.createContact', { 'peer.service': 'zoho', phone: contactData.phone, endpoint: '/books/v3/contacts' });
+  // Zoho requires contact_name to be globally unique. Two customers can share a
+  // display name (e.g. "Arun"), so disambiguate with the phone to avoid the
+  // 3062 "already exists" collision. company_name keeps the human-readable name.
+  const displayName = contactData.business_name || contactData.name || contactData.phone;
   const contactBody = {
-    contact_name: contactData.business_name || contactData.name || contactData.phone,
-    company_name: contactData.business_name || contactData.name || contactData.phone,
+    contact_name: contactData.phone ? `${displayName} (${contactData.phone})` : displayName,
+    company_name: displayName,
     contact_type: 'customer',
     gst_treatment: contactData.is_business ? 'business_gst' : 'consumer',
     gst_no: contactData.gstin || '',

@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
-  findOrders, getAllOrders, getOrdersPage, getOrderById, updateOrder,
+  findOrders, getAllOrders, getOrdersPage, getOrdersPageByStatuses, countOrdersByStatusSince, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
   getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver, updateVehicle,
@@ -40,12 +40,22 @@ const { formatTimestamps } = require('../utils/formatDoc');
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
   try {
-    const { status, date, startAfter } = req.query;
+    const { status, statuses, date, startAfter } = req.query;
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
 
     let orders, hasMore = false, lastOrderId = null;
 
-    if (status || date) {
+    // Multi-status, cursor-paginated path — used by the admin History "All" view
+    // to page through completed orders (delivered/declined/cancelled) only.
+    const statusList = typeof statuses === 'string'
+      ? statuses.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    if (statusList.length > 0 && !date) {
+      const page = await getOrdersPageByStatuses(statusList, limit, startAfter || null, req.traceContext);
+      orders = page.orders;
+      hasMore = page.hasMore;
+      lastOrderId = page.lastOrderId;
+    } else if (status || date) {
       let all = await getAllOrders(req.traceContext);
       // Never surface pending_payment orders in the admin list unless explicitly requested
       if (!status) all = all.filter(o => o.status !== 'pending_payment');
@@ -88,18 +98,17 @@ const listOrders = async (req, res) => {
 };
 
 // GET /api/admin/orders/stats
+// The admin live view derives today's/pending-review/out-for-delivery counts from
+// the RTDB liveOrders snapshot client-side. This endpoint now only supplies
+// delivered_today (a terminal metric absent from liveOrders), computed via a
+// Firestore count() aggregation — ~1 read instead of scanning 30 documents.
 const getOrderStats = async (req, res) => {
   try {
-    const orders = await getAllOrders(req.traceContext);
-    const today = new Date().toISOString().slice(0, 10);
+    const todayStartISO = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+    const deliveredToday = await countOrdersByStatusSince('delivered', todayStartISO, req.traceContext);
     res.json({
       success: true,
-      data: {
-        today: orders.filter(o => o.createdAt?.startsWith(today)).length,
-        warehouse_review: orders.filter(o => o.status === 'warehouse_review').length,
-        out_for_delivery: orders.filter(o => ['out_for_delivery', 'loading', 'arrived'].includes(o.status)).length,
-        delivered_today: orders.filter(o => o.status === 'delivered' && o.createdAt?.startsWith(today)).length,
-      }
+      data: { delivered_today: deliveredToday },
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
@@ -655,10 +664,13 @@ const getPendingCOD = async (req, res) => {
 const reconcileCOD = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { amountReceived, reconciledBy } = req.body;
+    const { amountReceived, reconciledBy, paymentMethod } = req.body;
 
     if (amountReceived === undefined || amountReceived === null) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'amountReceived is required' });
+    }
+    if (paymentMethod !== undefined && !['cash', 'upi'].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, error: 'INVALID_PAYMENT_METHOD', message: 'paymentMethod must be cash or upi' });
     }
 
     const order = await getOrderById(orderId, req.traceContext);
@@ -670,12 +682,17 @@ const reconcileCOD = async (req, res) => {
       return res.status(400).json({ success: false, error: 'ALREADY_RECONCILED', message: 'COD already reconciled' });
     }
 
-    const updated = await updateOrder(orderId, {
+    const reconcileUpdate = {
       codCollected: true,
       codAmount: parseFloat(amountReceived),
       reconciledAt: new Date().toISOString(),
       reconciledBy: reconciledBy || null
-    }, req.traceContext);
+    };
+    // Capture the method if the admin provided one (e.g. legacy/force-completed
+    // orders that came in without a driver-recorded method).
+    if (paymentMethod) reconcileUpdate.codPaymentMethod = paymentMethod;
+
+    const updated = await updateOrder(orderId, reconcileUpdate, req.traceContext);
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -797,6 +814,7 @@ const listCodHistory = async (req, res) => {
         driverName: o.driverName || '',
         driverId: o.driverId || '',
         amount: o.codAmountCollected || o.codAmount || 0,
+        codPaymentMethod: o.codPaymentMethod || null,
         status: o.codCollected ? 'reconciled' : 'delivered',
         date: (o.reconciledAt || o.deliveredAt || '').slice(0, 10),
         reconciledBy: o.reconciledBy || null,
@@ -976,7 +994,7 @@ const getCustomerOrders = async (req, res) => {
 const forceCompleteOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { reason, note } = req.body;
+    const { reason, note, codCollected, codPaymentMethod, codAmount } = req.body;
 
     const VALID_REASONS = ['driver_app_issue', 'phone_issue', 'technical_error', 'other'];
     if (!reason || !VALID_REASONS.includes(reason)) {
@@ -991,7 +1009,7 @@ const forceCompleteOrder = async (req, res) => {
     }
 
     const now = new Date().toISOString();
-    await updateOrder(orderId, {
+    const update = {
       status: 'delivered',
       deliveredAt: now,
       deliveryPhotoUrl: null,
@@ -1001,7 +1019,23 @@ const forceCompleteOrder = async (req, res) => {
       forceReason: reason,
       forceNote: note || null,
       forcedAt: now
-    }, req.traceContext);
+    };
+
+    // Optionally record that COD was collected at delivery (mirrors the driver's
+    // codCollected step) so the order flows into reconciliation with a known
+    // method instead of "Unknown". Only meaningful for COD orders.
+    if (order.paymentType === 'COD' && codCollected === true) {
+      if (!['cash', 'upi'].includes(codPaymentMethod)) {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYMENT_METHOD', message: 'codPaymentMethod must be cash or upi when codCollected is true' });
+      }
+      const amount = Number(codAmount) > 0 ? Number(codAmount) : Number(order.grand_total ?? order.grandTotal ?? 0);
+      update.codCollectedByDriver = true;
+      update.codPaymentMethod = codPaymentMethod;
+      update.codAmountCollected = amount;
+      update.codCollectedAt = now;
+    }
+
+    await updateOrder(orderId, update, req.traceContext);
 
     if (order.driverId) {
       const driver = await getDriverById(order.driverId, req.traceContext).catch(() => null);
@@ -1433,6 +1467,42 @@ const toggleFeatured = async (req, res) => {
   }
 };
 
+// POST /api/admin/notifications/broadcast
+// Marketing/broadcast push (title + body, no deep link). Targets either an
+// explicit `userIds` array or, by default, all users with a registered token.
+// `dryRun: true` returns the audience size without sending.
+const sendMarketingNotification = async (req, res) => {
+  try {
+    const { title, body, userIds, dryRun } = req.body || {};
+
+    const targets = Array.isArray(userIds) && userIds.length
+      ? userIds.filter(Boolean)
+      : await fcm.getAllTokenUserIds();
+
+    // Audience preview — no copy required, just report reach.
+    if (dryRun) {
+      return res.json({ success: true, data: { dryRun: true, targeted: targets.length } });
+    }
+
+    if (!title || !String(title).trim() || !body || !String(body).trim()) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'title and body are required' });
+    }
+    if (String(title).length > 100 || String(body).length > 240) {
+      return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'title must be <=100 and body <=240 characters' });
+    }
+    if (!targets.length) {
+      return res.json({ success: true, data: { targeted: 0, message: 'No users with notification tokens' } });
+    }
+
+    const summary = await fcm.sendCampaign({ userIds: targets, title: String(title).trim(), body: String(body).trim() });
+    req.log.info({ summary }, 'marketing notification broadcast sent');
+    return res.json({ success: true, data: summary });
+  } catch (err) {
+    req.log.error({ err: err.message }, 'sendMarketingNotification failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
   listOrders,
   getOrderStats,
@@ -1474,5 +1544,6 @@ module.exports = {
   listBanners,
   uploadBanner,
   updateBanner,
-  deleteBanner
+  deleteBanner,
+  sendMarketingNotification
 };

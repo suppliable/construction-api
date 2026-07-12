@@ -19,7 +19,7 @@ async function sendNotification(userId, { title, body, data = {} }) {
   const tokens = await getUserTokens(userId);
   if (!tokens.length) {
     console.log('[FCM] No tokens for user:', userId);
-    return;
+    return { hadTokens: false, delivered: 0, failed: 0 };
   }
 
   const results = await Promise.allSettled(
@@ -36,9 +36,11 @@ async function sendNotification(userId, { title, body, data = {} }) {
     )
   );
 
+  let delivered = 0, failed = 0;
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
     if (result.status === 'rejected') {
+      failed++;
       const code = result.reason?.errorInfo?.code || '';
       if (
         code === 'messaging/registration-token-not-registered' ||
@@ -48,8 +50,45 @@ async function sendNotification(userId, { title, body, data = {} }) {
       } else {
         console.warn('[FCM] Send failed:', code, result.reason?.message);
       }
+    } else {
+      delivered++;
     }
   }
+  return { hadTokens: true, delivered, failed };
+}
+
+// Returns userIds that have at least one registered FCM token.
+async function getAllTokenUserIds() {
+  const snap = await admin.firestore().collection('fcmTokens').get();
+  return snap.docs.filter(d => (d.data().tokens || []).length > 0).map(d => d.id);
+}
+
+/**
+ * Fan a single notification out to many users (marketing/broadcast). Reuses
+ * sendNotification per user (which prunes stale tokens) with bounded
+ * concurrency. Returns a delivery summary. data defaults to a non-routing
+ * `marketing` type so tapping just opens the app (no deep link).
+ */
+async function sendCampaign({ userIds, title, body, data = {} }) {
+  const summary = { targeted: userIds.length, reached: 0, noToken: 0, delivered: 0, failed: 0 };
+  const payload = { title, body, data: { type: 'marketing', ...data } };
+  const CONCURRENCY = 20;
+  for (let i = 0; i < userIds.length; i += CONCURRENCY) {
+    const batch = userIds.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(uid =>
+      sendNotification(uid, payload).catch(err => {
+        console.warn('[FCM] campaign send error for', uid, err.message);
+        return { hadTokens: true, delivered: 0, failed: 1 };
+      })
+    ));
+    for (const r of results) {
+      if (!r.hadTokens) { summary.noToken++; continue; }
+      summary.reached++;
+      summary.delivered += r.delivered;
+      summary.failed += r.failed;
+    }
+  }
+  return summary;
 }
 
 async function notifyOrderAccepted(userId, orderId) {
@@ -86,6 +125,8 @@ async function notifyOrderCancelled(userId, orderId) {
 
 module.exports = {
   sendNotification,
+  sendCampaign,
+  getAllTokenUserIds,
   notifyOrderAccepted,
   notifyOutForDelivery,
   notifyDelivered,
