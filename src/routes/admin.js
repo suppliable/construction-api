@@ -412,6 +412,21 @@ router.post('/pos/stock', async (req, res) => {
   }
 });
 
+// POS catalogue — GET /admin/pos/products[?category=]
+// Same serializer as the public /products feed but includes counter-only
+// (walk-in) items hidden from the app, each flagged with `appVisible`. Not
+// HTTP-cached, so visibility changes show immediately in the POS grid.
+const { getAllProducts: getAllProductsForPOS } = require('../services/productService');
+router.get('/pos/products', async (req, res) => {
+  try {
+    const category = req.query.category || null;
+    const products = await getAllProductsForPOS(category, req.traceContext, { includeHidden: true });
+    res.json({ success: true, data: products });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
 // Create customer — POST /admin/pos/customers
 router.post('/pos/customers', async (req, res) => {
   try {

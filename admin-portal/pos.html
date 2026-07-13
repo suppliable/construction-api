@@ -131,6 +131,8 @@
   .product-card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.08); border-color:#cbd5e1; }
   .product-card-body { padding:12px; flex:1; display:flex; flex-direction:column; gap:4px; }
   .product-card-name { font-size:13px; font-weight:600; line-height:1.35; }
+  .product-card.walkin { border-color:#e2b100; background:#fffdf5; }
+  .walkin-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; font-size:10px; font-weight:600; color:#7a5b00; background:#fff2c2; border:1px solid #e2b100; white-space:nowrap; }
   .product-card-cat { font-size:11px; color:var(--muted); }
   .product-card-price { font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--blue2); }
   .product-card-price.range { font-size:12px; }
@@ -495,6 +497,11 @@
               <span class="search-icon">🔍</span>
               <input type="text" class="field-input" id="productSearch" placeholder="Search products..." oninput="filterProducts(this.value)">
             </div>
+            <div class="category-tabs" id="visibilityTabs" style="margin-top:8px">
+              <button class="cat-tab active" data-vis="all" onclick="setVisibilityFilter('all',this)">All</button>
+              <button class="cat-tab" data-vis="app" onclick="setVisibilityFilter('app',this)">📱 App</button>
+              <button class="cat-tab" data-vis="walkin" onclick="setVisibilityFilter('walkin',this)">🏪 Walk-in</button>
+            </div>
             <div id="productGrid" class="product-grid">
               <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
                 <div class="spinner dark" style="margin:0 auto 12px"></div>
@@ -643,6 +650,7 @@ let allProducts = [];
 let productMap = {};
 let currentCategory = 'all';
 let productSearch = '';
+let visibilityFilter = 'all'; // all | app | walkin
 let productPage = 0;
 const PAGE_SIZE = 20;
 let deliveryDebounceTimer = null;
@@ -991,7 +999,7 @@ async function goToStep2() {
 // ── STEP 2: PRODUCTS ──
 async function loadProducts() {
   try {
-    const res = await fetch(API_BASE + '/api/v1/products');
+    const res = await apiFetch('/api/v1/admin/pos/products');
     const data = await res.json();
     allProducts = Array.isArray(data.data) ? data.data : (Array.isArray(data.products) ? data.products : (Array.isArray(data) ? data : []));
     productMap = {};
@@ -1018,8 +1026,19 @@ async function loadProducts() {
 
 function filterProducts(q) { productSearch = q; productPage = 0; renderProductGrid(); }
 
+function setVisibilityFilter(mode, btn) {
+  visibilityFilter = mode;
+  const tabs = document.getElementById('visibilityTabs');
+  tabs.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  productPage = 0;
+  renderProductGrid();
+}
+
 function getFilteredProducts() {
   let list = allProducts;
+  if (visibilityFilter === 'app') list = list.filter(p => p.appVisible !== false);
+  else if (visibilityFilter === 'walkin') list = list.filter(p => p.appVisible === false);
   if (currentCategory !== 'all') list = list.filter(p => p.category === currentCategory);
   const q = productSearch.toLowerCase().trim();
   if (q) list = list.filter(p => (p.name||'').toLowerCase().includes(q));
@@ -1186,9 +1205,13 @@ function buildProductCard(p) {
       <div class="spi-grid" id="sg_${pid}"></div>
     </div>` : '';
 
-  return `<div class="product-card" data-pid="${pid}">
+  const walkinBadge = p.appVisible === false
+    ? `<span class="walkin-badge" title="Hidden from the app — walk-in / counter only">🏪 Walk-in</span>`
+    : '';
+
+  return `<div class="product-card${p.appVisible === false ? ' walkin' : ''}" data-pid="${pid}">
     <div class="product-card-body">
-      <div class="product-card-name">${escHtml(p.name)}</div>
+      <div class="product-card-name">${escHtml(p.name)}${walkinBadge}</div>
       <div class="product-card-cat">${escHtml(p.category||'')}</div>
       ${priceHtml}
       <div class="stock-line" id="stock_${pid}">${stockBadge(catalogueStockFor(p, cardActiveId(p)))}</div>
@@ -1987,7 +2010,7 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
 function resetWizard() {
   selectedCustomer=null; selectedAddress=null; savedGst=null; gstNumber=''; gstName=''; gstAddress=null; cart=[];
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
-  allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; productPage=0;
+  allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; visibilityFilter='all'; productPage=0;
   stockCache = new Map();
   deliveryChargeOverride = null;
   allShades=[]; _currentShadePid=null;
@@ -2006,6 +2029,8 @@ function resetWizard() {
   // Reset category tabs
   const tabs = document.getElementById('categoryTabs');
   tabs.innerHTML = '<button class="cat-tab active" data-cat="all">All</button>';
+  // Reset visibility tabs to "All"
+  document.querySelectorAll('#visibilityTabs .cat-tab').forEach(b => b.classList.toggle('active', b.dataset.vis === 'all'));
   document.getElementById('productGrid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><div class="spinner dark" style="margin:0 auto 12px"></div><div>Loading products...</div></div>';
   document.getElementById('productPageControls').innerHTML='';
   goToStep(1);
