@@ -347,6 +347,19 @@
       <div class="wizard-header"><div class="wizard-title">👤 Customer &amp; Address</div></div>
       <div class="wizard-body">
 
+        <label id="walkinToggleRow" style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#fffdf5;border:1px solid #e2b100;border-radius:10px;margin-bottom:18px;cursor:pointer">
+          <input type="checkbox" id="walkinToggle" onchange="onWalkinToggle(this.checked)" style="width:18px;height:18px;cursor:pointer">
+          <div>
+            <div style="font-weight:600;font-size:14px">🏪 Walk-in / Pickup</div>
+            <div style="font-size:12px;color:var(--muted)">Counter sale — skip customer &amp; address, no delivery</div>
+          </div>
+        </label>
+
+        <div id="walkinNameWrap" class="field-group hidden">
+          <div class="field-label">Customer name <span style="color:var(--muted);font-weight:400">(optional — shown on the invoice)</span></div>
+          <input type="text" class="field-input" id="walkinNameInput" placeholder="e.g. Ramesh (leave blank for generic walk-in)" oninput="walkinName=this.value">
+        </div>
+
         <div id="selectedCustomerChip" class="hidden">
           <div class="selected-customer">
             <div class="selected-customer-info">
@@ -640,6 +653,8 @@ let gstNumber = '';
 let gstName = '';
 let gstAddress = null;
 let cart = [];
+let isWalkin = false;       // walk-in / pickup mode: no customer, no address, no delivery
+let walkinName = '';        // optional name shown on the order + Zoho invoice
 let draftId = null;
 let draftData = null;
 let quotationData = null;
@@ -976,8 +991,25 @@ async function createCustomer() {
   finally { btn.disabled=false; btn.innerHTML='➕ Create Customer'; }
 }
 
+function onWalkinToggle(on) {
+  isWalkin = on;
+  if (on) {
+    // Clear any selected customer/address — walk-in is a counter pickup sale.
+    selectedCustomer = null; selectedAddress = null;
+    document.getElementById('selectedCustomerChip').classList.add('hidden');
+    document.getElementById('customerSearchSection').classList.add('hidden');
+    document.getElementById('addressSection').classList.add('hidden');
+    document.getElementById('gstSection')?.classList.add('hidden');
+  } else {
+    walkinName = ''; document.getElementById('walkinNameInput').value = '';
+    document.getElementById('customerSearchSection').classList.remove('hidden');
+  }
+  document.getElementById('walkinNameWrap').classList.toggle('hidden', !on);
+  checkStep1Next();
+}
+
 function checkStep1Next() {
-  document.getElementById('step1Next').disabled = !(selectedCustomer && selectedAddress);
+  document.getElementById('step1Next').disabled = isWalkin ? false : !(selectedCustomer && selectedAddress);
 }
 
 async function goToStep2() {
@@ -989,8 +1021,9 @@ async function goToStep2() {
     );
     if (existing) { draftId = existing.draftId; draftData = existing; }
   }
-  document.getElementById('step2CustomerInfo').textContent =
-    `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress.label||'Address'}`;
+  document.getElementById('step2CustomerInfo').textContent = isWalkin
+    ? `🏪 Walk-in / Pickup${walkinName ? ' · ' + walkinName : ''}`
+    : `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress.label||'Address'}`;
   goToStep(2);
   if (!allProducts.length) await loadProducts();
   scheduleDeliveryCalc();
@@ -1495,6 +1528,14 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   const delivEl = document.getElementById('totDelivery');
   noteEl.classList.add('hidden');
 
+  // Walk-in / pickup: no delivery, ever. Show ₹0 and suppress serviceability UI.
+  if (isWalkin) {
+    delivEl.textContent = fmtMoney(0);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal);
+    warnEl.classList.add('hidden');
+    return;
+  }
+
   if (deliveryResult === null) {
     delivEl.innerHTML = '<span class="totals-loading">calculating...</span>';
     document.getElementById('totGrand').textContent = fmtMoney(subtotal+gstTotal);
@@ -1582,7 +1623,8 @@ function scheduleDeliveryCalc() {
 }
 
 async function fetchDraftForTotals() {
-  if (!cart.length || !selectedAddress) return;
+  if (!cart.length) return;
+  if (!isWalkin && !selectedAddress) return;
   try {
     const body = buildDraftBody();
     const url = draftId ? `/api/v1/admin/pos/drafts/${draftId}` : '/api/v1/admin/pos/drafts';
@@ -1602,6 +1644,7 @@ function buildDraftBody() {
   return {
     customerId: selectedCustomer ? selectedCustomer.userId : null,
     addressId: selectedAddress ? (selectedAddress.addressId||selectedAddress.id) : null,
+    walkinName: isWalkin ? (walkinName || null) : null,
     gstNumber: gstNumber||null,
     gstName: gstName||null,
     gstAddress: gstAddress||null,
@@ -1633,9 +1676,9 @@ async function goToStep3() {
 }
 
 function populateStep3() {
-  document.getElementById('s3Name').textContent = selectedCustomer.name;
-  document.getElementById('s3Phone').textContent = selectedCustomer.phone;
-  document.getElementById('s3Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
+  document.getElementById('s3Name').textContent = isWalkin ? (walkinName || 'Walk-in Customer') : selectedCustomer.name;
+  document.getElementById('s3Phone').textContent = isWalkin ? '—' : selectedCustomer.phone;
+  document.getElementById('s3Address').textContent = isWalkin ? 'Pickup / Walk-in (no delivery)' : (selectedAddress.streetAddress||selectedAddress.fullAddress||'');
   document.getElementById('s3GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s3Gst').textContent = gstNumber;
   document.getElementById('s3GstNameRow').classList.toggle('hidden', !gstName);
@@ -1706,18 +1749,24 @@ async function generateQuotationPDF() {
 function renderQuotationResult() {
   const q = quotationData;
   const d = draftData;
-  const rawPhone = (selectedCustomer.phone||'').replace(/\D/g,'');
-  const waPhone = rawPhone.startsWith('91') ? rawPhone : '91'+rawPhone;
   const linkUrl = currentPdfUrl || q.zohoQuotationUrl;
   const linkLabel = currentPdfUrl ? 'View Quotation PDF' : 'View Quotation';
+  // WhatsApp share needs a customer phone — not available for walk-in pickups.
+  const rawPhone = isWalkin ? '' : (selectedCustomer.phone||'').replace(/\D/g,'');
+  const waPhone = rawPhone.startsWith('91') ? rawPhone : '91'+rawPhone;
   const waMsg = encodeURIComponent(
-    `Hi ${selectedCustomer.name}! 🧾 Here is your quotation from Suppliable.\n\n` +
+    `Hi ${isWalkin ? (walkinName || 'there') : selectedCustomer.name}! 🧾 Here is your quotation from Suppliable.\n\n` +
     `Quotation No: ${q.zohoQuotationNumber}\n` +
     `Grand Total: ${fmtMoney(d.grandTotal)}\n` +
     `📄 ${linkLabel}: ${linkUrl}\n\n` +
     `Payment mode: Cash on Delivery. Our team will confirm the order shortly. Thank you! 🙏\n\n` +
     `📲 Download our Suppliable app to order & track: https://play.google.com/store/apps/details?id=com.suppliable.customer`
   );
+  const waButton = isWalkin ? '' : `
+        <button onclick="window.open('https://wa.me/${waPhone}?text=${waMsg}','_blank')"
+          style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+          💬 Share via WhatsApp
+        </button>`;
   const pdfWarning = !currentPdfUrl
     ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">⚠️ PDF unavailable — sending portal link instead</div>` : '';
   document.getElementById('quotationResultArea').innerHTML = `
@@ -1727,10 +1776,7 @@ function renderQuotationResult() {
       ${pdfWarning}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <a href="${escHtml(linkUrl)}" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:underline">${currentPdfUrl ? 'View PDF →' : 'View in Zoho →'}</a>
-        <button onclick="window.open('https://wa.me/${waPhone}?text=${waMsg}','_blank')"
-          style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
-          💬 Share via WhatsApp
-        </button>
+        ${waButton}
       </div>
     </div>`;
   document.getElementById('quotationResultArea').classList.remove('hidden');
@@ -1740,9 +1786,9 @@ function renderQuotationResult() {
 function goToStep4() { populateStep4(); goToStep(4); }
 
 function populateStep4() {
-  document.getElementById('s4Name').textContent = selectedCustomer.name;
-  document.getElementById('s4Phone').textContent = selectedCustomer.phone;
-  document.getElementById('s4Address').textContent = selectedAddress.streetAddress||selectedAddress.fullAddress||'';
+  document.getElementById('s4Name').textContent = isWalkin ? (walkinName || 'Walk-in Customer') : selectedCustomer.name;
+  document.getElementById('s4Phone').textContent = isWalkin ? '—' : selectedCustomer.phone;
+  document.getElementById('s4Address').textContent = isWalkin ? 'Pickup / Walk-in (no delivery)' : (selectedAddress.streetAddress||selectedAddress.fullAddress||'');
   document.getElementById('s4GstRow').classList.toggle('hidden', !gstNumber);
   if (gstNumber) document.getElementById('s4Gst').textContent = gstNumber;
   document.getElementById('s4GstNameRow').classList.toggle('hidden', !gstName);
@@ -2009,6 +2055,11 @@ document.getElementById('addrFull').addEventListener('paste', async (e) => {
 // ── RESET ──
 function resetWizard() {
   selectedCustomer=null; selectedAddress=null; savedGst=null; gstNumber=''; gstName=''; gstAddress=null; cart=[];
+  isWalkin=false; walkinName='';
+  const wt=document.getElementById('walkinToggle'); if(wt) wt.checked=false;
+  const wn=document.getElementById('walkinNameInput'); if(wn) wn.value='';
+  document.getElementById('walkinNameWrap').classList.add('hidden');
+  document.getElementById('customerSearchSection').classList.remove('hidden');
   draftId=null; draftData=null; quotationData=null; currentPdfUrl=null;
   allProducts=[]; productMap={}; currentCategory='all'; productSearch=''; visibilityFilter='all'; productPage=0;
   stockCache = new Map();
@@ -2173,6 +2224,13 @@ async function resumeDraft(idx) {
     ? { userId: draft.customer.userId, name: draft.customer.name, phone: draft.customer.phone, email: draft.customer.email || null, addresses: draft.address ? [draft.address] : [] }
     : null;
   selectedAddress = draft.address || null;
+  // Restore walk-in state: a draft with no customer AND a walkinName (or explicitly
+  // flagged) is a walk-in pickup.
+  isWalkin = !draft.customerId && (!!draft.walkinName || draft.isWalkin === true);
+  walkinName = draft.walkinName || '';
+  const wtEl = document.getElementById('walkinToggle'); if (wtEl) wtEl.checked = isWalkin;
+  const wnEl = document.getElementById('walkinNameInput'); if (wnEl) wnEl.value = walkinName;
+  document.getElementById('walkinNameWrap').classList.toggle('hidden', !isWalkin);
   // Restore a manual delivery-charge override if one was saved on the draft.
   deliveryChargeOverride = draft.deliveryOverridden ? draft.deliveryCharge : null;
 
@@ -2221,8 +2279,9 @@ async function resumeDraft(idx) {
     goToStep(3);
   } else {
     if (!allProducts.length) await loadProducts();
-    document.getElementById('step2CustomerInfo').textContent =
-      `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress?.label || 'Address'}`;
+    document.getElementById('step2CustomerInfo').textContent = isWalkin
+      ? `🏪 Walk-in / Pickup${walkinName ? ' · ' + walkinName : ''}`
+      : `${selectedCustomer.name} · ${selectedCustomer.phone} · ${selectedAddress?.label || 'Address'}`;
     renderCart();
     goToStep(2);
     scheduleDeliveryCalc();

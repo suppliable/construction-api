@@ -368,7 +368,7 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null, 
 
 // ---- Draft CRUD ----
 
-async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride = null }, traceContext = null) {
+async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride = null, walkinName = null }, traceContext = null) {
   const lineItems = await buildDraftLineItems(items, traceContext);
   const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext, deliveryChargeOverride);
 
@@ -380,6 +380,7 @@ async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, 
     draftId,
     customerId: customerId || null,
     addressId: addressId || null,
+    walkinName: (walkinName || '').trim() || null,
     gstNumber: gstNumber || null,
     gstName: gstName || null,
     gstAddress: gstAddress || null,
@@ -407,7 +408,7 @@ async function getPOSDraft(draftId, traceContext = null) {
   }, traceContext);
 }
 
-async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride }, traceContext = null) {
+async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName }, traceContext = null) {
   const existing = await getPOSDraft(draftId, traceContext);
   if (!existing) return null;
 
@@ -425,6 +426,7 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
   const updates = {
     customerId: customerId !== undefined ? (customerId || null) : existing.customerId,
     addressId: resolvedAddressId || null,
+    walkinName: walkinName !== undefined ? ((walkinName || '').trim() || null) : (existing.walkinName || null),
     gstNumber: gstNumber !== undefined ? (gstNumber || null) : existing.gstNumber,
     gstName: gstName !== undefined ? (gstName || null) : existing.gstName,
     gstAddress: gstAddress !== undefined ? (gstAddress || null) : existing.gstAddress,
@@ -471,7 +473,10 @@ async function createPOSQuotation(draftId, traceContext = null) {
       }
     }
   } else {
-    const walkin = await createZohoContact({ name: 'Walk-in Customer', phone: '0000000000' }, traceContext);
+    // Walk-in / pickup: no customer account. Use the optional name entered at
+    // the counter so it appears on the Zoho estimate/invoice, else a generic label.
+    const walkinName = (draft.walkinName || '').trim() || 'Walk-in Customer';
+    const walkin = await createZohoContact({ name: walkinName, phone: '0000000000' }, traceContext);
     zohoContactId = walkin.contact_id;
   }
 
@@ -606,7 +611,7 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     paymentType: 'COD',
     paymentStatus: 'confirmed',
     status: 'warehouse_review',
-    customerName: customer?.name || '',
+    customerName: customer?.name || draft.walkinName || '',
     customerPhone: customer?.phone || '',
     freeDeliveryApplied: false,
     orderSource: 'pos',
