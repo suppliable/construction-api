@@ -1813,8 +1813,11 @@ async function confirmOrder() {
     document.getElementById('confirmResultArea').innerHTML = `
       <div class="confirm-success">
         <span class="confirm-success-icon">🎉</span>
-        <div class="confirm-success-title">Order Confirmed!</div>
+        <div class="confirm-success-title">${order.isWalkin ? 'Sale Complete!' : 'Order Confirmed!'}</div>
         <div class="confirm-success-order">${escHtml(order.orderId)}</div>
+        ${order.zoho_invoice_number
+          ? `<div style="font-size:13px;color:#047857;margin-bottom:6px">🧾 Zoho Invoice ${escHtml(order.zoho_invoice_number)} created</div>`
+          : (order.isWalkin ? `<div style="font-size:12px;color:var(--amber);margin-bottom:6px">⚠️ Invoice not created — raise it from the sales order in Zoho</div>` : '')}
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <a href="orders.html?highlight=${encodeURIComponent(order.orderId)}"
             onclick="loadDrafts()"

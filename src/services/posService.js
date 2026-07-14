@@ -13,7 +13,8 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, searchZohoContactByName, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
+const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, markZohoInvoiceAsSent, updateZohoSOOrderId } = require('./zohoOrderService');
 const { uploadToPath } = require('./storageService');
 const { updateCustomerGST } = require('./customerService');
 
@@ -475,9 +476,17 @@ async function createPOSQuotation(draftId, traceContext = null) {
   } else {
     // Walk-in / pickup: no customer account. Use the optional name entered at
     // the counter so it appears on the Zoho estimate/invoice, else a generic label.
+    // Reuse an existing contact with this exact name instead of creating a new one —
+    // Zoho enforces unique contact names, so a repeat create fails with error 3062
+    // ("... already exists. Please specify a different name.").
     const walkinName = (draft.walkinName || '').trim() || 'Walk-in Customer';
-    const walkin = await createZohoContact({ name: walkinName, phone: '0000000000' }, traceContext);
-    zohoContactId = walkin.contact_id;
+    const existing = await searchZohoContactByName(walkinName, traceContext).catch(() => null);
+    if (existing?.contact_id) {
+      zohoContactId = existing.contact_id;
+    } else {
+      const created = await createZohoContact({ name: walkinName, phone: '0000000000' }, traceContext);
+      zohoContactId = created.contact_id;
+    }
   }
 
   // Sync GST details using the same flow as the app's customer GST update —
@@ -564,6 +573,7 @@ async function createPOSQuotation(draftId, traceContext = null) {
       zohoQuotationId,
       zohoQuotationNumber,
       zohoQuotationUrl,
+      zohoContactId, // reused when a walk-in draft auto-invoices on convert
       status: 'quoted',
       quotedAt: new Date().toISOString(),
     }),
@@ -598,7 +608,50 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     ? await getCustomer(draft.customerId, traceContext).catch(() => null)
     : null;
 
+  const isWalkin = !draft.customerId;
   const orderId = 'ORD' + Date.now();
+
+  // Walk-in / pickup is a completed counter sale: create the Zoho sales order +
+  // invoice right now (no warehouse review / accept step) and mark the order
+  // delivered. Regular POS orders keep the warehouse_review flow, where the
+  // invoice is created when an admin accepts the order.
+  let zohoFields = {};
+  let orderStatus = 'warehouse_review';
+  if (isWalkin) {
+    // Reuse the contact resolved during quotation; re-resolve as a fallback.
+    let walkinContactId = draft.zohoContactId || null;
+    if (!walkinContactId) {
+      const name = (draft.walkinName || '').trim() || 'Walk-in Customer';
+      const existing = await searchZohoContactByName(name, traceContext).catch(() => null);
+      walkinContactId = existing?.contact_id
+        || (await createZohoContact({ name, phone: '0000000000' }, traceContext)).contact_id;
+    }
+
+    // No shipping address for a pickup; delivery charge is 0.
+    const zohoSO = await createZohoSalesOrder(
+      walkinContactId, draft.items, null, 0, null, traceContext,
+      { gstNumber: draft.gstNumber || null, gstName: draft.gstName || null, gstAddress: draft.gstAddress || null }
+    );
+    updateZohoSOOrderId(zohoSO.salesorder_id, orderId).catch(() => {});
+    await confirmZohoSalesOrder(zohoSO.salesorder_id, traceContext).catch(() => {});
+
+    let zohoInvoice = null;
+    try {
+      zohoInvoice = await createZohoInvoiceFromSO(zohoSO.salesorder_id, traceContext);
+      if (zohoInvoice?.invoice_id) await markZohoInvoiceAsSent(zohoInvoice.invoice_id).catch(() => {});
+    } catch (invErr) {
+      // Non-fatal — the SO exists; the invoice can be raised from it in Zoho if this fails.
+    }
+
+    orderStatus = 'delivered';
+    zohoFields = {
+      zoho_so_id: zohoSO.salesorder_id,
+      zoho_so_number: zohoSO.salesorder_number,
+      zoho_invoice_id: zohoInvoice?.invoice_id || null,
+      zoho_invoice_number: zohoInvoice?.invoice_number || null,
+    };
+  }
+
   const order = {
     orderId,
     userId: draft.customerId || null,
@@ -610,12 +663,15 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     grand_total: draft.grandTotal,
     paymentType: 'COD',
     paymentStatus: 'confirmed',
-    status: 'warehouse_review',
-    customerName: customer?.name || draft.walkinName || '',
+    status: orderStatus,
+    isWalkin,
+    customerName: customer?.name || draft.walkinName || 'Walk-in Customer',
     customerPhone: customer?.phone || '',
     freeDeliveryApplied: false,
     orderSource: 'pos',
     posDraftId: draftId,
+    ...(isWalkin ? { deliveredAt: new Date().toISOString() } : {}),
+    ...zohoFields,
     ...(draft.gstNumber ? { gstNumber: draft.gstNumber } : {}),
     ...(draft.gstName ? { gstName: draft.gstName } : {}),
     ...(draft.gstAddress ? { gstAddress: draft.gstAddress } : {}),
