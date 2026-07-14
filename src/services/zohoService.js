@@ -211,6 +211,31 @@ async function searchZohoContactByName(name, traceContext = null) {
   }
 }
 
+// Reliable exact-name lookup. Zoho's `search_text` is fuzzy and frequently
+// ignores the query entirely (returning a page of unrelated contacts), so it
+// cannot be trusted to find a specific contact. `contact_name_contains` honours
+// the query — filter with it, then match the exact contact_name.
+async function findContactByExactName(exactName, containsQuery = null, traceContext = null) {
+  try {
+    const token = await getAccessToken();
+    const response = await withRetry('zoho.api.findContactByExactName', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/books/v3/contacts`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: {
+          organization_id: process.env.ZOHO_ORG_ID,
+          contact_name_contains: containsQuery || exactName,
+          contact_type: 'customer',
+        },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    const contacts = response.data.contacts || [];
+    return contacts.find(c => c.contact_name === exactName) || null;
+  } catch (error) {
+    return null;
+  }
+}
+
 async function searchZohoContactByPhone(phone, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.searchContactByPhone', { 'peer.service': 'zoho', phone, endpoint: '/books/v3/contacts' });
   try {
@@ -452,5 +477,6 @@ module.exports = {
   updateZohoItemFeatured,
   searchZohoContactByPhone,
   searchZohoContactByName,
+  findContactByExactName,
   recordPaymentInZohoBooks
 };

@@ -13,7 +13,7 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, searchZohoContactByName, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, searchZohoContactByName, findContactByExactName, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, markZohoInvoiceAsSent, updateZohoSOOrderId } = require('./zohoOrderService');
 const { uploadToPath } = require('./storageService');
 const { updateCustomerGST } = require('./customerService');
@@ -447,6 +447,24 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
 
 // ---- Phase 3: Zoho Books quotation ----
 
+// Resolve the Zoho contact for a walk-in / pickup sale, reusing an existing one
+// so repeat walk-ins don't hit Zoho's unique-name error (3062).
+//
+// createZohoContact appends "(phone)" to contact_name, so a walk-in contact is
+// stored as e.g. "Walk-in Customer (0000000000)". We look it up by that exact
+// name via findContactByExactName (contact_name_contains — reliable; plain
+// search_text is not). Matching the full "(0000000000)" name means we only ever
+// reuse walk-in contacts, never a real customer who shares the display name.
+async function resolveWalkinContactId(walkinName, traceContext = null) {
+  const displayName = (walkinName || '').trim() || 'Walk-in Customer';
+  const phone = '0000000000';
+  const exactName = `${displayName} (${phone})`;
+  const existing = await findContactByExactName(exactName, displayName, traceContext).catch(() => null);
+  if (existing?.contact_id) return existing.contact_id;
+  const created = await createZohoContact({ name: displayName, phone }, traceContext);
+  return created.contact_id;
+}
+
 async function createPOSQuotation(draftId, traceContext = null) {
   const draft = await getPOSDraft(draftId, traceContext);
   if (!draft) throw Object.assign(new Error('Draft not found'), { code: 'DRAFT_NOT_FOUND' });
@@ -474,19 +492,9 @@ async function createPOSQuotation(draftId, traceContext = null) {
       }
     }
   } else {
-    // Walk-in / pickup: no customer account. Use the optional name entered at
-    // the counter so it appears on the Zoho estimate/invoice, else a generic label.
-    // Reuse an existing contact with this exact name instead of creating a new one —
-    // Zoho enforces unique contact names, so a repeat create fails with error 3062
-    // ("... already exists. Please specify a different name.").
-    const walkinName = (draft.walkinName || '').trim() || 'Walk-in Customer';
-    const existing = await searchZohoContactByName(walkinName, traceContext).catch(() => null);
-    if (existing?.contact_id) {
-      zohoContactId = existing.contact_id;
-    } else {
-      const created = await createZohoContact({ name: walkinName, phone: '0000000000' }, traceContext);
-      zohoContactId = created.contact_id;
-    }
+    // Walk-in / pickup: no customer account. Use the optional name entered at the
+    // counter so it appears on the Zoho estimate/invoice, else a generic label.
+    zohoContactId = await resolveWalkinContactId(draft.walkinName, traceContext);
   }
 
   // Sync GST details using the same flow as the app's customer GST update —
@@ -619,17 +627,13 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
   let orderStatus = 'warehouse_review';
   if (isWalkin) {
     // Reuse the contact resolved during quotation; re-resolve as a fallback.
-    let walkinContactId = draft.zohoContactId || null;
-    if (!walkinContactId) {
-      const name = (draft.walkinName || '').trim() || 'Walk-in Customer';
-      const existing = await searchZohoContactByName(name, traceContext).catch(() => null);
-      walkinContactId = existing?.contact_id
-        || (await createZohoContact({ name, phone: '0000000000' }, traceContext)).contact_id;
-    }
+    const walkinContactId = draft.zohoContactId
+      || await resolveWalkinContactId(draft.walkinName, traceContext);
 
-    // No shipping address for a pickup; delivery charge is 0.
+    // No shipping address for a pickup; delivery charge is whatever the operator
+    // set manually on the draft (0 by default).
     const zohoSO = await createZohoSalesOrder(
-      walkinContactId, draft.items, null, 0, null, traceContext,
+      walkinContactId, draft.items, null, draft.deliveryCharge || 0, null, traceContext,
       { gstNumber: draft.gstNumber || null, gstName: draft.gstName || null, gstAddress: draft.gstAddress || null }
     );
     updateZohoSOOrderId(zohoSO.salesorder_id, orderId).catch(() => {});

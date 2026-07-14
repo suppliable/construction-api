@@ -1528,10 +1528,16 @@ function renderCartTotals(subtotal, gstTotal, deliveryResult) {
   const delivEl = document.getElementById('totDelivery');
   noteEl.classList.add('hidden');
 
-  // Walk-in / pickup: no delivery, ever. Show ₹0 and suppress serviceability UI.
+  // Walk-in / pickup: no auto delivery calc (no address), but the operator can
+  // still set a charge manually — default ₹0, editable, no serviceability gate.
   if (isWalkin) {
-    delivEl.textContent = fmtMoney(0);
-    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal);
+    const eff = deliveryChargeOverride != null ? deliveryChargeOverride : 0;
+    delivEl.innerHTML = deliveryRowHtml(eff, deliveryChargeOverride != null);
+    document.getElementById('totGrand').textContent = fmtMoney(subtotal + gstTotal + eff);
+    if (deliveryChargeOverride != null) {
+      noteEl.innerHTML = `pickup default ₹0 · <span class="deliv-note-link" onclick="resetDeliveryOverride()">reset</span>`;
+      noteEl.classList.remove('hidden');
+    }
     warnEl.classList.add('hidden');
     return;
   }
