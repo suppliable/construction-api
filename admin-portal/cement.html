@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Cement Stock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --red:#e53935; --blue:#1565c0;
+    --bg:#f0f2f7; --card:#ffffff; --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --green:#10b981; --red2:#ef4444; --amber:#f59e0b;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
+
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
+  .topbar { height:60px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
+  .btn-logout:hover { background:var(--bg); }
+
+  .content { padding:24px; max-width:1000px; display:flex; flex-direction:column; gap:20px; }
+
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
+  .card-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .card-title { font-size:15px; font-weight:700; }
+  .card-desc { font-size:12.5px; color:var(--muted); margin-top:3px; }
+  .card-body { padding:18px 22px; }
+
+  .summary-row { display:flex; gap:16px; flex-wrap:wrap; }
+  .summary-tile { flex:1; min-width:170px; background:#fff; border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .summary-tile .label { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.03em; }
+  .summary-tile .value { font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:600; color:var(--navy); margin-top:6px; }
+
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { text-align:left; padding:10px 12px; color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:1px solid var(--border); }
+  td { padding:11px 12px; border-bottom:1px solid var(--border); }
+  tr:last-child td { border-bottom:none; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .num { text-align:right; }
+  .rate { font-weight:700; color:var(--navy); }
+  .empty { color:var(--muted); font-size:13px; padding:16px 0; text-align:center; }
+
+  label { display:block; font-size:12.5px; font-weight:600; color:var(--text); margin-bottom:5px; }
+  input, select { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; background:#fff; }
+  input:focus, select:focus { outline:none; border-color:var(--blue); }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; align-items:end; }
+  .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
+
+  .btn { padding:9px 16px; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+  .btn-navy { background:var(--navy); color:#fff; }
+  .btn-navy:hover { background:var(--navy-light); }
+  .btn-sm { padding:6px 12px; font-size:13px; }
+  .btn-ghost { background:none; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { background:var(--bg); }
+  .link-btn { background:none; border:none; color:var(--blue); font-size:13px; cursor:pointer; font-family:'DM Sans',sans-serif; font-weight:600; }
+
+  .anomaly { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:8px; padding:8px 11px; font-size:12.5px; margin-top:8px; }
+  .badge { display:inline-block; background:var(--bg); border-radius:20px; padding:2px 9px; font-size:12px; font-weight:600; }
+
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.error { background:var(--red2); }
+  #toast.success { background:var(--green); }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:14px; width:100%; max-width:760px; max-height:88vh; overflow:auto; }
+  .modal-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .modal-body { padding:18px 22px; }
+  .close-x { background:none; border:none; font-size:22px; color:var(--muted); cursor:pointer; line-height:1; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
+    <a class="nav-item active" href="cement.html">🧱 Cement Stock</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="notifications.html">📣 Notifications</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Cement Stock — FIFO Costing</div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+
+  <div class="content">
+    <div class="summary-row">
+      <div class="summary-tile"><div class="label">Bags on hand</div><div class="value" id="sumBags">—</div></div>
+      <div class="summary-tile"><div class="label">Stock value</div><div class="value" id="sumValue">—</div></div>
+      <div class="summary-tile"><div class="label">Blended rate / bag</div><div class="value" id="sumRate">—</div></div>
+    </div>
+
+    <!-- Add restock -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Add restock</div>
+          <div class="card-desc">Record every cement purchase. FIFO consumes the oldest bags first.</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="openAddProduct()">+ New cement type</button>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div>
+            <label>Date</label>
+            <input type="date" id="fDate">
+          </div>
+          <div>
+            <label>Cement</label>
+            <select id="fProduct"></select>
+          </div>
+          <div>
+            <label>Landing price / bag (₹)</label>
+            <input type="number" id="fPrice" min="0" step="0.01" placeholder="e.g. 400">
+          </div>
+          <div>
+            <label>Bags received</label>
+            <input type="number" id="fReceived" min="0" step="1" placeholder="e.g. 50">
+          </div>
+          <div>
+            <label>Stock in hand</label>
+            <input type="number" id="fLeftover" min="0" step="1" placeholder="e.g. 30">
+            <div class="hint">Old bags counted before this load</div>
+          </div>
+          <div>
+            <button class="btn btn-navy" style="width:100%" onclick="submitRestock()">Save restock</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ledger -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Current stock</div>
+        <button class="link-btn" onclick="loadLedger()">↻ Refresh</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead>
+            <tr>
+              <th>Cement</th>
+              <th class="num">Bags on hand</th>
+              <th class="num">Stock value</th>
+              <th class="num">Cumulative rate / bag</th>
+              <th>Last restock</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ledgerBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- History modal -->
+<div class="modal-overlay" id="histModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="card-title" id="histTitle">History</div>
+      <button class="close-x" onclick="closeModal('histModal')">×</button>
+    </div>
+    <div class="modal-body" id="histBody"></div>
+  </div>
+</div>
+
+<!-- Add product modal -->
+<div class="modal-overlay" id="prodModal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head">
+      <div class="card-title">New cement type</div>
+      <button class="close-x" onclick="closeModal('prodModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <label>Name</label>
+      <input type="text" id="pName" placeholder="e.g. UltraTech PPC 43 Grade">
+      <button class="btn btn-navy" style="width:100%;margin-top:14px" onclick="submitProduct()">Add</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._t); t._t = setTimeout(() => { t.className = ''; }, 4000);
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+const rupee = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+let PRODUCTS = [];
+
+async function loadProducts() {
+  const res = await apiFetch('/api/v1/admin/cement/products');
+  const data = await res.json();
+  PRODUCTS = data.data || [];
+  const sel = document.getElementById('fProduct');
+  sel.innerHTML = PRODUCTS.length
+    ? PRODUCTS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')
+    : '<option value="">— add a cement type first —</option>';
+}
+
+async function loadLedger() {
+  const res = await apiFetch('/api/v1/admin/cement/ledger');
+  const data = (await res.json()).data || { products: [], totals: {} };
+  const t = data.totals || {};
+  document.getElementById('sumBags').textContent = (t.totalBags || 0).toLocaleString('en-IN');
+  document.getElementById('sumValue').textContent = rupee(t.totalValue);
+  document.getElementById('sumRate').textContent = rupee(t.blendedRatePerBag);
+
+  const body = document.getElementById('ledgerBody');
+  if (!data.products.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">No cement types yet. Add one to begin.</td></tr>';
+    return;
+  }
+  body.innerHTML = data.products.map(p => {
+    const anomalies = (p.anomalies || []).map(a => `<div class="anomaly">⚠️ ${a.message}</div>`).join('');
+    return `<tr>
+      <td><strong>${p.name}</strong>${anomalies}</td>
+      <td class="num mono">${p.onHand.toLocaleString('en-IN')}</td>
+      <td class="num mono">${rupee(p.stockValue)}</td>
+      <td class="num mono rate">${rupee(p.ratePerBag)}</td>
+      <td>${p.lastRestockDate || '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="num"><button class="link-btn" onclick="openHistory('${p.productId}','${p.name.replace(/'/g,"\\'")}')">History</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function submitRestock() {
+  const productId = document.getElementById('fProduct').value;
+  const date = document.getElementById('fDate').value;
+  const landingPricePerBag = document.getElementById('fPrice').value;
+  const bagsReceived = document.getElementById('fReceived').value;
+  const stockInHand = document.getElementById('fLeftover').value;
+
+  if (!productId) return showToast('Add and pick a cement type first', 'error');
+  if (!date) return showToast('Pick a date', 'error');
+  if (landingPricePerBag === '' || bagsReceived === '' || stockInHand === '')
+    return showToast('Fill price, bags received and stock in hand', 'error');
+
+  try {
+    const res = await apiFetch('/api/v1/admin/cement/restocks', {
+      method: 'POST',
+      body: JSON.stringify({ productId, date, landingPricePerBag, bagsReceived, stockInHand }),
+    });
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Failed', 'error');
+    showToast('Restock saved', 'success');
+    document.getElementById('fPrice').value = '';
+    document.getElementById('fReceived').value = '';
+    document.getElementById('fLeftover').value = '';
+    loadLedger();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function openAddProduct() { document.getElementById('pName').value = ''; document.getElementById('prodModal').classList.add('open'); }
+async function submitProduct() {
+  const name = document.getElementById('pName').value.trim();
+  if (!name) return showToast('Enter a name', 'error');
+  try {
+    const res = await apiFetch('/api/v1/admin/cement/products', { method: 'POST', body: JSON.stringify({ name }) });
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Failed', 'error');
+    closeModal('prodModal');
+    showToast('Cement type added', 'success');
+    await loadProducts();
+    document.getElementById('fProduct').value = data.data.id;
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function openHistory(productId, name) {
+  document.getElementById('histTitle').textContent = name + ' — restock history';
+  const body = document.getElementById('histBody');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('histModal').classList.add('open');
+  const res = await apiFetch('/api/v1/admin/cement/restocks?productId=' + encodeURIComponent(productId));
+  const rows = (await res.json()).data || [];
+  if (!rows.length) { body.innerHTML = '<div class="empty">No restocks recorded yet.</div>'; return; }
+  body.innerHTML = `<table>
+    <thead><tr>
+      <th>Date</th><th class="num">Price/bag</th><th class="num">Received</th>
+      <th class="num">Stock in hand</th><th></th>
+    </tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td>${r.date}</td>
+      <td class="num mono">${rupee(r.landingPricePerBag)}</td>
+      <td class="num mono">${Number(r.bagsReceived).toLocaleString('en-IN')}</td>
+      <td class="num mono">${Number(r.stockInHand).toLocaleString('en-IN')}</td>
+      <td class="num"><button class="link-btn" style="color:var(--red2)" onclick="deleteRestock('${r.id}','${productId}','${name.replace(/'/g,"\\'")}')">Delete</button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function deleteRestock(restockId, productId, name) {
+  if (!confirm('Delete this restock? The FIFO ledger will recompute.')) return;
+  try {
+    const res = await apiFetch('/api/v1/admin/cement/restocks/' + restockId, { method: 'DELETE' });
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Failed', 'error');
+    showToast('Restock deleted', 'success');
+    await openHistory(productId, name);
+    loadLedger();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+(async function init() {
+  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
+  await loadProducts();
+  await loadLedger();
+})();
+</script>
+</body>
+</html>

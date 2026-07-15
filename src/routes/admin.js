@@ -12,6 +12,11 @@ const {
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
 const { buildRuntimeDiagnostics } = require('../services/diagnosticsService');
 const {
+  listCementProducts, addCementProduct,
+  listCementRestocks, addCementRestock, deleteCementRestock,
+  getCementLedger,
+} = require('../controllers/cementController');
+const {
   listOrders,
   getOrderStats,
   getNewOrderCount,
@@ -304,6 +309,15 @@ router.post('/cache/invalidate-zoho', async (req, res) => {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 });
+
+// Cement FIFO stock costing — restocks entered by the warehouse manager, ledger
+// (bags on hand + cumulative FIFO rate/bag) recomputed by replaying restocks.
+router.get('/cement/ledger', getCementLedger);
+router.get('/cement/products', listCementProducts);
+router.post('/cement/products', addCementProduct);
+router.get('/cement/restocks', listCementRestocks);
+router.post('/cement/restocks', addCementRestock);
+router.delete('/cement/restocks/:restockId', deleteCementRestock);
 
 // Firebase custom token for the admin live view (RTDB push).
 // The admin portal is not a Firebase Auth client — it authenticates with the
