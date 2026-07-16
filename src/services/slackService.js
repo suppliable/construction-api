@@ -3,15 +3,8 @@
 const env = require('../config/env');
 const admin = require('../utils/firebaseAdmin');
 const { getCustomer } = require('../repositories/customerRepository');
-
-// IST date key (YYYY-MM-DD) — counter resets at midnight Asia/Kolkata, matching
-// the warehouse's local day rather than UTC.
-function istDateKey(d = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(d);
-}
+const { istDateKey } = require('../utils/istDate');
+const { formatISTTime } = require('../utils/storeSchedule');
 
 // Atomically increment and return today's order sequence number. Backed by a
 // per-day counter doc (counters/orders-YYYY-MM-DD). Display-only — the real
@@ -56,15 +49,29 @@ function itemsBlocks(order) {
 
 const slackEnabled = () => Boolean(env.SLACK_BOT_TOKEN && env.SLACK_CHANNEL_ID);
 
+// Channel for warehouse open/close broadcasts. Currently unset, so these post
+// into the order channel alongside order cards — that's intentional. Set
+// SLACK_BROADCAST_CHANNEL_ID (a channel ID, not a name) to split them out; each
+// env already points SLACK_CHANNEL_ID at its own channel, so this needs no
+// per-env routing of its own.
+const broadcastChannel = () =>
+  env.SLACK_BROADCAST_CHANNEL_ID || env.SLACK_CHANNEL_ID;
+
+// Scheduled ticks only ever run in prod: Cloud Scheduler is scoped to the
+// suppliable-app GCP project, and dev/qa run on Render where no cron reaches
+// them. Manual closes DO fire from every env (they run inline on the admin
+// request), so the env label below is what distinguishes a qa test close from a
+// real prod outage in a shared channel.
+
 // ── Slack Web API (bot token) ──────────────────────────────────────────────
 // Unlike incoming webhooks, the Web API returns a message `ts` we can later
 // edit via chat.update. Both helpers are best-effort: they never throw, so a
 // Slack outage can't break order creation or payment confirmation.
 
-async function postMessage(blocks, text, threadTs = null) {
+async function postMessage(blocks, text, threadTs = null, channel = null) {
   if (!slackEnabled()) return null;
   try {
-    const body = { channel: env.SLACK_CHANNEL_ID, text, blocks };
+    const body = { channel: channel || env.SLACK_CHANNEL_ID, text, blocks };
     if (threadTs) body.thread_ts = threadTs;
     const res = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
@@ -223,4 +230,47 @@ async function notifyPaymentFailed(order, attempt) {
   await postMessage(blocks, `🚨 Payment Failed ${order.orderId}`);
 }
 
-module.exports = { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw };
+// ── Warehouse open/close broadcast ─────────────────────────────────────────
+
+/**
+ * Announce a warehouse open/close transition to the broadcast channel.
+ *
+ * `kind` ∈ 'scheduled' (a schedule boundary passed, prod only — see above) |
+ * 'manual' (an admin acted, any env).
+ *
+ * Best-effort: never throws, so it can't break the caller.
+ */
+
+// Whether the routine daily scheduled open is announced. Closes and all manual
+// actions always post. Set false to mute the every-morning "open" message while
+// keeping the ones that signal something unusual.
+const ANNOUNCE_SCHEDULED_OPEN = true;
+
+async function notifyWarehouseTransition({ kind, isOpen, until, message }) {
+  if (!slackEnabled()) return;
+  if (isOpen && kind === 'scheduled' && !ANNOUNCE_SCHEDULED_OPEN) return;
+
+  const heading = isOpen
+    ? (kind === 'manual' ? '🟢 *Warehouse reopened* — by admin' : '🟢 *Warehouse open*')
+    : (kind === 'manual' ? '🔴 *Warehouse closed* — by admin' : '🔴 *Warehouse closed*');
+
+  const lines = [heading, `🏷️ *Environment:* ${env.appEnv}`];
+  if (!isOpen && until) {
+    lines.push(`⏰ *Reopens around:* ${formatISTTime(new Date(until))} IST`);
+  }
+  if (!isOpen && message) {
+    lines.push(`💬 *Customers see:* _${message}_`);
+  }
+
+  const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } }];
+  const text = isOpen ? '🟢 Warehouse open' : '🔴 Warehouse closed';
+  await postMessage(blocks, text, null, broadcastChannel());
+}
+
+module.exports = {
+  postNewOrder,
+  updateOrderPaymentStatus,
+  notifyPaymentFailed,
+  cardStateFromRaw,
+  notifyWarehouseTransition,
+};
