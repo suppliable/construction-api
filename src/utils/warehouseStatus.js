@@ -1,6 +1,7 @@
 'use strict';
 
-const { getScheduleStatus, scheduleClosedMessage, formatISTTime } = require('./storeSchedule');
+const { getScheduleStatus, scheduleClosedMessage, parseSchedule, formatISTTime } = require('./storeSchedule');
+const remoteConfig = require('../services/remoteConfigService');
 
 const DEFAULT_CLOSED_MESSAGE = 'We are currently closed. You can add items to cart and place your order when we reopen.';
 
@@ -18,14 +19,32 @@ function isManuallyClosed(settings, now) {
   return now.getTime() < untilMs; // still within the maintenance window
 }
 
-// Combine the fixed IST schedule with the admin kill-switch. The store is open
-// only when the schedule says so AND no manual close is in effect. A manual
-// close always wins over the schedule so the store can be shut for maintenance
-// or an emergency.
-function computeWarehouseStatus(settings, now = new Date()) {
+// Read the store schedule from Remote Config. Falls back to the hardcoded
+// business hours if the key is missing or malformed — remoteConfigService
+// already caches the template and never throws, so this stays cheap per request.
+async function loadSchedule() {
+  const raw = await remoteConfig.getString('warehouse_schedule', '');
+  return parseSchedule(raw);
+}
+
+/**
+ * Combine the IST schedule with the admin kill-switch. The store is open only
+ * when the schedule says so AND no manual close is in effect. A manual close
+ * always wins over the schedule so the store can be shut for maintenance or an
+ * emergency.
+ *
+ * The result is a pure function of the clock and the two config sources, so it
+ * is correct the instant the schedule boundary passes — no propagation delay.
+ *
+ * @param {Object} settings   Firestore settings doc (warehouseOpen, warehouseClosedUntil, ...).
+ * @param {Date} [now]        Injectable clock for testing.
+ * @param {Object} [schedule] Injectable parsed schedule; loaded from RC when omitted.
+ */
+async function computeWarehouseStatus(settings, now = new Date(), schedule = null) {
+  const resolved = schedule || await loadSchedule();
   const manualClosed = isManuallyClosed(settings, now);
-  const schedule = getScheduleStatus(now);
-  const isOpen = schedule.open && !manualClosed;
+  const status = getScheduleStatus(now, resolved);
+  const isOpen = status.open && !manualClosed;
 
   const data = { isOpen, closedMessage: '' };
   if (!isOpen) {
@@ -39,7 +58,7 @@ function computeWarehouseStatus(settings, now = new Date()) {
         data.closedMessage = settings.warehouseClosedMessage || DEFAULT_CLOSED_MESSAGE;
       }
     } else {
-      data.closedMessage = scheduleClosedMessage(schedule.reason);
+      data.closedMessage = scheduleClosedMessage(status);
     }
   }
   return data;
@@ -70,5 +89,6 @@ module.exports = {
   computeWarehouseStatus,
   resolveClosedUntil,
   isManuallyClosed,
+  loadSchedule,
   DEFAULT_CLOSED_MESSAGE,
 };
