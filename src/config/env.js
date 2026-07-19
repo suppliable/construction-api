@@ -49,6 +49,14 @@ const schema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_CHANNEL_ID: z.string().optional(),
+  // Optional separate channel for warehouse open/close broadcasts. Unset means
+  // they post into SLACK_CHANNEL_ID alongside order cards.
+  SLACK_BROADCAST_CHANNEL_ID: z.string().optional(),
+
+  // Cloud Scheduler OIDC auth for the warehouse schedule tick. Without the
+  // service-account email the tick endpoint refuses all callers (closed, not open).
+  SCHEDULER_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
+  SCHEDULER_OIDC_AUDIENCE: z.string().optional(),
 
   // Payments
   PAYMENT_GATEWAY: z.enum(['none', 'cashfree', 'razorpay']).default('none'),

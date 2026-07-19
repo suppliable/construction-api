@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus } = require('../controllers/configController');
+const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick } = require('../controllers/configController');
+const { requireScheduler } = require('../middleware/schedulerAuth');
 const { cacheFor } = require('../cache/middleware');
 const { invalidateConfig } = require('../cache/invalidate');
 const { CACHE_TTL_CONFIG_S } = require('../constants');
@@ -21,5 +22,10 @@ router.put('/cod-threshold', requireAdmin, async (req, res, next) => {
 
 router.get('/warehouse-status', getWarehouseStatus);
 router.put('/warehouse-status', requireAdmin, updateWarehouseStatus);
+
+// Cloud Scheduler tick — announces schedule-driven transitions to Slack.
+// OIDC-authed (not requireAdmin): the scheduler presents a Google-signed
+// identity token rather than holding an admin credential.
+router.post('/warehouse-schedule-tick', requireScheduler, warehouseScheduleTick);
 
 module.exports = router;
