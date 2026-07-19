@@ -35,6 +35,7 @@ gcloud services enable \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
   cloudbuild.googleapis.com \
+  cloudscheduler.googleapis.com \
   --project "$PROJECT_ID"
 
 # ── Artifact Registry ─────────────────────────────────────────────────────────
@@ -168,8 +169,26 @@ for key in "${OPTIONAL_SECRETS[@]}"; do
   SECRET_PAIRS="${SECRET_PAIRS:+$SECRET_PAIRS,}${key}=${sid}:latest"
 done
 
+# ── Scheduler service account ─────────────────────────────────────────────────
+# Created BEFORE the deploy so its email can be injected as an env var in the
+# same rollout — otherwise the tick endpoint would sit closed until a second
+# deploy. The email is derived from PROJECT_ID, so it's known ahead of creation.
+SCHEDULER_SA="warehouse-scheduler"
+SCHEDULER_SA_EMAIL="${SCHEDULER_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+if ! gcloud iam service-accounts describe "$SCHEDULER_SA_EMAIL" --project "$PROJECT_ID" &>/dev/null; then
+  info "Creating service account $SCHEDULER_SA_EMAIL"
+  gcloud iam service-accounts create "$SCHEDULER_SA" \
+    --display-name "Warehouse schedule tick (Cloud Scheduler)" \
+    --project "$PROJECT_ID"
+else
+  info "Scheduler service account already exists"
+fi
+
 # ── Deploy to Cloud Run ───────────────────────────────────────────────────────
 info "Deploying to Cloud Run..."
+# The scheduler SA email is public identity metadata, not a credential, so it
+# goes in --set-env-vars rather than Secret Manager (which is version-capped).
 # shellcheck disable=SC2086
 gcloud run deploy "$SERVICE_NAME" \
   --image "$IMAGE_TAG" \
@@ -183,13 +202,75 @@ gcloud run deploy "$SERVICE_NAME" \
   --max-instances 10 \
   --concurrency 80 \
   --timeout 60 \
-  --set-env-vars NODE_ENV=production \
+  --set-env-vars NODE_ENV=production,SCHEDULER_SERVICE_ACCOUNT_EMAIL="$SCHEDULER_SA_EMAIL" \
   --set-secrets="$SECRET_PAIRS" \
   --project "$PROJECT_ID"
 
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
   --region "$REGION" --project "$PROJECT_ID" \
   --format "value(status.url)")
+
+# ── Cloud Scheduler: warehouse open/close announcements (PROD ONLY) ───────────
+# This script deploys prod only (PROJECT_ID is hardcoded to suppliable-app), and
+# Cloud Scheduler jobs are scoped to that GCP project — so these two jobs exist
+# for prod alone. Dev and qa run on Render, which no cron reaches, and so get no
+# scheduled announcements. That is fine: the open/closed gate is computed from
+# the clock on every request, so dev/qa still honour the schedule exactly. Only
+# the Slack notice is prod-only. Manual admin closes announce from every env,
+# since those fire inline on the admin request rather than via cron.
+#
+# These jobs only POST a tick so the API can announce a schedule transition to
+# Slack. They do NOT open or close the warehouse — so a missed firing costs a
+# notification, not uptime.
+# Safe to re-run: create falls back to update. The service account itself is
+# created earlier, before the deploy, so its email can be passed as an env var.
+TICK_URL="${SERVICE_URL}/api/v1/config/warehouse-schedule-tick"
+
+info "Configuring Cloud Scheduler jobs..."
+
+# The scheduler SA needs to invoke the Cloud Run service.
+gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+  --member "serviceAccount:${SCHEDULER_SA_EMAIL}" \
+  --role roles/run.invoker \
+  --region "$REGION" --project "$PROJECT_ID" >/dev/null
+
+# One job per schedule boundary. Cron is in Asia/Kolkata to match the warehouse's
+# local day; Mon–Sat only (1-6). Keep these in sync with the `warehouse_schedule`
+# Remote Config key — the cron decides when we ANNOUNCE, the RC key decides when
+# the store is actually open.
+create_or_update_job() {
+  local name="$1" cron="$2"
+  if gcloud scheduler jobs describe "$name" --location "$REGION" --project "$PROJECT_ID" &>/dev/null; then
+    gcloud scheduler jobs update http "$name" \
+      --location "$REGION" --project "$PROJECT_ID" \
+      --schedule "$cron" --time-zone "Asia/Kolkata" \
+      --uri "$TICK_URL" --http-method POST \
+      --oidc-service-account-email "$SCHEDULER_SA_EMAIL" \
+      --oidc-token-audience "$SERVICE_URL" >/dev/null
+    info "Updated scheduler job: $name ($cron IST)"
+  else
+    gcloud scheduler jobs create http "$name" \
+      --location "$REGION" --project "$PROJECT_ID" \
+      --schedule "$cron" --time-zone "Asia/Kolkata" \
+      --uri "$TICK_URL" --http-method POST \
+      --oidc-service-account-email "$SCHEDULER_SA_EMAIL" \
+      --oidc-token-audience "$SERVICE_URL" >/dev/null
+    info "Created scheduler job: $name ($cron IST)"
+  fi
+}
+
+create_or_update_job "warehouse-open-tick"  "45 8 * * 1-6"
+create_or_update_job "warehouse-close-tick" "30 19 * * 1-6"
+
+# Prove the endpoint is wired up: unauthenticated callers must be rejected (401),
+# never 503 (which would mean SCHEDULER_SERVICE_ACCOUNT_EMAIL didn't reach the
+# container) and never 2xx (which would mean it's open to the world).
+TICK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TICK_URL" || true)
+case "$TICK_STATUS" in
+  401) info "Scheduler tick endpoint is live and rejecting unauthenticated callers ✅" ;;
+  503) warn "Tick endpoint returned 503 — SCHEDULER_SERVICE_ACCOUNT_EMAIL is not reaching the container" ;;
+  *)   warn "Tick endpoint returned unexpected HTTP $TICK_STATUS (expected 401)" ;;
+esac
 
 # ── Post-deploy health check ──────────────────────────────────────────────────
 info "Deployed! Service URL: $SERVICE_URL"

@@ -13,7 +13,8 @@ const { getPaintPricing, VALID_SIZES } = require('../repositories/paintRepositor
 const { calculateDelivery } = require('./deliveryService');
 const { geocodeAddress, reverseGeocode } = require('./googleMapsService');
 const { zohoPost } = require('./zohoHttp');
-const { createZohoContact, searchZohoContactByPhone, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
+const { createZohoContact, searchZohoContactByPhone, searchZohoContactByName, findContactByExactName, updateZohoContact, getAccessToken, getZohoProductById } = require('./zohoService');
+const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, markZohoInvoiceAsSent, updateZohoSOOrderId } = require('./zohoOrderService');
 const { uploadToPath } = require('./storageService');
 const { updateCustomerGST } = require('./customerService');
 
@@ -368,7 +369,7 @@ async function calcTotalsAndDelivery(lineItems, addressId, traceContext = null, 
 
 // ---- Draft CRUD ----
 
-async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride = null }, traceContext = null) {
+async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride = null, walkinName = null }, traceContext = null) {
   const lineItems = await buildDraftLineItems(items, traceContext);
   const totals = await calcTotalsAndDelivery(lineItems, addressId, traceContext, deliveryChargeOverride);
 
@@ -380,6 +381,7 @@ async function savePOSDraft({ customerId, addressId, items, gstNumber, gstName, 
     draftId,
     customerId: customerId || null,
     addressId: addressId || null,
+    walkinName: (walkinName || '').trim() || null,
     gstNumber: gstNumber || null,
     gstName: gstName || null,
     gstAddress: gstAddress || null,
@@ -407,7 +409,7 @@ async function getPOSDraft(draftId, traceContext = null) {
   }, traceContext);
 }
 
-async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride }, traceContext = null) {
+async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName }, traceContext = null) {
   const existing = await getPOSDraft(draftId, traceContext);
   if (!existing) return null;
 
@@ -425,6 +427,7 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
   const updates = {
     customerId: customerId !== undefined ? (customerId || null) : existing.customerId,
     addressId: resolvedAddressId || null,
+    walkinName: walkinName !== undefined ? ((walkinName || '').trim() || null) : (existing.walkinName || null),
     gstNumber: gstNumber !== undefined ? (gstNumber || null) : existing.gstNumber,
     gstName: gstName !== undefined ? (gstName || null) : existing.gstName,
     gstAddress: gstAddress !== undefined ? (gstAddress || null) : existing.gstAddress,
@@ -443,6 +446,24 @@ async function updatePOSDraft(draftId, { customerId, addressId, items, gstNumber
 }
 
 // ---- Phase 3: Zoho Books quotation ----
+
+// Resolve the Zoho contact for a walk-in / pickup sale, reusing an existing one
+// so repeat walk-ins don't hit Zoho's unique-name error (3062).
+//
+// createZohoContact appends "(phone)" to contact_name, so a walk-in contact is
+// stored as e.g. "Walk-in Customer (0000000000)". We look it up by that exact
+// name via findContactByExactName (contact_name_contains — reliable; plain
+// search_text is not). Matching the full "(0000000000)" name means we only ever
+// reuse walk-in contacts, never a real customer who shares the display name.
+async function resolveWalkinContactId(walkinName, traceContext = null) {
+  const displayName = (walkinName || '').trim() || 'Walk-in Customer';
+  const phone = '0000000000';
+  const exactName = `${displayName} (${phone})`;
+  const existing = await findContactByExactName(exactName, displayName, traceContext).catch(() => null);
+  if (existing?.contact_id) return existing.contact_id;
+  const created = await createZohoContact({ name: displayName, phone }, traceContext);
+  return created.contact_id;
+}
 
 async function createPOSQuotation(draftId, traceContext = null) {
   const draft = await getPOSDraft(draftId, traceContext);
@@ -471,8 +492,9 @@ async function createPOSQuotation(draftId, traceContext = null) {
       }
     }
   } else {
-    const walkin = await createZohoContact({ name: 'Walk-in Customer', phone: '0000000000' }, traceContext);
-    zohoContactId = walkin.contact_id;
+    // Walk-in / pickup: no customer account. Use the optional name entered at the
+    // counter so it appears on the Zoho estimate/invoice, else a generic label.
+    zohoContactId = await resolveWalkinContactId(draft.walkinName, traceContext);
   }
 
   // Sync GST details using the same flow as the app's customer GST update —
@@ -559,6 +581,7 @@ async function createPOSQuotation(draftId, traceContext = null) {
       zohoQuotationId,
       zohoQuotationNumber,
       zohoQuotationUrl,
+      zohoContactId, // reused when a walk-in draft auto-invoices on convert
       status: 'quoted',
       quotedAt: new Date().toISOString(),
     }),
@@ -593,7 +616,46 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     ? await getCustomer(draft.customerId, traceContext).catch(() => null)
     : null;
 
+  const isWalkin = !draft.customerId;
   const orderId = 'ORD' + Date.now();
+
+  // Walk-in / pickup is a completed counter sale: create the Zoho sales order +
+  // invoice right now (no warehouse review / accept step) and mark the order
+  // delivered. Regular POS orders keep the warehouse_review flow, where the
+  // invoice is created when an admin accepts the order.
+  let zohoFields = {};
+  let orderStatus = 'warehouse_review';
+  if (isWalkin) {
+    // Reuse the contact resolved during quotation; re-resolve as a fallback.
+    const walkinContactId = draft.zohoContactId
+      || await resolveWalkinContactId(draft.walkinName, traceContext);
+
+    // No shipping address for a pickup; delivery charge is whatever the operator
+    // set manually on the draft (0 by default).
+    const zohoSO = await createZohoSalesOrder(
+      walkinContactId, draft.items, null, draft.deliveryCharge || 0, null, traceContext,
+      { gstNumber: draft.gstNumber || null, gstName: draft.gstName || null, gstAddress: draft.gstAddress || null }
+    );
+    updateZohoSOOrderId(zohoSO.salesorder_id, orderId).catch(() => {});
+    await confirmZohoSalesOrder(zohoSO.salesorder_id, traceContext).catch(() => {});
+
+    let zohoInvoice = null;
+    try {
+      zohoInvoice = await createZohoInvoiceFromSO(zohoSO.salesorder_id, traceContext);
+      if (zohoInvoice?.invoice_id) await markZohoInvoiceAsSent(zohoInvoice.invoice_id).catch(() => {});
+    } catch (invErr) {
+      // Non-fatal — the SO exists; the invoice can be raised from it in Zoho if this fails.
+    }
+
+    orderStatus = 'delivered';
+    zohoFields = {
+      zoho_so_id: zohoSO.salesorder_id,
+      zoho_so_number: zohoSO.salesorder_number,
+      zoho_invoice_id: zohoInvoice?.invoice_id || null,
+      zoho_invoice_number: zohoInvoice?.invoice_number || null,
+    };
+  }
+
   const order = {
     orderId,
     userId: draft.customerId || null,
@@ -605,12 +667,15 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
     grand_total: draft.grandTotal,
     paymentType: 'COD',
     paymentStatus: 'confirmed',
-    status: 'warehouse_review',
-    customerName: customer?.name || '',
+    status: orderStatus,
+    isWalkin,
+    customerName: customer?.name || draft.walkinName || 'Walk-in Customer',
     customerPhone: customer?.phone || '',
     freeDeliveryApplied: false,
     orderSource: 'pos',
     posDraftId: draftId,
+    ...(isWalkin ? { deliveredAt: new Date().toISOString() } : {}),
+    ...zohoFields,
     ...(draft.gstNumber ? { gstNumber: draft.gstNumber } : {}),
     ...(draft.gstName ? { gstName: draft.gstName } : {}),
     ...(draft.gstAddress ? { gstAddress: draft.gstAddress } : {}),

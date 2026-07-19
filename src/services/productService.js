@@ -6,6 +6,7 @@ const {
 const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
 const { withSpan } = require('../utils/spanTracer');
+const { isAppVisible } = require('../utils/appVisibility');
 const redis = require('../cache/redis');
 const env = require('../config/env');
 
@@ -29,6 +30,7 @@ const toNumberOrNull = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+
 
 
 
@@ -132,13 +134,14 @@ function clearCache() {
   redis.del(REDIS_ZOHO_KEY).catch(() => {});
 }
 
-async function getAllProducts(category = null, traceContext = null) {
+async function getAllProducts(category = null, traceContext = null, opts = {}) {
   // Handle case where category is actually traceContext (backwards compatibility)
   if (category && typeof category === 'object' && category.traceId) {
     traceContext = category;
     category = null;
   }
-  
+  const { includeHidden = false } = opts;
+
   const { items, groups, categoryMap } = await fetchZohoData(traceContext);
 
   // Build item lookup map for GST and custom fields
@@ -195,6 +198,7 @@ async function getAllProducts(category = null, traceContext = null) {
       unit: group.unit,
       description: group.description || '',
       hasVariants: true,
+      appVisible: isAppVisible(firstVariantItem),
       priceRange,
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
@@ -223,6 +227,7 @@ async function getAllProducts(category = null, traceContext = null) {
         unit: item.unit,
         description: item.description || '',
         hasVariants: false,
+        appVisible: isAppVisible(item),
         price: item.rate,
         stock: item.stock_on_hand || 0,
         available_stock: item.available_stock || 0,
@@ -237,15 +242,19 @@ async function getAllProducts(category = null, traceContext = null) {
       };
     });
 
-  const allProducts = [...groupedProducts, ...plainProducts];
+  // App-facing callers (default) get only app-visible products; the POS passes
+  // includeHidden to also see counter-only (walk-in) items.
+  const visibleProducts = includeHidden
+    ? [...groupedProducts, ...plainProducts]
+    : [...groupedProducts, ...plainProducts].filter(p => p.appVisible);
 
   if (category) {
-    return allProducts.filter(p =>
+    return visibleProducts.filter(p =>
       p.category.toLowerCase() === category.toLowerCase()
     );
   }
 
-  return allProducts;
+  return visibleProducts;
 };
 
 const getProductById = async (id, traceContext = null) => {

@@ -12,6 +12,11 @@ const {
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
 const { buildRuntimeDiagnostics } = require('../services/diagnosticsService');
 const {
+  listCementProducts, addCementProduct,
+  listCementRestocks, addCementRestock, deleteCementRestock,
+  getCementLedger,
+} = require('../controllers/cementController');
+const {
   listOrders,
   getOrderStats,
   getNewOrderCount,
@@ -305,6 +310,15 @@ router.post('/cache/invalidate-zoho', async (req, res) => {
   }
 });
 
+// Cement FIFO stock costing — restocks entered by the warehouse manager, ledger
+// (bags on hand + cumulative FIFO rate/bag) recomputed by replaying restocks.
+router.get('/cement/ledger', getCementLedger);
+router.get('/cement/products', listCementProducts);
+router.post('/cement/products', addCementProduct);
+router.get('/cement/restocks', listCementRestocks);
+router.post('/cement/restocks', addCementRestock);
+router.delete('/cement/restocks/:restockId', deleteCementRestock);
+
 // Firebase custom token for the admin live view (RTDB push).
 // The admin portal is not a Firebase Auth client — it authenticates with the
 // shared ADMIN_TOKEN (middleware above). To subscribe to liveOrders via the
@@ -412,6 +426,21 @@ router.post('/pos/stock', async (req, res) => {
   }
 });
 
+// POS catalogue — GET /admin/pos/products[?category=]
+// Same serializer as the public /products feed but includes counter-only
+// (walk-in) items hidden from the app, each flagged with `appVisible`. Not
+// HTTP-cached, so visibility changes show immediately in the POS grid.
+const { getAllProducts: getAllProductsForPOS } = require('../services/productService');
+router.get('/pos/products', async (req, res) => {
+  try {
+    const category = req.query.category || null;
+    const products = await getAllProductsForPOS(category, req.traceContext, { includeHidden: true });
+    res.json({ success: true, data: products });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+});
+
 // Create customer — POST /admin/pos/customers
 router.post('/pos/customers', async (req, res) => {
   try {
@@ -476,11 +505,11 @@ router.delete('/pos/customers/:userId/gst', async (req, res) => {
 // Create draft — POST /admin/pos/drafts
 router.post('/pos/drafts', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride }, req.traceContext);
+    const draft = await savePOSDraft({ customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName }, req.traceContext);
     res.status(201).json({ success: true, data: { draft } });
   } catch (err) {
     if (err.code === 'MISSING_PARAM' || err.code === 'INVALID_PARAM') return res.status(400).json({ success: false, error: err.code, message: err.message });
@@ -503,11 +532,11 @@ router.get('/pos/drafts/:draftId', async (req, res) => {
 // Update draft — PUT /admin/pos/drafts/:draftId
 router.put('/pos/drafts/:draftId', async (req, res) => {
   try {
-    const { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride } = req.body;
+    const { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'items array is required' });
     }
-    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride }, req.traceContext);
+    const draft = await updatePOSDraft(req.params.draftId, { customerId, addressId, items, gstNumber, gstName, gstAddress, deliveryChargeOverride, walkinName }, req.traceContext);
     if (!draft) return res.status(404).json({ success: false, error: 'DRAFT_NOT_FOUND', message: 'Draft not found' });
     res.json({ success: true, data: { draft } });
   } catch (err) {

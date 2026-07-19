@@ -83,7 +83,15 @@
       "defaultValue": {
         "value": "true"
       },
+      "description": "Admin kill-switch fallback ONLY — read by the app when the backend is unreachable. The live gate is Firestore warehouseOpen via GET /api/v1/config/warehouse-status; edit that via the admin portal, not here.",
       "valueType": "BOOLEAN"
+    },
+    "warehouse_schedule": {
+      "defaultValue": {
+        "value": "{\"days\":{\"mon\":[\"08:45\",\"19:30\"],\"tue\":[\"08:45\",\"19:30\"],\"wed\":[\"08:45\",\"19:30\"],\"thu\":[\"08:45\",\"19:30\"],\"fri\":[\"08:45\",\"19:30\"],\"sat\":[\"08:45\",\"19:30\"],\"sun\":null},\"holidays\":[]}"
+      },
+      "description": "Business hours (IST) + holidays. days: {mon..sun: [open,close] as HH:MM, or null for closed all day}. holidays: [\"YYYY-MM-DD\"]. Malformed values fall back to Mon-Sat 08:45-19:30. Backend caches this 5 min.",
+      "valueType": "STRING"
     },
     "whatsapp_quote": {
       "defaultValue": {

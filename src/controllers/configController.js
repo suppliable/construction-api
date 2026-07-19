@@ -1,6 +1,7 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
 const remoteConfig = require('../services/remoteConfigService');
 const { computeWarehouseStatus, resolveClosedUntil } = require('../utils/warehouseStatus');
+const { notifyWarehouseTransition } = require('../services/slackService');
 
 const getCodThreshold = async (req, res) => {
   try {
@@ -31,7 +32,7 @@ const updateCodThreshold = async (req, res) => {
 const getWarehouseStatus = async (req, res) => {
   try {
     const settings = await getSettings(req.traceContext);
-    res.json({ success: true, data: computeWarehouseStatus(settings) });
+    res.json({ success: true, data: await computeWarehouseStatus(settings) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -60,10 +61,71 @@ const updateWarehouseStatus = async (req, res) => {
 
     await updateSettings(update, req.traceContext);
     const settings = await getSettings(req.traceContext);
-    res.json({ success: true, data: computeWarehouseStatus(settings) });
+    const status = await computeWarehouseStatus(settings);
+
+    // Announce the admin action to the broadcast channel. Fire-and-forget: a
+    // Slack outage must not fail the admin's request.
+    notifyWarehouseTransition({
+      kind: 'manual',
+      isOpen: status.isOpen,
+      until: status.closedUntil,
+      message: status.closedMessage,
+    });
+
+    res.json({ success: true, data: status });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
 };
 
-module.exports = { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus };
+/**
+ * Cloud Scheduler tick: announce a schedule-driven open/close transition.
+ *
+ * Prod only in practice — Cloud Scheduler is scoped to the suppliable-app GCP
+ * project, while dev/qa run on Render. Those envs still honour the schedule
+ * (the gate is clock-computed per request); they just don't announce it.
+ *
+ * This endpoint deliberately writes NO warehouse state — the open/closed gate is
+ * computed from the clock on every request, so the store is already correct at
+ * the boundary whether or not this fires. All the tick does is notice that the
+ * computed state differs from the last-announced one and post to Slack.
+ *
+ * That makes it idempotent by construction: a retried or duplicated firing sees
+ * no change and posts nothing, and a missed firing costs one notification rather
+ * than leaving the warehouse stuck.
+ *
+ * A manual admin close in effect at a schedule boundary simply keeps isOpen
+ * false, so nothing is announced and the schedule resumes on its own when
+ * warehouseClosedUntil expires.
+ */
+const warehouseScheduleTick = async (req, res) => {
+  try {
+    const settings = await getSettings(req.traceContext);
+    const status = await computeWarehouseStatus(settings);
+
+    const lastAnnounced = settings.lastAnnouncedOpen;
+    if (lastAnnounced === status.isOpen) {
+      return res.json({ success: true, data: { changed: false, isOpen: status.isOpen } });
+    }
+
+    await updateSettings({ lastAnnouncedOpen: status.isOpen }, req.traceContext);
+    await notifyWarehouseTransition({
+      kind: 'scheduled',
+      isOpen: status.isOpen,
+      until: status.closedUntil,
+      message: status.closedMessage,
+    });
+
+    res.json({ success: true, data: { changed: true, isOpen: status.isOpen } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
+module.exports = {
+  getCodThreshold,
+  updateCodThreshold,
+  getWarehouseStatus,
+  updateWarehouseStatus,
+  warehouseScheduleTick,
+};
