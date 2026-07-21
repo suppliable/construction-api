@@ -96,4 +96,57 @@ async function authenticate(req, res, next) {
   }
 }
 
+/**
+ * Optional authentication. Sets req.user when a valid custom JWT or Firebase
+ * ID token is present; otherwise sets req.user = null and continues (never
+ * 401s). For endpoints that serve both logged-in users and guests
+ * (e.g. FCM token registration before OTP login).
+ */
+async function authenticateOptional(req, res, next) {
+  // Dev-only bypass: mirrors authenticate(). Never active in production.
+  if (process.env.NODE_ENV !== 'production' && req.headers['x-user-id']) {
+    req.user = { uid: req.headers['x-user-id'] };
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    req.user = null;
+    return next();
+  }
+
+  const token = authHeader.slice(7);
+
+  // Step 1: custom JWT (MSG91). Signup tokens are not valid API identities —
+  // treat as guest rather than 401 on this optional route.
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== 'signup') {
+      req.user = { uid: decoded.userId, phone: decoded.phone || null, email: null, name: null };
+      return next();
+    }
+  } catch (err) {
+    if (!JWT_STRUCTURAL_ERRORS.has(err.name)) {
+      (req.log || logger).error({ err: err.message }, 'Unexpected error during custom JWT verification');
+    }
+  }
+
+  // Step 2: Firebase ID token. Any failure → fall through as guest.
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = {
+      uid: decoded.uid,
+      phone: decoded.phone_number || null,
+      email: decoded.email || null,
+      name: decoded.name || null,
+    };
+    return next();
+  } catch (err) {
+    req.user = null;
+    return next();
+  }
+}
+
 module.exports = authenticate;
+module.exports.authenticate = authenticate;
+module.exports.authenticateOptional = authenticateOptional;
