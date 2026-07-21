@@ -15,6 +15,11 @@ const IP_WINDOW_MS = 60 * 60 * 1000;          // 1 hour per IP
 const RESEND_COOLDOWN_MS = 30 * 1000;          // 30 sec per phone
 const VERIFY_MAX_ATTEMPTS = 5;
 const VERIFY_LOCKOUT_MS = 15 * 60 * 1000;     // 15 min lockout
+// Guest (unauthenticated) FCM token registration — generous enough for many
+// devices behind one NAT/CGNAT IP registering on launch + token refresh, but
+// caps abuse of the open endpoint.
+const GUEST_FCM_MAX = 40;
+const GUEST_FCM_WINDOW_MS = 60 * 60 * 1000;   // 1 hour per IP
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 const CACHE_TTL_MS = 5 * 60 * 1000;           // 5 min remote config cache (ms)
@@ -101,6 +106,8 @@ module.exports = {
   RESEND_COOLDOWN_MS,
   VERIFY_MAX_ATTEMPTS,
   VERIFY_LOCKOUT_MS,
+  GUEST_FCM_MAX,
+  GUEST_FCM_WINDOW_MS,
   CACHE_TTL_MS,
   CACHE_TTL_CATALOGUE_S,
   CACHE_TTL_CONFIG_S,

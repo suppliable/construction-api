@@ -1475,13 +1475,17 @@ const sendMarketingNotification = async (req, res) => {
   try {
     const { title, body, userIds, dryRun } = req.body || {};
 
-    const targets = Array.isArray(userIds) && userIds.length
-      ? userIds.filter(Boolean)
-      : await fcm.getAllTokenUserIds();
+    // Explicit userIds → only those users (guests have no userId, so they can't
+    // be individually targeted). No userIds → broadcast to all users + guests.
+    const explicit = Array.isArray(userIds) && userIds.length;
+    const [userTargets, guestTokens] = explicit
+      ? [userIds.filter(Boolean), []]
+      : await Promise.all([fcm.getAllTokenUserIds(), fcm.getAllGuestTokens()]);
+    const targetedCount = userTargets.length + guestTokens.length;
 
     // Audience preview — no copy required, just report reach.
     if (dryRun) {
-      return res.json({ success: true, data: { dryRun: true, targeted: targets.length } });
+      return res.json({ success: true, data: { dryRun: true, targeted: targetedCount, users: userTargets.length, guests: guestTokens.length } });
     }
 
     if (!title || !String(title).trim() || !body || !String(body).trim()) {
@@ -1490,11 +1494,11 @@ const sendMarketingNotification = async (req, res) => {
     if (String(title).length > 100 || String(body).length > 240) {
       return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: 'title must be <=100 and body <=240 characters' });
     }
-    if (!targets.length) {
+    if (!targetedCount) {
       return res.json({ success: true, data: { targeted: 0, message: 'No users with notification tokens' } });
     }
 
-    const summary = await fcm.sendCampaign({ userIds: targets, title: String(title).trim(), body: String(body).trim() });
+    const summary = await fcm.sendCampaign({ userIds: userTargets, guestTokens, title: String(title).trim(), body: String(body).trim() });
     req.log.info({ summary }, 'marketing notification broadcast sent');
     return res.json({ success: true, data: summary });
   } catch (err) {

@@ -6,10 +6,12 @@ const {
   IP_MAX, IP_WINDOW_MS,
   RESEND_COOLDOWN_MS,
   VERIFY_MAX_ATTEMPTS, VERIFY_LOCKOUT_MS,
+  GUEST_FCM_MAX, GUEST_FCM_WINDOW_MS,
 } = require('../constants');
 
 const phoneSendLog = new Map();   // phone → [timestamp, ...]
 const ipLog = new Map();          // ip → [timestamp, ...]
+const guestFcmLog = new Map();    // ip → [timestamp, ...] (guest fcm-token)
 const resendLog = new Map();      // phone → last-send-timestamp
 const verifyAttempts = new Map(); // phone → { count, lockedUntil }
 
@@ -50,6 +52,22 @@ function ipRateLimiter(req, res, next) {
   }
   log.push(now);
   ipLog.set(ip, log);
+  next();
+}
+
+// ── GUEST FCM-TOKEN RATE LIMIT (per IP, Express middleware) ─
+// Only limits unauthenticated (guest) registrations; authenticated users are
+// keyed by uid and pass straight through. Uses its own store so it can never
+// interfere with the OTP/IP limits above.
+function guestFcmRateLimiter(req, res, next) {
+  if (req.user && req.user.uid) return next(); // logged-in — not rate limited
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const log = pruneTimestamps(guestFcmLog, ip, GUEST_FCM_WINDOW_MS);
+  if (log.length >= GUEST_FCM_MAX) {
+    return res.status(429).json({ success: false, message: 'Too many requests. Try again later.' });
+  }
+  log.push(Date.now());
+  guestFcmLog.set(ip, log);
   next();
 }
 
@@ -102,6 +120,7 @@ module.exports = {
   checkOtpSendLimit,
   recordOtpSend,
   ipRateLimiter,
+  guestFcmRateLimiter,
   checkResendCooldown,
   checkVerifyLockout,
   recordFailedVerify,

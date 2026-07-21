@@ -6,5 +6,15 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // FCM token stores are backend-only (written via Admin SDK, which bypasses
+    // rules). Never readable/writable by clients — tokens must not be
+    // enumerable. Explicit even though unmatched collections default-deny.
+    match /fcmTokens/{userId} {
+      allow read, write: if false;
+    }
+    match /guestFcmTokens/{tokenHash} {
+      allow read, write: if false;
+    }
   }
 }
