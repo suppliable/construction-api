@@ -21,6 +21,13 @@ const extractGST = (item) => {
   return item.tax_percentage || 0;
 };
 
+// Tintable paints carry the shade brand, which gates tier-based shade pricing.
+// Single source of truth — every product-shaped DTO must derive it the same way,
+// or callers that price by shade (e.g. the POS draft) silently fall back to the
+// untinted base price.
+const deriveShadeBrand = (zohoItem) =>
+  (zohoItem?.cf_tintable === true || zohoItem?.cf_tintable === 'true') ? 'asian-paints' : null;
+
 // Build image URL from custom field or fallback to placeholder
 const buildImage = (name, imageUrl) =>
   imageUrl || 'https://placehold.co/400x300/png';
@@ -207,7 +214,7 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
       imageUrl: groupImageUrl,
       fallbackImage: buildImage(group.group_name),
       featured: !!(cache.imageMap[`featured_${group.group_id}`]),
-      shadeBrand: (firstVariantItem?.cf_tintable === true || firstVariantItem?.cf_tintable === 'true') ? 'asian-paints' : null,
+      shadeBrand: deriveShadeBrand(firstVariantItem),
       rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
     };
   });
@@ -237,7 +244,7 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
         imageUrl: itemImageUrl,
         fallbackImage: buildImage(item.name),
         featured: !!(cache.imageMap[`featured_${item.item_id}`] ?? zohoFeatured),
-        shadeBrand: (item.cf_tintable === true || item.cf_tintable === 'true') ? 'asian-paints' : null,
+        shadeBrand: deriveShadeBrand(item),
         rackNumber,
       };
     });
@@ -287,6 +294,7 @@ const getProductById = async (id, traceContext = null) => {
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
       hsn: firstVariantItem?.hsn_or_sac || '',
+      shadeBrand: deriveShadeBrand(firstVariantItem),
       rackNumber: firstVariantItem?.cf_rack_number || firstVariantItem?.custom_field_hash?.cf_rack_number || null,
       image: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
       imageUrl: cache.imageMap[group.group_id] || cache.imageMap[group.item_id] || cache.imageMap[group.items[0]?.item_id] || buildImage(group.group_name),
@@ -322,6 +330,7 @@ const getProductById = async (id, traceContext = null) => {
         available_stock: availableStock,
         gst_percentage: fullItem ? extractGST(fullItem) : (variant.tax_percentage || extractGST(group)),
         hsn: fullItem?.hsn_or_sac || group.hsn_or_sac || '',
+        shadeBrand: deriveShadeBrand(fullItem),
         rackNumber: fullItem?.cf_rack_number || fullItem?.custom_field_hash?.cf_rack_number || null,
         image: cache.imageMap[id] || buildImage(group.group_name),
         imageUrl: cache.imageMap[id] || buildImage(group.group_name),
@@ -346,6 +355,7 @@ const getProductById = async (id, traceContext = null) => {
     available_stock: item.available_stock || 0,
     gst_percentage: extractGST(item),
     hsn: item.hsn_or_sac || '',
+    shadeBrand: deriveShadeBrand(item),
     rackNumber: item.cf_rack_number || item.custom_field_hash?.cf_rack_number || null,
     image: cache.imageMap[item.item_id] || buildImage(item.name),
     imageUrl: cache.imageMap[item.item_id] || buildImage(item.name),
