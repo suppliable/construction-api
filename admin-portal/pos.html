@@ -1148,9 +1148,14 @@ function applyVariantStockLabels(p) {
   if (!p || !p.hasVariants || !p.variants) return;
   const sel = document.getElementById('vs_'+p.id);
   if (!sel) return;
+  const tierInfo = shadeTierPriceCache[p.id];
   Array.from(sel.options).forEach(opt => {
     const v = p.variants.find(vv => vv.id === opt.value);
-    if (v) opt.text = `${v.name} — ${fmtMoney(v.price)}${variantStockSuffix(v.id, v)}`;
+    if (!v) return;
+    const tierPrice = tierInfo && tierInfo.prices ? tierInfo.prices[v.name] : undefined;
+    const price = tierPrice !== undefined ? tierPrice : v.price;
+    opt.text = `${v.name} — ${fmtMoney(price)}${variantStockSuffix(v.id, v)}`;
+    opt.dataset.price = price;
   });
 }
 // Engagement-triggered: fetch live stock for ALL of a product's variants the
@@ -1305,6 +1310,10 @@ document.getElementById('productGrid').addEventListener('input', function(e) {
 let allShades = [];
 const shadeByCode = {};
 let _currentShadePid = null;
+// pid -> { tier, prices: { '1L': price, ... } } for the currently selected shade.
+// Consulted by applyVariantStockLabels() so a live stock/size refresh doesn't
+// clobber the tier-adjusted price back to the base price.
+const shadeTierPriceCache = {};
 
 async function openInlineShadePicker(pid) {
   // Close any other open picker
@@ -1383,14 +1392,8 @@ async function selectShadeInline(pid, code, name, hex) {
     const data = await res.json();
     const tierPrices = data.tiers?.[shade.tier];
     if (!tierPrices) return;
-    Array.from(sel.options).forEach(opt => {
-      const vName = opt.text.split(' — ')[0];
-      const p = tierPrices[vName];
-      if (p !== undefined) {
-        opt.text = `${vName} — ${fmtMoney(p)}`;
-        opt.dataset.price = p;
-      }
-    });
+    shadeTierPriceCache[pid] = { tier: shade.tier, prices: tierPrices };
+    applyVariantStockLabels(product);
   } catch(e) { /* silent — base prices remain */ }
 }
 
