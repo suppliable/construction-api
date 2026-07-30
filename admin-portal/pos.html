@@ -1659,7 +1659,7 @@ function buildDraftBody() {
     gstName: gstName||null,
     gstAddress: gstAddress||null,
     deliveryChargeOverride: (deliveryChargeOverride != null ? deliveryChargeOverride : null),
-    items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null, priceOverride:(i.priceOverride!=null?i.priceOverride:null) }))
+    items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null, shadeTier:i.shadeTier||null, priceOverride:(i.priceOverride!=null?i.priceOverride:null) }))
   };
 }
 
