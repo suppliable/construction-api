@@ -235,6 +235,23 @@
       </div>
     </div>
 
+    <!-- SECTION: SOUND ALERTS -->
+    <div class="settings-card">
+      <div class="card-head">
+        <div class="card-title">🔔 Order Sound Alerts</div>
+        <div class="card-desc">Plays a repeating alarm on the Orders page for as long as any order is waiting for warehouse review, so new orders can't be missed. Applies per-browser.</div>
+      </div>
+      <div class="card-body">
+        <div class="toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="soundAlertToggle" onchange="onSoundToggleChange()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="status-text" id="soundStatusText">Loading...</span>
+        </div>
+      </div>
+    </div>
+
     <!-- SECTION 2: VEHICLES -->
     <div class="settings-card">
       <div class="section-header">
@@ -459,6 +476,25 @@ async function saveWarehouseStatus() {
     } else { showToast(data.message || 'Save failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Status'; }
+}
+
+// ── SOUND ALERTS ──────────────────────────────────────────
+function updateSoundStatusText(enabled) {
+  const el = document.getElementById('soundStatusText');
+  el.textContent = enabled ? '🔔 Alerts on' : '🔕 Muted';
+  el.className = 'status-text ' + (enabled ? 'open' : 'closed');
+}
+
+function initSoundToggle() {
+  const enabled = localStorage.getItem('soundEnabled') !== 'false';
+  document.getElementById('soundAlertToggle').checked = enabled;
+  updateSoundStatusText(enabled);
+}
+
+function onSoundToggleChange() {
+  const enabled = document.getElementById('soundAlertToggle').checked;
+  localStorage.setItem('soundEnabled', enabled ? 'true' : 'false');
+  updateSoundStatusText(enabled);
 }
 
 // ── VEHICLES ──────────────────────────────────────────────
@@ -711,6 +747,7 @@ function renderEnvInfo(data) {
 }
 
 // ── INIT ──────────────────────────────────────────────────
+initSoundToggle();
 fetchWarehouseStatus();
 fetchVehicles();
 fetchDrivers();
