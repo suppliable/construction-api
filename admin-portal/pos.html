@@ -658,6 +658,7 @@ let isWalkin = false;       // walk-in / pickup mode: no customer, no address, n
 let walkinName = '';        // optional name shown on the order + Zoho invoice
 let draftId = null;
 let draftData = null;
+let draftReqSeq = 0;        // guards against out-of-order draft responses
 let quotationData = null;
 let currentPdfUrl = null;
 let _activeDrafts = [];
@@ -1635,6 +1636,7 @@ function scheduleDeliveryCalc() {
 async function fetchDraftForTotals() {
   if (!cart.length) return;
   if (!isWalkin && !selectedAddress) return;
+  const seq = ++draftReqSeq;
   try {
     const body = buildDraftBody();
     const url = draftId ? `/api/v1/admin/pos/drafts/${draftId}` : '/api/v1/admin/pos/drafts';
@@ -1642,6 +1644,9 @@ async function fetchDraftForTotals() {
     const res = await apiFetch(url, { method, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) return;
+    // A newer request was fired while this one was in flight — its totals describe
+    // a stale cart, so dropping them keeps the totals matching the line items.
+    if (seq !== draftReqSeq) return;
     const d = data.data.draft;
     draftId = d.draftId; draftData = d;
     // Use the server's authoritative totals — they already reflect per-line price
@@ -2263,7 +2268,9 @@ async function resumeDraft(idx) {
     quantity: item.quantity,
     shadeCode: item.shadeCode || null,
     shadeName: null,
-    shadeTier: null,
+    // Must be restored — a re-draft without it reprices the line at the
+    // untinted base price.
+    shadeTier: item.shadeTier || null,
   }));
 
   quotationData = draft.status === 'quoted' && draft.zohoQuotationId
