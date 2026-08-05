@@ -456,7 +456,6 @@
   <div class="topbar">
     <div class="topbar-title">Orders</div>
     <div class="topbar-right">
-      <button class="icon-btn" id="soundToggle" onclick="toggleSound()" title="Toggle sound alerts">🔔</button>
       <button class="icon-btn" id="bellBtn" title="Pending review orders">
         🔔<span class="badge hidden" id="pendingBadge">0</span>
       </button>
@@ -763,6 +762,7 @@ let currentView = 'live';      // 'live' (RTDB) | 'history' (Firestore, on deman
 let historyLoaded = false;     // history is fetched lazily on first switch
 let currentOrder = null;
 let lastNewCount = 0;
+let alarmIntervalId = null;   // repeating "unattended order" alarm, active while reviewCount > 0
 
 // ---- LIVE ORDERS (RTDB push) ----
 // Active orders are pushed from RTDB liveOrders/{orderId}. The live view (the
@@ -812,14 +812,25 @@ function applyLiveSnapshot() {
     else { badge.classList.add('hidden'); }
   }
 
-  // New-order beep/toast — fires on increases in the review count (skips first load).
+  // New-order toast — fires on increases in the review count (skips first load).
   if (liveReady && reviewCount > lastNewCount) {
-    if (localStorage.getItem('soundEnabled') !== 'false') playBeep();
     const diff = reviewCount - lastNewCount;
     showToast(`🔔 ${diff} new order${diff>1?'s':''}!`);
   }
   lastNewCount = reviewCount;
   liveReady = true;
+
+  // Repeating alarm — keeps ringing every 20s for as long as ANY order sits in
+  // warehouse_review, so it can't be missed after the initial beep. Stops the
+  // instant the review queue is actually cleared (accepted/declined), not just
+  // when someone opens the panel to look.
+  if (reviewCount > 0 && !alarmIntervalId) {
+    playBeepIfEnabled();
+    alarmIntervalId = setInterval(playBeepIfEnabled, 20000);
+  } else if (reviewCount === 0 && alarmIntervalId) {
+    clearInterval(alarmIntervalId);
+    alarmIntervalId = null;
+  }
 
   // Re-render the table if we're showing a live view.
   if (isLiveFilter(currentFilter)) renderTable();
@@ -1527,18 +1538,16 @@ function playBeep() {
   } catch(e) {}
 }
 
-function toggleSound() {
-  const enabled = localStorage.getItem('soundEnabled') !== 'false';
-  localStorage.setItem('soundEnabled', enabled ? 'false' : 'true');
-  document.getElementById('soundToggle').textContent = enabled ? '🔕' : '🔔';
+function playBeepIfEnabled() {
+  if (localStorage.getItem('soundEnabled') !== 'false') playBeep();
 }
 
-// Init sound icon
-document.getElementById('soundToggle').textContent =
-  localStorage.getItem('soundEnabled') === 'false' ? '🔕' : '🔔';
+// Sound on/off is controlled from Settings (writes localStorage 'soundEnabled'
+// directly, shared across admin-portal pages on this origin).
 
-// Live new-order alerting (badge + beep) is handled in applyLiveSnapshot from
-// the RTDB push; the old /orders/new-count polling has been removed.
+// Live new-order alerting (badge + repeating alarm) is handled in
+// applyLiveSnapshot from the RTDB push; the old /orders/new-count polling
+// has been removed.
 
 // ---- HELPERS ----
 function timeAgo(iso) {
