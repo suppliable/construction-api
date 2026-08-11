@@ -10,6 +10,7 @@ const { ValidationError, NotFoundError, StockError } = require('../utils/errors'
 const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
 const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
+const { syncLiveOrder } = require('./realtimeDBService');
 
 // Shared cart validation and order-building. Returns computed totals + line
 // items without writing anything to Firestore. Used by both createOrder (COD)
@@ -320,7 +321,16 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     try { await saveCart(order.userId, { items: [] }); } catch (_) {}
   }
 
-  return { ...order, ...update, _transitioned: true };
+  const finalOrder = { ...order, ...update };
+
+  // The transition above runs as a raw Firestore transaction, so it bypasses
+  // orderRepository's saveOrder/updateOrder — the only writers that mirror into
+  // RTDB. Without this the order lands in warehouse_review with no liveOrders
+  // entry and is invisible in the admin live view, which renders solely from
+  // that node. Non-fatal: the payment is already committed.
+  await syncLiveOrder(orderId, finalOrder).catch(() => {});
+
+  return { ...finalOrder, _transitioned: true };
 }
 
 /**
@@ -447,6 +457,10 @@ async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
     if (session.userId) {
       try { await saveCart(session.userId, { items: [] }); } catch (_) {}
     }
+    // Raw tx.set above bypasses the repository writers that mirror into RTDB —
+    // same gap as in confirmOnlinePayment. Without this the order is invisible
+    // in the admin live view.
+    await syncLiveOrder(orderId, newOrder).catch(() => {});
     postNewOrder(newOrder).catch(() => {});
     return { ...newOrder, _transitioned: true };
   }
