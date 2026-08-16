@@ -215,6 +215,26 @@
           </label>
           <span class="status-text" id="warehouseStatusText">Loading...</span>
         </div>
+        <div class="status-hint" id="warehouseStatusHint" style="display:none;font-size:13px;color:#888;margin-top:4px;"></div>
+        <div class="closed-msg-wrap" id="forceOpenWrap" style="display:none;border:1px solid #e0a800;background:#fff8e1;border-radius:6px;padding:10px 12px;margin-top:8px;">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="forceOpenCheck" onchange="onForceOpenChange()" style="margin-top:3px;">
+            <span>
+              <strong>Force open outside scheduled hours</strong><br>
+              <span style="font-size:12px;color:#7a5c00;">The store is closed by schedule right now. Only check this if someone is actually on hand to pack and dispatch orders — customers will be able to order immediately.</span>
+            </span>
+          </label>
+          <div id="forceOpenDurationWrap" style="display:none;margin-top:8px;">
+            <label>Stay forced open for</label>
+            <select class="wh-input" id="forceOpenForSelect">
+              <option value="">Until I close it (indefinite)</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="240">4 hours</option>
+            </select>
+          </div>
+        </div>
         <div class="closed-msg-wrap" id="closeForWrap">
           <label>Reopen automatically after</label>
           <select class="wh-input" id="closeForSelect" onchange="onCloseForChange()">
@@ -383,11 +403,21 @@ function toggleAddForm(id, btn) {
 }
 
 // ── WAREHOUSE STATUS ──────────────────────────────────────
+// Tracks the server's last-known closedReason so the toggle handler (which
+// only knows the checkbox's new on/off state, not why it was previously
+// closed) can decide whether flipping to Open needs the force-open option.
+let lastClosedReason = null;
+let lastForcedOpen = false;
+
 async function fetchWarehouseStatus() {
   try {
     const res = await apiFetch('/api/v1/config/warehouse-status');
     const data = await res.json();
-    if (data.success) applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil);
+    if (data.success) {
+      lastClosedReason = data.data?.closedReason || null;
+      lastForcedOpen = Boolean(data.data?.forcedOpen);
+      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil, data.data?.closedReason, data.data?.forcedOpen);
+    }
   } catch(e) {}
 }
 
@@ -398,15 +428,19 @@ function toLocalInputValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function applyWarehouseState(isOpen, closedMessage, closedUntil) {
+function applyWarehouseState(isOpen, closedMessage, closedUntil, closedReason, forcedOpen) {
   const toggle = document.getElementById('warehouseToggle');
   const statusText = document.getElementById('warehouseStatusText');
+  const statusHint = document.getElementById('warehouseStatusHint');
   const card = document.getElementById('warehouseCard');
   const closedWrap = document.getElementById('closedMsgWrap');
   const closeForWrap = document.getElementById('closeForWrap');
   const msgArea = document.getElementById('closedMsg');
   const closeForSelect = document.getElementById('closeForSelect');
   const closeUntilInput = document.getElementById('closeUntilInput');
+  const forceOpenWrap = document.getElementById('forceOpenWrap');
+  const forceOpenCheck = document.getElementById('forceOpenCheck');
+  const forceOpenDurationWrap = document.getElementById('forceOpenDurationWrap');
 
   toggle.checked = isOpen;
   statusText.textContent = isOpen ? '🟢 Open — Accepting Orders' : '🔴 Closed — Orders Paused';
@@ -415,6 +449,32 @@ function applyWarehouseState(isOpen, closedMessage, closedUntil) {
   closedWrap.classList.toggle('show', !isOpen);
   closeForWrap.classList.toggle('show', !isOpen);
   if (closedMessage !== undefined) msgArea.value = closedMessage;
+
+  // Toggling this switch only sets/clears the admin close — it never
+  // overrides the store's schedule by itself. When closed by the schedule
+  // (outside hours, holiday, closed day) rather than an admin close, say so,
+  // since otherwise "Closed" alone looks identical for both causes and an
+  // admin flipping the switch to Open sees nothing change with no explanation.
+  if (!isOpen && closedReason === 'schedule') {
+    statusHint.textContent = 'ℹ️ Closed by schedule, not by admin — toggling Open alone will not override store hours. Use "Force open" below to override.';
+    statusHint.style.display = 'block';
+  } else if (isOpen && forcedOpen) {
+    statusHint.textContent = '⚠️ Open outside scheduled hours via force-open.';
+    statusHint.style.display = 'block';
+  } else {
+    statusHint.style.display = 'none';
+  }
+
+  // The force-open option only makes sense while the store is genuinely
+  // schedule-closed and the admin is asking for Open — hide it the moment
+  // either condition stops holding, and never let it silently carry over a
+  // stale checked state into an unrelated save.
+  const showForceOpen = isOpen && closedReason === 'schedule';
+  forceOpenWrap.style.display = showForceOpen ? 'block' : 'none';
+  if (!showForceOpen) {
+    forceOpenCheck.checked = false;
+    forceOpenDurationWrap.style.display = 'none';
+  }
 
   // Reflect an active timed close, otherwise default to indefinite.
   if (!isOpen && closedUntil) {
@@ -431,7 +491,15 @@ function applyWarehouseState(isOpen, closedMessage, closedUntil) {
 function onToggleChange() {
   const isOpen = document.getElementById('warehouseToggle').checked;
   const closedMsg = document.getElementById('closedMsg').value;
-  applyWarehouseState(isOpen, closedMsg);
+  // Re-derive from the last server response: the checkbox alone can't tell
+  // us whether "closed" meant schedule or admin, so applyWarehouseState needs
+  // that context passed back in to decide whether to reveal force-open.
+  applyWarehouseState(isOpen, closedMsg, undefined, lastClosedReason, lastForcedOpen);
+}
+
+function onForceOpenChange() {
+  const checked = document.getElementById('forceOpenCheck').checked;
+  document.getElementById('forceOpenDurationWrap').style.display = checked ? 'block' : 'none';
 }
 
 function onCloseForChange() {
@@ -456,6 +524,12 @@ async function saveWarehouseStatus() {
       body.closedForMinutes = Number(sel);
     }
     // else: indefinite — send neither field
+  } else if (document.getElementById('forceOpenWrap').style.display !== 'none'
+      && document.getElementById('forceOpenCheck').checked) {
+    body.force = true;
+    const mins = document.getElementById('forceOpenForSelect').value;
+    if (mins) body.forceOpenForMinutes = Number(mins);
+    // else: indefinite force-open — send no expiry
   }
 
   const btn = document.getElementById('saveWarehouseBtn');
@@ -467,12 +541,25 @@ async function saveWarehouseStatus() {
     });
     const data = await res.json();
     if (data.success) {
-      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil);
-      const openMsg = '✅ Warehouse is now Open';
+      lastClosedReason = data.data?.closedReason || null;
+      lastForcedOpen = Boolean(data.data?.forcedOpen);
+      applyWarehouseState(data.data?.isOpen, data.data?.closedMessage, data.data?.closedUntil, data.data?.closedReason, data.data?.forcedOpen);
+      const openMsg = data.data?.forcedOpen
+        ? '⚠️ Warehouse forced Open outside scheduled hours'
+        : '✅ Warehouse is now Open';
       const closedMsg = data.data?.closedUntil
         ? '🔴 Closed — auto-reopens ' + new Date(data.data.closedUntil).toLocaleString()
         : '🔴 Warehouse is now Closed';
-      showToast(data.data?.isOpen ? openMsg : closedMsg, 'success');
+      if (isOpen && data.data?.closedReason === 'schedule') {
+        // The admin asked to open (without force) but the store's still
+        // outside scheduled hours — a plain manual open can only clear the
+        // admin close, it can't override the schedule. Say so explicitly
+        // instead of showing a green "now Closed" toast that looks like a
+        // no-op or a bug.
+        showToast('⚠️ Admin close cleared, but store stays closed — outside scheduled hours. Check "Force open" to override: ' + (data.data?.closedMessage || ''), 'error');
+      } else {
+        showToast(data.data?.isOpen ? openMsg : closedMsg, data.data?.forcedOpen ? 'error' : 'success');
+      }
     } else { showToast(data.message || 'Save failed', 'error'); }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Status'; }

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick } = require('../controllers/configController');
+const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick, pendingOrdersTick } = require('../controllers/configController');
 const { requireScheduler } = require('../middleware/schedulerAuth');
 const { cacheFor } = require('../cache/middleware');
 const { invalidateConfig } = require('../cache/invalidate');
@@ -27,5 +27,11 @@ router.put('/warehouse-status', requireAdmin, updateWarehouseStatus);
 // OIDC-authed (not requireAdmin): the scheduler presents a Google-signed
 // identity token rather than holding an admin credential.
 router.post('/warehouse-schedule-tick', requireScheduler, warehouseScheduleTick);
+
+// Cloud Scheduler / GitHub Actions tick — posts a digest of orders awaiting
+// admin acceptance. Runs every 15 min, all days (not schedule-gated: pending
+// orders are themselves the alert condition). Same requireScheduler auth as
+// warehouse-schedule-tick — SCHEDULER_TOKEN is endpoint-agnostic.
+router.post('/pending-orders-tick', requireScheduler, pendingOrdersTick);
 
 module.exports = router;

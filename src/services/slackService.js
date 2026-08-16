@@ -267,10 +267,70 @@ async function notifyWarehouseTransition({ kind, isOpen, until, message }) {
   await postMessage(blocks, text, null, broadcastChannel());
 }
 
+// ── Pending-orders summary (scheduled tick) ────────────────────────────────
+// A periodic digest of ALL orders awaiting admin acceptance (status ===
+// 'warehouse_review'), posted to the broadcast channel. Unlike postNewOrder /
+// notifyPaymentFailed (one Slack call per order, worth a live customer
+// lookup), this runs every 15 min over potentially many orders —
+// customerName/Phone are read directly off the order doc (denormalized at
+// creation in orderService.js for every path that reaches warehouse_review)
+// rather than round-tripping to customerRepository per order.
+
+const PENDING_SECTION_CHAR_BUDGET = 2800; // stay under Slack's 3000-char block text limit
+
+function pendingOrderLine(order, index) {
+  const name = order.customerName || 'N/A';
+  const phone = order.customerPhone || 'N/A';
+  const time = `${formatISTTime(new Date(order.createdAt))} IST`;
+  return `${index + 1}. \`${order.orderId}\` — ${name} · ${phone} · ₹${order.grand_total} · ${time}`;
+}
+
+// Chunks lines into section blocks so no single block's text exceeds Slack's
+// ~3000-char limit. `header` (if given) is prepended to the first chunk.
+function chunkIntoSectionBlocks(lines, header) {
+  const blocks = [];
+  let current = header ? [header] : [];
+  let currentLen = header ? header.length : 0;
+
+  for (const line of lines) {
+    const addedLen = line.length + 1; // + newline
+    if (current.length > 0 && currentLen + addedLen > PENDING_SECTION_CHAR_BUDGET) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: current.join('\n') } });
+      current = [];
+      currentLen = 0;
+    }
+    current.push(line);
+    currentLen += addedLen;
+  }
+  if (current.length > 0) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: current.join('\n') } });
+  }
+  return blocks;
+}
+
+/**
+ * Post a digest of orders awaiting admin acceptance to the broadcast channel.
+ * Caller passes orders already filtered to status === 'warehouse_review',
+ * oldest-first. No-op if `orders` is empty (also guarded by the caller).
+ * Best-effort via postMessage: never throws.
+ */
+async function notifyPendingOrders(orders) {
+  if (!slackEnabled() || !orders || orders.length === 0) return null;
+
+  const count = orders.length;
+  const header = `⏳ *${count} order${count === 1 ? '' : 's'} awaiting acceptance*`;
+  const lines = orders.map(pendingOrderLine);
+  const blocks = chunkIntoSectionBlocks(lines, header);
+  const text = `⏳ ${count} order${count === 1 ? '' : 's'} awaiting acceptance`;
+
+  return postMessage(blocks, text, null, broadcastChannel());
+}
+
 module.exports = {
   postNewOrder,
   updateOrderPaymentStatus,
   notifyPaymentFailed,
   cardStateFromRaw,
   notifyWarehouseTransition,
+  notifyPendingOrders,
 };
