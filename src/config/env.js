@@ -53,10 +53,14 @@ const schema = z.object({
   // they post into SLACK_CHANNEL_ID alongside order cards.
   SLACK_BROADCAST_CHANNEL_ID: z.string().optional(),
 
-  // Cloud Scheduler OIDC auth for the warehouse schedule tick. Without the
-  // service-account email the tick endpoint refuses all callers (closed, not open).
+  // Auth for the warehouse schedule tick. Either scheme may be configured:
+  // Cloud Scheduler OIDC (service-account email) for GCP deploys, or a static
+  // shared secret for callers with no GCP identity (e.g. GitHub Actions on
+  // Render). Without at least one, the tick endpoint refuses all callers
+  // (closed, not open).
   SCHEDULER_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   SCHEDULER_OIDC_AUDIENCE: z.string().optional(),
+  SCHEDULER_TOKEN: z.string().min(16, 'SCHEDULER_TOKEN must be at least 16 characters').optional(),
 
   // Payments
   PAYMENT_GATEWAY: z.enum(['none', 'cashfree', 'razorpay']).default('none'),
