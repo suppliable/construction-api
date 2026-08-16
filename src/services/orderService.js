@@ -12,6 +12,15 @@ const { isFreeDeliveryEligible } = require('./deliveryService');
 const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
 const { syncLiveOrder } = require('./realtimeDBService');
 
+// Mirror an order's live-view membership into RTDB after a raw Firestore
+// transaction (bypasses orderRepository, which does this automatically for
+// saveOrder/updateOrder). Non-fatal: the live view is a cache of Firestore,
+// so a failure here must never break the order write that just succeeded.
+function mirrorLiveOrder(order) {
+  if (!order || !order.orderId) return;
+  syncLiveOrder(order.orderId, order).catch(() => {});
+}
+
 // Shared cart validation and order-building. Returns computed totals + line
 // items without writing anything to Firestore. Used by both createOrder (COD)
 // and buildAndSaveOnlineOrder (new checkout flow).
@@ -294,9 +303,9 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     return { ...order, _transitioned: false };
   }
 
-  await invalidateOrder(orderId).catch(() => {});
-
   const confirmedOrder = { ...order, ...update };
+
+  await invalidateOrder(orderId).catch(() => {});
   if (order.slackTs) {
     updateOrderPaymentStatus(confirmedOrder, order.slackTs, 'paid').catch(() => {});
   } else {
@@ -322,13 +331,7 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   }
 
   const finalOrder = { ...order, ...update };
-
-  // The transition above runs as a raw Firestore transaction, so it bypasses
-  // orderRepository's saveOrder/updateOrder — the only writers that mirror into
-  // RTDB. Without this the order lands in warehouse_review with no liveOrders
-  // entry and is invisible in the admin live view, which renders solely from
-  // that node. Non-fatal: the payment is already committed.
-  await syncLiveOrder(orderId, finalOrder).catch(() => {});
+  mirrorLiveOrder(finalOrder);
 
   return { ...finalOrder, _transitioned: true };
 }
@@ -453,14 +456,11 @@ async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
       tx.set(db.collection('orders').doc(orderId), newOrder);
       tx.delete(db.collection('checkoutSessions').doc(orderId));
     });
+    mirrorLiveOrder(newOrder);
     await invalidateOrder(orderId).catch(() => {});
     if (session.userId) {
       try { await saveCart(session.userId, { items: [] }); } catch (_) {}
     }
-    // Raw tx.set above bypasses the repository writers that mirror into RTDB —
-    // same gap as in confirmOnlinePayment. Without this the order is invisible
-    // in the admin live view.
-    await syncLiveOrder(orderId, newOrder).catch(() => {});
     postNewOrder(newOrder).catch(() => {});
     return { ...newOrder, _transitioned: true };
   }
