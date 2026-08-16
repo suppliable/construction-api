@@ -4,15 +4,27 @@ const { OAuth2Client } = require('google-auth-library');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 
-// Verifies the OIDC token Cloud Scheduler attaches to its request. The scheduler
-// holds no admin credentials — it presents a Google-signed identity token for a
-// dedicated service account, and we check both the signature and that the caller
-// is the service account we expect.
+// Verifies the caller triggering the warehouse schedule tick. Two schemes are
+// accepted:
 //
-// Requires SCHEDULER_SERVICE_ACCOUNT_EMAIL to be set; without it the endpoint is
-// closed rather than open, so a misconfigured deploy can't expose it.
+// 1. Google OIDC (Cloud Run/Cloud Scheduler deploys): the scheduler presents a
+//    Google-signed identity token for a dedicated service account, checked
+//    against SCHEDULER_SERVICE_ACCOUNT_EMAIL below.
+// 2. Shared secret (Render/GitHub Actions deploys, which have no GCP identity
+//    to present): a static Bearer token compared against SCHEDULER_TOKEN.
+//
+// Both are opt-in via env var; whichever is configured, is accepted. If neither
+// is set the endpoint is closed rather than open, so a misconfigured deploy
+// can't expose it.
 
 const client = new OAuth2Client();
+
+function timingSafeEqual(a, b) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return require('crypto').timingSafeEqual(bufA, bufB);
+}
 
 // The audience Cloud Scheduler signs its token for: this service's own URL.
 // Cloud Run does not inject its URL as an env var, so derive it from the request
@@ -27,8 +39,9 @@ function audienceFromRequest(req) {
 
 async function requireScheduler(req, res, next) {
   const expectedEmail = env.SCHEDULER_SERVICE_ACCOUNT_EMAIL;
-  if (!expectedEmail) {
-    logger.warn('Scheduler endpoint called but SCHEDULER_SERVICE_ACCOUNT_EMAIL is unset — refusing');
+  const sharedSecret = env.SCHEDULER_TOKEN;
+  if (!expectedEmail && !sharedSecret) {
+    logger.warn('Scheduler endpoint called but neither SCHEDULER_SERVICE_ACCOUNT_EMAIL nor SCHEDULER_TOKEN is set — refusing');
     return res.status(503).json({ success: false, error: 'NOT_CONFIGURED', message: 'Scheduler auth not configured' });
   }
 
@@ -37,6 +50,16 @@ async function requireScheduler(req, res, next) {
     return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Unauthorized' });
   }
   const token = header.slice('Bearer '.length).trim();
+
+  // Shared-secret path: Render/GitHub Actions have no GCP identity to present,
+  // so a static token stands in for the OIDC check below.
+  if (sharedSecret && timingSafeEqual(token, sharedSecret)) {
+    return next();
+  }
+
+  if (!expectedEmail) {
+    return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Unauthorized' });
+  }
 
   // Pin the audience so a token minted for this service account but addressed to
   // some other service can't be replayed here. deploy.sh passes the service URL
