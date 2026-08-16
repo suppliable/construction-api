@@ -1,6 +1,6 @@
 'use strict';
 
-const { computeWarehouseStatus, resolveClosedUntil } = require('../warehouseStatus');
+const { computeWarehouseStatus, resolveClosedUntil, resolveForceOpenUntil } = require('../warehouseStatus');
 const { parseSchedule, FALLBACK_SCHEDULE } = require('../storeSchedule');
 
 // Mon 10:00 IST — inside business hours, so the schedule alone would be open.
@@ -62,6 +62,52 @@ describe('computeWarehouseStatus — manual close', () => {
   test('manual close wins over an open schedule', async () => {
     const res = await computeWarehouseStatus({ warehouseOpen: false }, DURING_HOURS, SCHEDULE);
     expect(res.isOpen).toBe(false);
+  });
+});
+
+describe('computeWarehouseStatus — force-open', () => {
+  test('indefinite force-open opens the store on a closed day', async () => {
+    const res = await computeWarehouseStatus({ warehouseForceOpen: true }, SUNDAY, SCHEDULE);
+    expect(res.isOpen).toBe(true);
+    expect(res.forcedOpen).toBe(true);
+  });
+
+  test('force-open does not add forcedOpen when the schedule was already open', async () => {
+    const res = await computeWarehouseStatus({ warehouseForceOpen: true }, DURING_HOURS, SCHEDULE);
+    expect(res.isOpen).toBe(true);
+    expect(res.forcedOpen).toBeUndefined();
+  });
+
+  test('timed force-open in the future opens the store', async () => {
+    const until = '2026-06-28T05:30:00Z'; // 1h after SUNDAY
+    const res = await computeWarehouseStatus(
+      { warehouseForceOpen: true, warehouseForceOpenUntil: until }, SUNDAY, SCHEDULE);
+    expect(res.isOpen).toBe(true);
+  });
+
+  test('timed force-open in the past has expired — schedule resumes, store stays closed', async () => {
+    const until = '2026-06-28T03:00:00Z'; // already passed
+    const res = await computeWarehouseStatus(
+      { warehouseForceOpen: true, warehouseForceOpenUntil: until }, SUNDAY, SCHEDULE);
+    expect(res.isOpen).toBe(false);
+  });
+
+  test('malformed warehouseForceOpenUntil fails safe (NOT forced open)', async () => {
+    const res = await computeWarehouseStatus(
+      { warehouseForceOpen: true, warehouseForceOpenUntil: 'not-a-date' }, SUNDAY, SCHEDULE);
+    expect(res.isOpen).toBe(false);
+  });
+
+  test('a manual close always wins over a force-open', async () => {
+    const res = await computeWarehouseStatus(
+      { warehouseOpen: false, warehouseForceOpen: true }, SUNDAY, SCHEDULE);
+    expect(res.isOpen).toBe(false);
+    expect(res.closedReason).toBe('manual');
+  });
+
+  test('closedReason is "schedule" when closed with no overrides active', async () => {
+    const res = await computeWarehouseStatus({}, SUNDAY, SCHEDULE);
+    expect(res.closedReason).toBe('schedule');
   });
 });
 
@@ -201,5 +247,34 @@ describe('resolveClosedUntil', () => {
 
   test('returns empty when no expiry provided (indefinite close)', () => {
     expect(resolveClosedUntil({}, now)).toEqual({});
+  });
+});
+
+describe('resolveForceOpenUntil', () => {
+  const now = new Date('2026-06-29T04:30:00Z');
+
+  test('forceOpenForMinutes computes a future expiry', () => {
+    const { until, error } = resolveForceOpenUntil({ forceOpenForMinutes: 90 }, now);
+    expect(error).toBeUndefined();
+    expect(Date.parse(until)).toBe(now.getTime() + 90 * 60_000);
+  });
+
+  test('rejects non-positive or non-numeric forceOpenForMinutes', () => {
+    expect(resolveForceOpenUntil({ forceOpenForMinutes: -5 }, now).error).toBeTruthy();
+    expect(resolveForceOpenUntil({ forceOpenForMinutes: 'abc' }, now).error).toBeTruthy();
+  });
+
+  test('accepts a valid future forceOpenUntil', () => {
+    const { until } = resolveForceOpenUntil({ forceOpenUntil: '2026-06-29T06:00:00Z' }, now);
+    expect(until).toBe('2026-06-29T06:00:00.000Z');
+  });
+
+  test('rejects past or malformed forceOpenUntil', () => {
+    expect(resolveForceOpenUntil({ forceOpenUntil: '2026-06-29T04:00:00Z' }, now).error).toBeTruthy();
+    expect(resolveForceOpenUntil({ forceOpenUntil: 'garbage' }, now).error).toBeTruthy();
+  });
+
+  test('returns empty when no expiry provided (indefinite force-open)', () => {
+    expect(resolveForceOpenUntil({}, now)).toEqual({});
   });
 });

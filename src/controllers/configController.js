@@ -1,6 +1,6 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
 const remoteConfig = require('../services/remoteConfigService');
-const { computeWarehouseStatus, resolveClosedUntil } = require('../utils/warehouseStatus');
+const { computeWarehouseStatus, resolveClosedUntil, resolveForceOpenUntil } = require('../utils/warehouseStatus');
 const { notifyWarehouseTransition } = require('../services/slackService');
 
 const getCodThreshold = async (req, res) => {
@@ -40,7 +40,7 @@ const getWarehouseStatus = async (req, res) => {
 
 const updateWarehouseStatus = async (req, res) => {
   try {
-    const { isOpen, closedMessage } = req.body;
+    const { isOpen, closedMessage, force } = req.body;
     if (isOpen === undefined || isOpen === null) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'isOpen is required' });
     }
@@ -50,6 +50,22 @@ const updateWarehouseStatus = async (req, res) => {
     if (isOpen) {
       // Reopening clears any pending timed maintenance close.
       update.warehouseClosedUntil = null;
+
+      // `force: true` is a deliberate policy bypass — it lets the store accept
+      // orders outside its configured schedule, which normally means no one is
+      // staffed to fulfil them. Without it, isOpen:true only clears the admin
+      // close and stays capped by the schedule (existing behaviour).
+      if (force) {
+        const { until, error } = resolveForceOpenUntil(req.body, new Date());
+        if (error) {
+          return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: error });
+        }
+        update.warehouseForceOpen = true;
+        update.warehouseForceOpenUntil = until || null;
+      } else {
+        update.warehouseForceOpen = false;
+        update.warehouseForceOpenUntil = null;
+      }
     } else {
       const { until, error } = resolveClosedUntil(req.body, new Date());
       if (error) {
@@ -57,6 +73,9 @@ const updateWarehouseStatus = async (req, res) => {
       }
       // A timed close sets an expiry; an indefinite close clears any stale one.
       update.warehouseClosedUntil = until || null;
+      // A manual close also cancels any force-open in effect — close always wins.
+      update.warehouseForceOpen = false;
+      update.warehouseForceOpenUntil = null;
     }
 
     await updateSettings(update, req.traceContext);
