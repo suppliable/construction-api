@@ -13,6 +13,7 @@ jest.mock('google-auth-library', () => ({
 jest.mock('../../config/env', () => ({
   SCHEDULER_SERVICE_ACCOUNT_EMAIL: undefined,
   SCHEDULER_OIDC_AUDIENCE: undefined,
+  SCHEDULER_TOKEN: undefined,
 }));
 
 jest.mock('../../utils/logger', () => ({ warn: jest.fn(), error: jest.fn(), info: jest.fn() }));
@@ -45,10 +46,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   env.SCHEDULER_SERVICE_ACCOUNT_EMAIL = EXPECTED_SA;
   env.SCHEDULER_OIDC_AUDIENCE = undefined;
+  env.SCHEDULER_TOKEN = undefined;
 });
 
 describe('requireScheduler — configuration', () => {
-  test('refuses with 503 when the expected service account is unset', async () => {
+  test('refuses with 503 when neither auth scheme is configured', async () => {
     env.SCHEDULER_SERVICE_ACCOUNT_EMAIL = undefined;
     const res = mockRes();
     const next = jest.fn();
@@ -59,6 +61,45 @@ describe('requireScheduler — configuration', () => {
     expect(res.statusCode).toBe(503);
     expect(next).not.toHaveBeenCalled();
     expect(mockVerifyIdToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireScheduler — shared secret', () => {
+  const SECRET = 'a-very-secret-scheduler-token-1234';
+
+  test('accepts a matching bearer token without touching OIDC', async () => {
+    env.SCHEDULER_TOKEN = SECRET;
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireScheduler(mockReq({ authorization: `Bearer ${SECRET}` }), res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(mockVerifyIdToken).not.toHaveBeenCalled();
+  });
+
+  test('rejects a non-matching bearer token, falling through to OIDC and failing', async () => {
+    env.SCHEDULER_TOKEN = SECRET;
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireScheduler(mockReq({ authorization: 'Bearer wrong-token' }), res, next);
+
+    // Falls through to OIDC verification, which fails without a real JWT.
+    expect(res.statusCode).toBe(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('a configured shared secret alone (no service account email) is sufficient to open the endpoint', async () => {
+    env.SCHEDULER_SERVICE_ACCOUNT_EMAIL = undefined;
+    env.SCHEDULER_TOKEN = SECRET;
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireScheduler(mockReq({ authorization: `Bearer ${SECRET}` }), res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBeNull();
   });
 });
 

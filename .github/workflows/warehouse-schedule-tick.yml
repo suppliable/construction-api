@@ -1,0 +1,52 @@
+name: Warehouse schedule tick
+
+# Replaces the old Cloud Scheduler jobs (warehouse-open-tick / warehouse-close-tick)
+# now that prod runs on Render rather than Cloud Run — Render has no equivalent
+# to Cloud Scheduler, and requireScheduler's Google OIDC check has no GCP identity
+# to verify here, so this authenticates with a static shared secret instead
+# (see SCHEDULER_TOKEN in src/middleware/schedulerAuth.js).
+#
+# The tick endpoint writes NO warehouse state — open/closed is computed from the
+# clock on every request regardless of whether this fires. All a tick does is
+# notice the computed state changed since the last announcement and post to
+# Slack, so a missed or duplicated run is harmless.
+on:
+  schedule:
+    # 08:45 IST = 03:15 UTC, Mon–Sat (warehouse open)
+    - cron: '15 3 * * 1-6'
+    # 19:30 IST = 14:00 UTC, Mon–Sat (warehouse close)
+    - cron: '0 14 * * 1-6'
+  workflow_dispatch: {} # manual trigger for testing
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call warehouse-schedule-tick
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" -X POST \
+            "${WAREHOUSE_TICK_URL}/api/v1/config/warehouse-schedule-tick" \
+            -H "Authorization: Bearer ${WAREHOUSE_TICK_TOKEN}")
+          echo "HTTP status: $status"
+          cat /tmp/response.json
+          echo
+          if [ "$status" -ge 400 ]; then
+            echo "::error::warehouse-schedule-tick failed with HTTP $status"
+            exit 1
+          fi
+        env:
+          WAREHOUSE_TICK_URL: ${{ secrets.WAREHOUSE_TICK_URL }}
+          WAREHOUSE_TICK_TOKEN: ${{ secrets.WAREHOUSE_TICK_TOKEN }}
+
+      # Only reached if the curl step above failed (non-zero exit). Posts via a
+      # dedicated Slack Incoming Webhook — separate from the app's SLACK_BOT_TOKEN
+      # so this workflow doesn't need that broader-scoped credential — to catch
+      # cases the app itself can't self-report (Render down, DNS, auth misconfig).
+      - name: Notify Slack on failure
+        if: failure()
+        run: |
+          curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"🚨 warehouse-schedule-tick failed — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_TICK_ALERT_WEBHOOK_URL }}
