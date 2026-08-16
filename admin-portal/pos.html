@@ -1666,9 +1666,6 @@ function buildDraftBody() {
     deliveryChargeOverride: (deliveryChargeOverride != null ? deliveryChargeOverride : null),
     // shadeTier is required for the server to apply tinted-paint pricing —
     // without it the line falls back to the untinted base price.
-
-=======
->>>>>>> qa
     items: cart.map(i => ({ productId:i.productId, variantId:i.variantId||null, quantity:i.quantity, shadeCode:i.shadeCode||null, shadeTier:i.shadeTier||null, priceOverride:(i.priceOverride!=null?i.priceOverride:null) }))
   };
 }
