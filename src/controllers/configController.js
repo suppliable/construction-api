@@ -1,7 +1,8 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
 const remoteConfig = require('../services/remoteConfigService');
 const { computeWarehouseStatus, resolveClosedUntil, resolveForceOpenUntil } = require('../utils/warehouseStatus');
-const { notifyWarehouseTransition } = require('../services/slackService');
+const { notifyWarehouseTransition, notifyPendingOrders } = require('../services/slackService');
+const { findOrders } = require('../repositories/orderRepository');
 
 const getCodThreshold = async (req, res) => {
   try {
@@ -141,10 +142,40 @@ const warehouseScheduleTick = async (req, res) => {
   }
 };
 
+/**
+ * Cloud Scheduler / GitHub Actions tick: post a Slack digest of ALL orders
+ * currently awaiting admin acceptance (status === 'warehouse_review').
+ *
+ * Runs every 15 minutes, all days — unlike warehouseScheduleTick this isn't
+ * gated by business hours, since "not yet accepted" is itself the alert
+ * condition regardless of schedule.
+ *
+ * Pure read + conditional Slack post, no Firestore writes — idempotent by
+ * construction. A duplicate or missed firing just double-posts or skips one
+ * cycle; there's no state to corrupt. Sends nothing when zero orders are
+ * pending — silence is the expected/successful case, not a "0 pending" ping.
+ */
+const pendingOrdersTick = async (req, res) => {
+  try {
+    const orders = await findOrders({ status: 'warehouse_review', limit: 0 }, req.traceContext);
+    orders.reverse(); // findOrders returns createdAt desc; oldest-pending-first is more actionable
+
+    if (orders.length === 0) {
+      return res.json({ success: true, data: { sent: false, pendingCount: 0 } });
+    }
+
+    await notifyPendingOrders(orders);
+    res.json({ success: true, data: { sent: true, pendingCount: orders.length } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
   getCodThreshold,
   updateCodThreshold,
   getWarehouseStatus,
   updateWarehouseStatus,
+  pendingOrdersTick,
   warehouseScheduleTick,
 };

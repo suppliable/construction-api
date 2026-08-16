@@ -1,0 +1,55 @@
+name: Pending orders tick
+
+# Posts a Slack digest of orders awaiting admin acceptance (status ===
+# 'warehouse_review'), every 15 minutes, every day — unlike the warehouse
+# open/close tick this isn't gated to business hours or Mon-Sat, since a
+# not-yet-accepted order is itself the alert condition regardless of when it
+# arrived. Kept in its own workflow file (separate from
+# warehouse-schedule-tick.yml) so the two ticks fail and can be edited
+# independently.
+#
+# Uses the same SCHEDULER_TOKEN-authenticated endpoint pattern as
+# warehouse-schedule-tick — requireScheduler's shared-secret path is
+# endpoint-agnostic, so the same WAREHOUSE_TICK_URL / WAREHOUSE_TICK_TOKEN
+# secrets authorize this route too; no new secrets needed.
+#
+# Note: GitHub Actions cron is UTC and best-effort — scheduled runs can be
+# delayed under platform load, so this is not a hard real-time guarantee at
+# exactly :00/:15/:30/:45.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {} # manual trigger for testing
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call pending-orders-tick
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" -X POST \
+            "${TICK_URL}/api/v1/config/pending-orders-tick" \
+            -H "Authorization: Bearer ${TICK_TOKEN}")
+          echo "HTTP status: $status"
+          cat /tmp/response.json
+          echo
+          if [ "$status" -ge 400 ]; then
+            echo "::error::pending-orders-tick failed with HTTP $status"
+            exit 1
+          fi
+        env:
+          TICK_URL: ${{ secrets.WAREHOUSE_TICK_URL }}
+          TICK_TOKEN: ${{ secrets.WAREHOUSE_TICK_TOKEN }}
+
+      # Only reached if the curl step above failed (non-zero exit). Posts via
+      # the same dedicated Slack Incoming Webhook used by
+      # warehouse-schedule-tick.yml, to catch infra-level failures (Render
+      # down, DNS, auth misconfig) the app itself can't self-report.
+      - name: Notify Slack on failure
+        if: failure()
+        run: |
+          curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"🚨 pending-orders-tick failed — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_TICK_ALERT_WEBHOOK_URL }}
