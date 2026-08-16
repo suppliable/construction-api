@@ -181,11 +181,21 @@ function formatISTTime(date) {
   }).format(date);
 }
 
+// Human-readable IST calendar date for a given instant, e.g. "16 Aug".
+function formatISTDate(date) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+  }).format(date);
+}
+
 module.exports = {
   getScheduleStatus,
   scheduleClosedMessage,
   parseSchedule,
   formatISTTime,
+  formatISTDate,
   minutesLabel,
   FALLBACK_SCHEDULE,
   OPEN_MINUTES,

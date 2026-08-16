@@ -4,7 +4,7 @@ const env = require('../config/env');
 const admin = require('../utils/firebaseAdmin');
 const { getCustomer } = require('../repositories/customerRepository');
 const { istDateKey } = require('../utils/istDate');
-const { formatISTTime } = require('../utils/storeSchedule');
+const { formatISTTime, formatISTDate } = require('../utils/storeSchedule');
 
 // Atomically increment and return today's order sequence number. Backed by a
 // per-day counter doc (counters/orders-YYYY-MM-DD). Display-only — the real
@@ -278,11 +278,22 @@ async function notifyWarehouseTransition({ kind, isOpen, until, message }) {
 
 const PENDING_SECTION_CHAR_BUDGET = 2800; // stay under Slack's 3000-char block text limit
 
+// "COD" for cash-on-delivery orders; online orders further distinguish a
+// confirmed payment from one still settling (pending_proceeding/pending) so
+// the admin can see at a glance which orders haven't actually been paid for.
+function paymentModeLabel(order) {
+  if (order.paymentType !== 'ONLINE') return 'COD';
+  return order.paymentStatus === 'confirmed' ? 'ONLINE (paid)' : 'ONLINE (pending)';
+}
+
 function pendingOrderLine(order, index) {
   const name = order.customerName || 'N/A';
   const phone = order.customerPhone || 'N/A';
-  const time = `${formatISTTime(new Date(order.createdAt))} IST`;
-  return `${index + 1}. \`${order.orderId}\` — ${name} · ${phone} · ₹${order.grand_total} · ${time}`;
+  const createdAt = new Date(order.createdAt);
+  const date = formatISTDate(createdAt);
+  const time = `${formatISTTime(createdAt)} IST`;
+  const paymentMode = paymentModeLabel(order);
+  return `${index + 1}. \`${order.orderId}\` — ${name} · ${phone} · ₹${order.grand_total} · ${paymentMode} · ${date} ${time}`;
 }
 
 // Chunks lines into section blocks so no single block's text exceeds Slack's

@@ -10,6 +10,16 @@ const { ValidationError, NotFoundError, StockError } = require('../utils/errors'
 const { invalidateOrder } = require('../cache/invalidate');
 const { isFreeDeliveryEligible } = require('./deliveryService');
 const { postNewOrder, updateOrderPaymentStatus, notifyPaymentFailed, cardStateFromRaw } = require('./slackService');
+const { syncLiveOrder } = require('./realtimeDBService');
+
+// Mirror an order's live-view membership into RTDB after a raw Firestore
+// transaction (bypasses orderRepository, which does this automatically for
+// saveOrder/updateOrder). Non-fatal: the live view is a cache of Firestore,
+// so a failure here must never break the order write that just succeeded.
+function mirrorLiveOrder(order) {
+  if (!order || !order.orderId) return;
+  syncLiveOrder(order.orderId, order).catch(() => {});
+}
 
 // Shared cart validation and order-building. Returns computed totals + line
 // items without writing anything to Firestore. Used by both createOrder (COD)
@@ -293,9 +303,10 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     return { ...order, _transitioned: false };
   }
 
-  await invalidateOrder(orderId).catch(() => {});
-
   const confirmedOrder = { ...order, ...update };
+  mirrorLiveOrder(confirmedOrder);
+
+  await invalidateOrder(orderId).catch(() => {});
   if (order.slackTs) {
     updateOrderPaymentStatus(confirmedOrder, order.slackTs, 'paid').catch(() => {});
   } else {
@@ -443,6 +454,7 @@ async function proceedAsPendingPayment(orderId, attempt, traceContext = null) {
       tx.set(db.collection('orders').doc(orderId), newOrder);
       tx.delete(db.collection('checkoutSessions').doc(orderId));
     });
+    mirrorLiveOrder(newOrder);
     await invalidateOrder(orderId).catch(() => {});
     if (session.userId) {
       try { await saveCart(session.userId, { items: [] }); } catch (_) {}
