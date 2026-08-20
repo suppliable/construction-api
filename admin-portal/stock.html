@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Suppliable Admin — Cement Stock</title>
+<title>Suppliable Admin — Stock Costing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -33,7 +33,7 @@
   .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; transition:background 0.15s; }
   .btn-logout:hover { background:var(--bg); }
 
-  .content { padding:24px; max-width:1000px; display:flex; flex-direction:column; gap:20px; }
+  .content { padding:24px; max-width:1080px; display:flex; flex-direction:column; gap:20px; }
 
   .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
   .card-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -54,6 +54,8 @@
   .num { text-align:right; }
   .rate { font-weight:700; color:var(--navy); }
   .empty { color:var(--muted); font-size:13px; padding:16px 0; text-align:center; }
+  .cat-row td { background:var(--bg); font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); padding:8px 12px; }
+  .unit-tag { font-size:11px; color:var(--muted); font-weight:500; margin-left:6px; }
 
   label { display:block; font-size:12.5px; font-weight:600; color:var(--text); margin-bottom:5px; }
   input, select { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; background:#fff; }
@@ -99,7 +101,7 @@
     <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
     <a class="nav-item" href="categories.html">📂 Categories</a>
-    <a class="nav-item active" href="cement.html">🧱 Cement Stock</a>
+    <a class="nav-item active" href="stock.html">📊 Stock Costing</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
@@ -112,15 +114,15 @@
 
 <div class="main">
   <div class="topbar">
-    <div class="topbar-title">Cement Stock — FIFO Costing</div>
+    <div class="topbar-title">Stock Costing — FIFO</div>
     <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
 
   <div class="content">
     <div class="summary-row">
-      <div class="summary-tile"><div class="label">Bags on hand</div><div class="value" id="sumBags">—</div></div>
       <div class="summary-tile"><div class="label">Stock value</div><div class="value" id="sumValue">—</div></div>
-      <div class="summary-tile"><div class="label">Blended rate / bag</div><div class="value" id="sumRate">—</div></div>
+      <div class="summary-tile"><div class="label">Items tracked</div><div class="value" id="sumItems">—</div></div>
+      <div class="summary-tile"><div class="label">Categories</div><div class="value" id="sumCats">—</div></div>
     </div>
 
     <!-- Add restock -->
@@ -128,9 +130,9 @@
       <div class="card-head">
         <div>
           <div class="card-title">Add restock</div>
-          <div class="card-desc">Record every cement purchase. FIFO consumes the oldest bags first.</div>
+          <div class="card-desc">Record every purchase. FIFO consumes the oldest stock first.</div>
         </div>
-        <button class="btn btn-sm btn-ghost" onclick="openAddProduct()">+ New cement type</button>
+        <button class="btn btn-sm btn-ghost" onclick="openAddProduct()">+ New item</button>
       </div>
       <div class="card-body">
         <div class="form-grid">
@@ -139,21 +141,21 @@
             <input type="date" id="fDate">
           </div>
           <div>
-            <label>Cement</label>
-            <select id="fProduct"></select>
+            <label>Item</label>
+            <select id="fProduct" onchange="onProductChange()"></select>
           </div>
           <div>
-            <label>Landing price / bag (₹)</label>
+            <label id="lPrice">Landing price / unit (₹)</label>
             <input type="number" id="fPrice" min="0" step="0.01" placeholder="e.g. 400">
           </div>
           <div>
-            <label>Bags received</label>
+            <label id="lReceived">Qty received</label>
             <input type="number" id="fReceived" min="0" step="1" placeholder="e.g. 50">
           </div>
           <div>
-            <label>Stock in hand</label>
+            <label id="lLeftover">Stock in hand</label>
             <input type="number" id="fLeftover" min="0" step="1" placeholder="e.g. 30">
-            <div class="hint">Old bags counted before this load</div>
+            <div class="hint">Old stock counted before this load</div>
           </div>
           <div>
             <button class="btn btn-navy" style="width:100%" onclick="submitRestock()">Save restock</button>
@@ -172,10 +174,10 @@
         <table>
           <thead>
             <tr>
-              <th>Cement</th>
-              <th class="num">Bags on hand</th>
+              <th>Item</th>
+              <th class="num">Qty on hand</th>
               <th class="num">Stock value</th>
-              <th class="num">Cumulative rate / bag</th>
+              <th class="num">Cumulative rate / unit</th>
               <th>Last restock</th>
               <th></th>
             </tr>
@@ -202,12 +204,35 @@
 <div class="modal-overlay" id="prodModal">
   <div class="modal" style="max-width:420px">
     <div class="modal-head">
-      <div class="card-title">New cement type</div>
+      <div class="card-title">New stock item</div>
       <button class="close-x" onclick="closeModal('prodModal')">×</button>
     </div>
     <div class="modal-body">
       <label>Name</label>
-      <input type="text" id="pName" placeholder="e.g. UltraTech PPC 43 Grade">
+      <input type="text" id="pName" placeholder="e.g. TMT Steel 8mm">
+      <label style="margin-top:12px">Category</label>
+      <input type="text" id="pCategory" placeholder="e.g. Steel" list="catList">
+      <datalist id="catList">
+        <option value="Cement"></option>
+        <option value="Steel"></option>
+        <option value="Sand"></option>
+        <option value="Aggregates"></option>
+        <option value="Blocks & Bricks"></option>
+        <option value="Electrical"></option>
+        <option value="Plumbing"></option>
+        <option value="Other"></option>
+      </datalist>
+      <label style="margin-top:12px">Unit</label>
+      <input type="text" id="pUnit" placeholder="e.g. tonnes" list="unitList">
+      <datalist id="unitList">
+        <option value="bags"></option>
+        <option value="tonnes"></option>
+        <option value="kg"></option>
+        <option value="pieces"></option>
+        <option value="sq.ft"></option>
+        <option value="cu.ft"></option>
+        <option value="litres"></option>
+      </datalist>
       <button class="btn btn-navy" style="width:100%;margin-top:14px" onclick="submitProduct()">Add</button>
     </div>
   </div>
@@ -238,57 +263,76 @@ const rupee = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFract
 let PRODUCTS = [];
 
 async function loadProducts() {
-  const res = await apiFetch('/api/v1/admin/cement/products');
+  const res = await apiFetch('/api/v1/admin/stock/products');
   const data = await res.json();
   PRODUCTS = data.data || [];
   const sel = document.getElementById('fProduct');
   sel.innerHTML = PRODUCTS.length
-    ? PRODUCTS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')
-    : '<option value="">— add a cement type first —</option>';
+    ? PRODUCTS.map(p => `<option value="${p.id}">${p.name} (${p.category})</option>`).join('')
+    : '<option value="">— add an item first —</option>';
+  onProductChange();
+}
+
+function onProductChange() {
+  const productId = document.getElementById('fProduct').value;
+  const p = PRODUCTS.find(x => x.id === productId);
+  const unit = p ? p.unit : 'unit';
+  document.getElementById('lPrice').textContent = `Landing price / ${unit} (₹)`;
+  document.getElementById('lReceived').textContent = `Qty received (${unit})`;
+  document.getElementById('lLeftover').textContent = `Stock in hand (${unit})`;
 }
 
 async function loadLedger() {
-  const res = await apiFetch('/api/v1/admin/cement/ledger');
+  const res = await apiFetch('/api/v1/admin/stock/ledger');
   const data = (await res.json()).data || { products: [], totals: {} };
   const t = data.totals || {};
-  document.getElementById('sumBags').textContent = (t.totalBags || 0).toLocaleString('en-IN');
   document.getElementById('sumValue').textContent = rupee(t.totalValue);
-  document.getElementById('sumRate').textContent = rupee(t.blendedRatePerBag);
+  document.getElementById('sumItems').textContent = data.products.length.toLocaleString('en-IN');
+  document.getElementById('sumCats').textContent = new Set(data.products.map(p => p.category)).size.toLocaleString('en-IN');
 
   const body = document.getElementById('ledgerBody');
   if (!data.products.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">No cement types yet. Add one to begin.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty">No stock items yet. Add one to begin.</td></tr>';
     return;
   }
-  body.innerHTML = data.products.map(p => {
+
+  // Group by category (products already arrive sorted by category, name).
+  const rowsHtml = [];
+  let lastCategory = null;
+  data.products.forEach(p => {
+    if (p.category !== lastCategory) {
+      rowsHtml.push(`<tr class="cat-row"><td colspan="6">${p.category}</td></tr>`);
+      lastCategory = p.category;
+    }
     const anomalies = (p.anomalies || []).map(a => `<div class="anomaly">⚠️ ${a.message}</div>`).join('');
-    return `<tr>
+    rowsHtml.push(`<tr>
       <td><strong>${p.name}</strong>${anomalies}</td>
-      <td class="num mono">${p.onHand.toLocaleString('en-IN')}</td>
+      <td class="num mono">${p.onHand.toLocaleString('en-IN')}<span class="unit-tag">${p.unit}</span></td>
       <td class="num mono">${rupee(p.stockValue)}</td>
-      <td class="num mono rate">${rupee(p.ratePerBag)}</td>
+      <td class="num mono rate">${rupee(p.ratePerUnit)}<span class="unit-tag">/${p.unit}</span></td>
       <td>${p.lastRestockDate || '<span style="color:var(--muted)">—</span>'}</td>
       <td class="num"><button class="link-btn" onclick="openHistory('${p.productId}','${p.name.replace(/'/g,"\\'")}')">History</button></td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+  });
+  body.innerHTML = rowsHtml.join('');
 }
 
 async function submitRestock() {
   const productId = document.getElementById('fProduct').value;
   const date = document.getElementById('fDate').value;
-  const landingPricePerBag = document.getElementById('fPrice').value;
-  const bagsReceived = document.getElementById('fReceived').value;
+  const pricePerUnit = document.getElementById('fPrice').value;
+  const qtyReceived = document.getElementById('fReceived').value;
   const stockInHand = document.getElementById('fLeftover').value;
 
-  if (!productId) return showToast('Add and pick a cement type first', 'error');
+  if (!productId) return showToast('Add and pick a stock item first', 'error');
   if (!date) return showToast('Pick a date', 'error');
-  if (landingPricePerBag === '' || bagsReceived === '' || stockInHand === '')
-    return showToast('Fill price, bags received and stock in hand', 'error');
+  if (pricePerUnit === '' || qtyReceived === '' || stockInHand === '')
+    return showToast('Fill price, qty received and stock in hand', 'error');
 
   try {
-    const res = await apiFetch('/api/v1/admin/cement/restocks', {
+    const res = await apiFetch('/api/v1/admin/stock/restocks', {
       method: 'POST',
-      body: JSON.stringify({ productId, date, landingPricePerBag, bagsReceived, stockInHand }),
+      body: JSON.stringify({ productId, date, pricePerUnit, qtyReceived, stockInHand }),
     });
     const data = await res.json();
     if (!data.success) return showToast(data.message || 'Failed', 'error');
@@ -300,18 +344,27 @@ async function submitRestock() {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
-function openAddProduct() { document.getElementById('pName').value = ''; document.getElementById('prodModal').classList.add('open'); }
+function openAddProduct() {
+  document.getElementById('pName').value = '';
+  document.getElementById('pCategory').value = '';
+  document.getElementById('pUnit').value = '';
+  document.getElementById('prodModal').classList.add('open');
+}
 async function submitProduct() {
   const name = document.getElementById('pName').value.trim();
+  const category = document.getElementById('pCategory').value.trim();
+  const unit = document.getElementById('pUnit').value.trim();
   if (!name) return showToast('Enter a name', 'error');
+  if (!unit) return showToast('Enter a unit (e.g. bags, tonnes, pieces)', 'error');
   try {
-    const res = await apiFetch('/api/v1/admin/cement/products', { method: 'POST', body: JSON.stringify({ name }) });
+    const res = await apiFetch('/api/v1/admin/stock/products', { method: 'POST', body: JSON.stringify({ name, category, unit }) });
     const data = await res.json();
     if (!data.success) return showToast(data.message || 'Failed', 'error');
     closeModal('prodModal');
-    showToast('Cement type added', 'success');
+    showToast('Item added', 'success');
     await loadProducts();
     document.getElementById('fProduct').value = data.data.id;
+    onProductChange();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
@@ -320,18 +373,18 @@ async function openHistory(productId, name) {
   const body = document.getElementById('histBody');
   body.innerHTML = '<div class="empty">Loading…</div>';
   document.getElementById('histModal').classList.add('open');
-  const res = await apiFetch('/api/v1/admin/cement/restocks?productId=' + encodeURIComponent(productId));
+  const res = await apiFetch('/api/v1/admin/stock/restocks?productId=' + encodeURIComponent(productId));
   const rows = (await res.json()).data || [];
   if (!rows.length) { body.innerHTML = '<div class="empty">No restocks recorded yet.</div>'; return; }
   body.innerHTML = `<table>
     <thead><tr>
-      <th>Date</th><th class="num">Price/bag</th><th class="num">Received</th>
+      <th>Date</th><th class="num">Price/unit</th><th class="num">Received</th>
       <th class="num">Stock in hand</th><th></th>
     </tr></thead>
     <tbody>${rows.map(r => `<tr>
       <td>${r.date}</td>
-      <td class="num mono">${rupee(r.landingPricePerBag)}</td>
-      <td class="num mono">${Number(r.bagsReceived).toLocaleString('en-IN')}</td>
+      <td class="num mono">${rupee(r.pricePerUnit)}</td>
+      <td class="num mono">${Number(r.qtyReceived).toLocaleString('en-IN')}</td>
       <td class="num mono">${Number(r.stockInHand).toLocaleString('en-IN')}</td>
       <td class="num"><button class="link-btn" style="color:var(--red2)" onclick="deleteRestock('${r.id}','${productId}','${name.replace(/'/g,"\\'")}')">Delete</button></td>
     </tr>`).join('')}</tbody>
@@ -341,7 +394,7 @@ async function openHistory(productId, name) {
 async function deleteRestock(restockId, productId, name) {
   if (!confirm('Delete this restock? The FIFO ledger will recompute.')) return;
   try {
-    const res = await apiFetch('/api/v1/admin/cement/restocks/' + restockId, { method: 'DELETE' });
+    const res = await apiFetch('/api/v1/admin/stock/restocks/' + restockId, { method: 'DELETE' });
     const data = await res.json();
     if (!data.success) return showToast(data.message || 'Failed', 'error');
     showToast('Restock deleted', 'success');
