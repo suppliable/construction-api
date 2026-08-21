@@ -163,3 +163,6 @@ orphaned-images-*.txt
 
 # Backups from scripts/prune-dead-image-refs.js
 imageMap-backup-*.json
+
+# Pre-write safety snapshots from restore-image-map.js / revert-imagemap.js
+imageMap-prerestore-*.json

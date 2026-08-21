@@ -20,21 +20,49 @@
  *
  * Usage:
  *   cd construction-api
- *   node scripts/rewrite-image-urls.js          # dry-run
- *   node scripts/rewrite-image-urls.js --apply  # actually write
+ *   node scripts/rewrite-image-urls.js qa          # dry-run against qa
+ *   node scripts/rewrite-image-urls.js qa --apply  # actually write
  */
 
 const path = require('path');
-// override: true so a stale shell export (e.g. FIREBASE_SERVICE_ACCOUNT pointing
-// at a different project's SA) doesn't silently take precedence over .env.local.
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.local'), override: true });
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// The environment is an explicit argument, never an ambient default. Reading
+// .env.local unconditionally (as this script used to) silently targets dev even
+// when you mean qa — the same cascade trap clear-rtdb-liveorders.js guards
+// against. A --apply run against the wrong project is unrecoverable.
+const ENV_FILES = {
+  dev:  '.env.local.dev',
+  qa:   '.env.local.qa',
+  prod: '.env.local.prod',
+};
+const EXPECTED_PROJECT = {
+  dev:  'suppliable-dev',
+  qa:   'suppliable-qa-723f2',
+  prod: 'suppliable-app',
+};
+
+const envName = (process.argv[2] || '').toLowerCase();
+if (!ENV_FILES[envName]) {
+  console.error('Usage: node scripts/rewrite-image-urls.js <dev|qa|prod> [--apply]');
+  console.error('The environment is required — there is no default.');
+  process.exit(1);
+}
+
+const envPath = path.join(__dirname, '..', ENV_FILES[envName]);
+if (!fs.existsSync(envPath)) {
+  console.error(`Missing env file: ${ENV_FILES[envName]}`);
+  process.exit(1);
+}
+const cfg = dotenv.parse(fs.readFileSync(envPath));
 
 const admin = require('firebase-admin');
 
-const SA_PATH = process.env.FIREBASE_SERVICE_ACCOUNT;
-const TARGET_BUCKET = process.env.FIREBASE_STORAGE_BUCKET;
-if (!SA_PATH) throw new Error('FIREBASE_SERVICE_ACCOUNT not set');
-if (!TARGET_BUCKET) throw new Error('FIREBASE_STORAGE_BUCKET not set');
+const SA_PATH = cfg.FIREBASE_SERVICE_ACCOUNT;
+const TARGET_BUCKET = cfg.FIREBASE_STORAGE_BUCKET;
+if (!SA_PATH) throw new Error(`FIREBASE_SERVICE_ACCOUNT not set in ${ENV_FILES[envName]}`);
+if (!TARGET_BUCKET) throw new Error(`FIREBASE_STORAGE_BUCKET not set in ${ENV_FILES[envName]}`);
 
 const SOURCE_BUCKETS = [
   'suppliable-qa-723f2.firebasestorage.app',
@@ -46,8 +74,18 @@ const SOURCE_BUCKETS = [
 const COLLECTIONS = ['banners', 'categories', 'products', 'config'];
 const APPLY = process.argv.includes('--apply');
 
+const serviceAccount = require(path.isAbsolute(SA_PATH) ? SA_PATH : path.join(__dirname, '..', SA_PATH));
+if (serviceAccount.project_id !== EXPECTED_PROJECT[envName]) {
+  console.error(
+    `FATAL: ${ENV_FILES[envName]} holds a service account for ` +
+    `project_id=${serviceAccount.project_id}, but "${envName}" expects ` +
+    `${EXPECTED_PROJECT[envName]}. Refusing to run.`
+  );
+  process.exit(1);
+}
+
 if (!admin.apps.length) {
-  admin.initializeApp({ credential: admin.credential.cert(require(SA_PATH)) });
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 }
 const db = admin.firestore();
 
@@ -92,6 +130,7 @@ async function scanCollection(name) {
 }
 
 async function main() {
+  console.log(`Environment  : ${envName} (${ENV_FILES[envName]})`);
   console.log(`Target bucket: ${TARGET_BUCKET}`);
   console.log(`Looking for references to: ${SOURCE_BUCKETS.join(', ')}`);
   console.log(`Mode: ${APPLY ? 'APPLY (writes will happen)' : 'DRY-RUN (no writes)'}`);
