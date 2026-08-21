@@ -157,3 +157,9 @@ frontend/.dart_tool/package_config.json
 frontend/.dart_tool/package_graph.json
 frontend/.dart_tool/version
 frontend/.flutter-plugins-dependencies
+
+# Backfill manifests from scripts/optimize-existing-images.js
+orphaned-images-*.txt
+
+# Backups from scripts/prune-dead-image-refs.js
+imageMap-backup-*.json
