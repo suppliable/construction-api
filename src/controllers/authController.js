@@ -65,7 +65,7 @@ async function sendOtp(req, res) {
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'send otp request');
 
   try {
-    await msg91.sendOtp(normalized, req.traceContext);
+    await msg91.sendOtp(normalized, req.traceContext, req.log);
     recordOtpSend(normalized);
     req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp sent');
     return res.json({ success: true, message: 'OTP sent successfully' });
@@ -97,7 +97,7 @@ async function verifyOtp(req, res) {
 
   let msg91Res;
   try {
-    msg91Res = await msg91.verifyOtp(normalized, otp, req.traceContext);
+    msg91Res = await msg91.verifyOtp(normalized, otp, req.traceContext, req.log);
   } catch (err) {
     const data = err.response?.data;
     req.log.error({ err: data || err.message, phone: normalized }, 'msg91 verify failure');
@@ -117,6 +117,11 @@ async function verifyOtp(req, res) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
+  return issueSession(req, res, normalized);
+}
+
+// Post-verification session issue.
+async function issueSession(req, res, normalized) {
   clearVerifyAttempts(normalized);
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'otp verify success');
 
@@ -155,7 +160,7 @@ async function resendOtp(req, res) {
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'resend otp request');
 
   try {
-    await msg91.resendOtp(normalized, req.traceContext);
+    await msg91.resendOtp(normalized, req.traceContext, req.log);
     recordOtpSend(normalized);
     return res.json({ success: true, message: 'OTP resent successfully' });
   } catch (err) {
