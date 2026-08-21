@@ -12,10 +12,10 @@ const {
 const { getGlobalReport, resetGlobal } = require('../middleware/firestoreTracker');
 const { buildRuntimeDiagnostics } = require('../services/diagnosticsService');
 const {
-  listCementProducts, addCementProduct,
-  listCementRestocks, addCementRestock, deleteCementRestock,
-  getCementLedger,
-} = require('../controllers/cementController');
+  listStockProducts, addStockProduct,
+  listStockRestocks, addStockRestock, deleteStockRestock,
+  getStockLedger,
+} = require('../controllers/stockController');
 const {
   listOrders,
   getOrderStats,
@@ -310,14 +310,16 @@ router.post('/cache/invalidate-zoho', async (req, res) => {
   }
 });
 
-// Cement FIFO stock costing — restocks entered by the warehouse manager, ledger
-// (bags on hand + cumulative FIFO rate/bag) recomputed by replaying restocks.
-router.get('/cement/ledger', getCementLedger);
-router.get('/cement/products', listCementProducts);
-router.post('/cement/products', addCementProduct);
-router.get('/cement/restocks', listCementRestocks);
-router.post('/cement/restocks', addCementRestock);
-router.delete('/cement/restocks/:restockId', deleteCementRestock);
+// FIFO stock costing (any material) — restocks entered by the warehouse
+// manager, ledger (qty on hand + cumulative FIFO rate/unit) recomputed by
+// replaying restocks. Originally cement-only; see stockRepository.js for why
+// the Firestore collections are still named cementProducts/cementRestocks.
+router.get('/stock/ledger', getStockLedger);
+router.get('/stock/products', listStockProducts);
+router.post('/stock/products', addStockProduct);
+router.get('/stock/restocks', listStockRestocks);
+router.post('/stock/restocks', addStockRestock);
+router.delete('/stock/restocks/:restockId', deleteStockRestock);
 
 // Firebase custom token for the admin live view (RTDB push).
 // The admin portal is not a Firebase Auth client — it authenticates with the

@@ -1,8 +1,13 @@
 const axios = require('axios');
 const { createSpan } = require('../utils/spanTracer');
+const logger = require('../utils/logger');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 
-const { MSG91_BASE_URL: BASE } = require('../constants');
+const {
+  MSG91_BASE_URL: BASE,
+  MSG91_OTP_LENGTH,
+  MSG91_OTP_EXPIRY_MINUTES,
+} = require('../constants');
 
 const AUTHKEY = () => process.env.MSG91_AUTH_KEY;
 const MASKED_KEY = () => {
@@ -14,20 +19,23 @@ function authHeaders() {
   return { authkey: AUTHKEY() };
 }
 
-function logRequest(context, method, url, params, headers, body) {
+// Use the pino logger, not console.log — only pino writes are bridged to OTel
+// and reach Loki/Grafana. `log` is req.log where available so lines inherit trace IDs.
+function logRequest(log, context, method, url, params, headers, body) {
   const safeParams = { ...params };
   if (safeParams.authkey) safeParams.authkey = MASKED_KEY();
   const safeHeaders = { ...headers };
   if (safeHeaders.authkey) safeHeaders.authkey = MASKED_KEY();
-  console.log(`[MSG91:${context}] >>> ${method} ${url}`);
-  console.log(`[MSG91:${context}] params:`, JSON.stringify(safeParams));
-  console.log(`[MSG91:${context}] headers:`, JSON.stringify(safeHeaders));
-  console.log(`[MSG91:${context}] body:`, JSON.stringify(body));
+  log.info(
+    { context, method, url, params: safeParams, headers: safeHeaders, body },
+    `msg91 ${context} request`,
+  );
 }
 
-function logResponse(context, httpStatus, data) {
-  console.log(`[MSG91:${context}] <<< httpStatus=${httpStatus}`);
-  console.log(`[MSG91:${context}] response:`, JSON.stringify(data));
+function logResponse(log, context, httpStatus, data, ok = true) {
+  const fields = { context, httpStatus, response: data };
+  if (ok) log.info(fields, `msg91 ${context} response`);
+  else log.error(fields, `msg91 ${context} failure`);
 }
 
 // MSG91 expects phone without '+' (e.g. "919876543210"), not E.164 ("+91...").
@@ -44,73 +52,86 @@ function assertSuccess(data, context) {
   }
 }
 
-async function sendOtp(normalizedPhone) {
-  const method = 'POST';
+async function sendOtp(normalizedPhone, traceContext = null, log = logger) {
+  const span = createSpan(traceContext, 'msg91.api.sendOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp' });
   const params = {
     template_id: process.env.MSG91_TEMPLATE_ID,
     mobile: toMsg91Mobile(normalizedPhone),
+    otp_length: MSG91_OTP_LENGTH,
+    otp_expiry: MSG91_OTP_EXPIRY_MINUTES,
   };
   const headers = authHeaders();
   const body = null;
 
-  logRequest('send', method, BASE, params, headers, body);
+  logRequest(log, 'send', 'POST', BASE, params, headers, body);
 
   let res;
   try {
-    res = await axios.post(BASE, body, { params, headers, timeout: 10000 });
+    res = await withRetry('msg91.api.sendOtp', () =>
+      axios.post(BASE, body, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
+    );
   } catch (err) {
     const httpStatus = err.response?.status ?? 'network-error';
-    logResponse('send', httpStatus, err.response?.data ?? err.message);
+    logResponse(log, 'send', httpStatus, err.response?.data ?? err.message, false);
+    span.end({ success: false, error: err.response?.data || err.message });
     throw err;
   }
 
-  logResponse('send', res.status, res.data);
-  assertSuccess(res.data, 'send');
+  logResponse(log, 'send', res.status, res.data);
+
+  try {
+    assertSuccess(res.data, 'send');
+  } catch (err) {
+    span.end({ success: false, error: err.msg91Body || err.message });
+    throw err;
+  }
+
+  span.end({ success: true, type: res.data?.type });
   return res.data;
 }
 
-async function verifyOtp(normalizedPhone, otp, traceContext = null) {
+async function verifyOtp(normalizedPhone, otp, traceContext = null, log = logger) {
   const span = createSpan(traceContext, 'msg91.api.verifyOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp/verify' });
   const url = `${BASE}/verify`;
   const params = { otp, mobile: toMsg91Mobile(normalizedPhone) };
   const headers = authHeaders();
 
-  logRequest('verify', 'GET', url, params, headers, null);
+  logRequest(log, 'verify', 'GET', url, params, headers, null);
 
   try {
     const res = await withRetry('msg91.api.verifyOtp', () =>
       axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
     );
-    logResponse('verify', res.status, res.data);
+    logResponse(log, 'verify', res.status, res.data);
     span.end({ success: true, type: res.data?.type });
     return res.data;
   } catch (error) {
     const httpStatus = error.response?.status ?? 'network-error';
-    logResponse('verify', httpStatus, error.response?.data ?? error.message);
+    logResponse(log, 'verify', httpStatus, error.response?.data ?? error.message, false);
     span.end({ success: false, error: error.response?.data || error.message });
     throw error;
   }
 }
 
-async function resendOtp(normalizedPhone, traceContext = null) {
+async function resendOtp(normalizedPhone, traceContext = null, log = logger) {
   const span = createSpan(traceContext, 'msg91.api.resendOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp/retry' });
   const url = `${BASE}/retry`;
   const params = { retrytype: 'text', mobile: toMsg91Mobile(normalizedPhone) };
   const headers = authHeaders();
 
-  logRequest('resend', 'GET', url, params, headers, null);
+  logRequest(log, 'resend', 'GET', url, params, headers, null);
 
   try {
     const res = await withRetry('msg91.api.resendOtp', () =>
       axios.get(url, { params, headers, timeout: DEFAULT_TIMEOUT_MS })
     );
-    logResponse('resend', res.status, res.data);
-    span.end({ success: true });
+    logResponse(log, 'resend', res.status, res.data);
     assertSuccess(res.data, 'resend');
+    span.end({ success: true });
     return res.data;
   } catch (error) {
     const httpStatus = error.response?.status ?? 'network-error';
-    logResponse('resend', httpStatus, error.response?.data ?? error.message);
+    logResponse(log, 'resend', httpStatus, error.response?.data ?? error.message, false);
     span.end({ success: false, error: error.response?.data || error.message });
     throw error;
   }

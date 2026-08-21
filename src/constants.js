@@ -91,7 +91,17 @@ const DEFAULT_PINCODES = '600119,600130,603103,600097,600100,600126,600115';
 
 // ── External services ─────────────────────────────────────────────────────────
 const MSG91_BASE_URL = 'https://control.msg91.com/api/v5/otp';
-const PLACEHOLDER_IMAGE = 'https://placehold.co/400x300?text=No+Image';
+// MSG91 defaults to a 4-digit OTP and a 15-minute expiry. Both must be sent
+// explicitly: the app's OTP field requires exactly 6 digits (app_constants.dart
+// otpLength), and the DLT-approved template text promises 10 minutes.
+const MSG91_OTP_LENGTH = 6;
+const MSG91_OTP_EXPIRY_MINUTES = 10;
+// Must be a RASTER format. placehold.co returns SVG when no extension is given,
+// and Flutter's codecs (JPEG/PNG/GIF/WebP/BMP/WBMP) cannot decode SVG — the
+// `?text=No+Image` form this used to be rendered as the error widget, not as a
+// placeholder. Single source of truth: productService.buildImage() uses this too,
+// so the two cannot drift apart again.
+const PLACEHOLDER_IMAGE = 'https://placehold.co/400x300/png';
 
 module.exports = {
   DEFAULT_USER_ORDER_LIMIT,
@@ -125,5 +135,7 @@ module.exports = {
   DRIVER_STATUS_LABELS,
   DEFAULT_PINCODES,
   MSG91_BASE_URL,
+  MSG91_OTP_LENGTH,
+  MSG91_OTP_EXPIRY_MINUTES,
   PLACEHOLDER_IMAGE,
 };
