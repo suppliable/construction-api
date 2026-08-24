@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const admin = require('../utils/firebaseAdmin');
 const { syncCustomer } = require('../services/customerService');
 const { getCustomerByPhone } = require('../services/firestoreService');
 const msg91 = require('../services/msg91Service');
@@ -42,6 +43,18 @@ function generateUserId() {
 
 async function lookupCustomer(normalizedPhone, traceContext) {
   return (await getCustomerByPhone(normalizedPhone, traceContext)) || null;
+}
+
+// Bridges MSG91-authenticated sessions to a real Firebase Auth identity, keyed
+// on the same userId used everywhere else — never a fresh uid. Non-fatal: the
+// client no-ops when this field is absent, so a mint failure must not block login.
+async function mintFirebaseCustomToken(uid, log) {
+  try {
+    return await admin.auth().createCustomToken(uid);
+  } catch (err) {
+    log.error({ err: err.message, uid }, 'firebase custom token mint failed');
+    return null;
+  }
 }
 
 // ── POST /api/v1/auth/send-otp ─────────────────────────────
@@ -130,7 +143,8 @@ async function issueSession(req, res, normalized) {
   if (customer) {
     req.log.info({ userId: customer.userId }, 'existing customer login');
     const token = signToken({ userId: customer.userId, phone: normalized });
-    return res.json({ success: true, isNewUser: false, token, customer });
+    const firebaseCustomToken = await mintFirebaseCustomToken(customer.userId, req.log);
+    return res.json({ success: true, isNewUser: false, token, customer, firebaseCustomToken });
   }
 
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'new customer signup required');
@@ -197,7 +211,8 @@ async function completeSignup(req, res) {
     const customer = await syncCustomer(userId, phone, name.trim(), is_business, business_name, gstin, registered_address, req.traceContext);
     req.log.info({ userId }, 'new customer signup complete');
     const authToken = signToken({ userId, phone });
-    return res.json({ success: true, token: authToken, customer });
+    const firebaseCustomToken = await mintFirebaseCustomToken(userId, req.log);
+    return res.json({ success: true, token: authToken, customer, firebaseCustomToken });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
