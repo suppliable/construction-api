@@ -27,6 +27,14 @@ const schema = z.object({
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
   JWT_SECRET: z.string().min(6, 'JWT_SECRET must be at least 6 characters'),
 
+  // MSG91 — a missing/typo'd template id otherwise surfaces only as an opaque
+  // vendor error at OTP-send time, long after boot.
+  MSG91_AUTH_KEY: z.string().min(1, 'MSG91_AUTH_KEY is required'),
+  MSG91_TEMPLATE_ID: z
+    .string()
+    .regex(/^[0-9a-f]{24}$/, 'MSG91_TEMPLATE_ID must be a 24-character hex template id'),
+  MSG91_SENDER_ID: z.string().optional(),
+
   // Optional
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),

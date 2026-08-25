@@ -9,6 +9,7 @@ const { withSpan } = require('../utils/spanTracer');
 const { isAppVisible } = require('../utils/appVisibility');
 const redis = require('../cache/redis');
 const env = require('../config/env');
+const { PLACEHOLDER_IMAGE } = require('../constants');
 
 
 // Extract GST from Zoho item tax preferences
@@ -29,8 +30,7 @@ const deriveShadeBrand = (zohoItem) =>
   (zohoItem?.cf_tintable === true || zohoItem?.cf_tintable === 'true') ? 'asian-paints' : null;
 
 // Build image URL from custom field or fallback to placeholder
-const buildImage = (name, imageUrl) =>
-  imageUrl || 'https://placehold.co/400x300/png';
+const buildImage = (name, imageUrl) => imageUrl || PLACEHOLDER_IMAGE;
 
 const toNumberOrNull = (value) => {
   if (value === null || value === undefined || value === '') return null;
