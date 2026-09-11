@@ -1,6 +1,7 @@
 'use strict';
 
 const { formatTimestamps } = require('../utils/formatDoc');
+const { proofPhotoFields } = require('../utils/proofPhoto');
 
 const { ORDER_STATUS_LABELS: STATUS_LABELS } = require('../constants');
 
@@ -60,6 +61,7 @@ function toOrderDTO(doc) {
     acceptedAt: o.acceptedAt || null,
     declinedAt: o.declinedAt || null,
     deliveredAt: o.deliveredAt || null,
+    ...proofPhotoFields(o),
   };
 }
 

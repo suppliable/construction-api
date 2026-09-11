@@ -36,6 +36,7 @@ const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { formatTimestamps } = require('../utils/formatDoc');
+const { proofPhotoFields } = require('../utils/proofPhoto');
 
 // GET /api/admin/orders
 const listOrders = async (req, res) => {
@@ -87,11 +88,19 @@ const listOrders = async (req, res) => {
         acceptedAt: o.acceptedAt || null,
         deliveredAt: o.deliveredAt || null,
         fulfillmentDuration,
+        ...proofPhotoFields(o),
         customer: customer ? { name: customer.name, phone: customer.phone } : null
       };
     }));
 
-    res.json({ success: true, data: { count: enriched.length, orders: enriched, hasMore, lastOrderId } });
+    // ?proofPending=true — delivered orders still missing their proof photo.
+    // Applied after enrichment because the status is derived, not stored, for
+    // orders that predate the proof-photo split.
+    const filtered = req.query.proofPending === 'true'
+      ? enriched.filter(o => o.status === 'delivered' && o.proofPhotoStatus === 'pending')
+      : enriched;
+
+    res.json({ success: true, data: { count: filtered.length, orders: filtered, hasMore, lastOrderId } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
   }
@@ -148,6 +157,7 @@ const getOrderDetail = async (req, res) => {
           gstTotal: Number(o.gst_total ?? 0),
           deliveryCharge: Number(o.delivery_charge ?? o.deliveryCharge ?? 0),
           grandTotal: Number(o.grand_total ?? o.grandTotal ?? 0),
+          ...proofPhotoFields(o),
           customer: customer ? { name: customer.name, phone: customer.phone, email: customer.email || null } : null,
           deliveryAddress: address || null
         }

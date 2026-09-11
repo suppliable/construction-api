@@ -243,6 +243,9 @@
   .info-box.grey { background:#f1f5f9; color:var(--muted); border:1px solid var(--border); }
   .info-box.success { background:#d1fae5; color:#065f46; border:1px solid #a7f3d0; }
   .delivery-photo { width:100%; border-radius:8px; margin-top:10px; border:1px solid var(--border); }
+  .proof-badge { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:10px; font-size:10.5px; font-weight:600; white-space:nowrap; }
+  .proof-pending { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
+  .proof-overdue { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
 
   /* TIMELINE */
   .timeline { padding:4px 0; }
@@ -999,6 +1002,35 @@ function getFiltered() {
 }
 
 // ---- RENDER TABLE ----
+// ---- PROOF PHOTO ----
+// Delivery completion and photo upload are decoupled, so a delivered order can
+// sit without a photo while the driver's app retries the upload. Past six hours
+// the backend flags it (pendingPhotoAlert) and the badge turns red.
+const PROOF_PHOTO_DEADLINE_HOURS = 6;
+
+function proofPhotoBadge(o) {
+  if (o.status !== 'delivered' || o.proofPhotoStatus !== 'pending') return '';
+  return o.pendingPhotoAlert
+    ? `<span class="proof-badge proof-overdue" title="Proof photo overdue">⚠️ Photo overdue</span>`
+    : `<span class="proof-badge proof-pending" title="Proof photo not yet uploaded">📷 Photo pending</span>`;
+}
+
+function proofPhotoDetailHtml(o) {
+  const url = o.proofPhotoUrl || o.deliveryPhotoUrl;
+  if (o.proofPhotoStatus === 'pending') {
+    const hoursLeft = (() => {
+      if (!o.deliveredAt) return null;
+      const elapsedH = (Date.now() - new Date(o.deliveredAt).getTime()) / 3600000;
+      return Math.max(0, Math.ceil(PROOF_PHOTO_DEADLINE_HOURS - elapsedH));
+    })();
+    const line = o.pendingPhotoAlert
+      ? `<small style="display:block;color:var(--red2,#ef4444);font-weight:600">⚠️ Proof photo overdue — driver has not uploaded it</small>`
+      : `<small style="display:block;color:var(--orange,#f59e0b);font-weight:600">📷 Proof photo not yet received${hoursLeft !== null ? ` — driver has ${hoursLeft} hour${hoursLeft === 1 ? '' : 's'} to upload` : ''}</small>`;
+    return `<br>${line}`;
+  }
+  return url ? `<br><img src="${url}" class="delivery-photo" alt="Delivery proof">` : '';
+}
+
 function renderTable() {
   const list = getFiltered();
   const tbody = document.getElementById('ordersTableBody');
@@ -1019,7 +1051,7 @@ function renderTable() {
       <td style="color:var(--muted)">${itemCell}</td>
       <td><span class="amount">${amt}</span></td>
       <td><span class="pill ${o.paymentType==='COD'?'pill-cod':'pill-online'}">${o.paymentType}</span></td>
-      <td>${statusPill(o.status)}</td>
+      <td>${statusPill(o.status)}${proofPhotoBadge(o)}</td>
       <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)">${o.status === 'delivered' && o.fulfillmentDuration ? `<strong style="color:var(--text)">${o.fulfillmentDuration}</strong>` : '—'}</td>
       <td><button class="action-btn" onclick="event.stopPropagation();openPanel(${JSON.stringify(o).replace(/"/g,'&quot;')})">👁</button></td>
     </tr>`;
@@ -1206,7 +1238,7 @@ function buildActions(o) {
       return `<div class="info-box success">✅ Delivered on ${o.deliveredAt ? fmtDate(o.deliveredAt) : '—'}
         ${o.driverName ? `<br><small>🧑‍✈️ ${o.driverName}${o.driverPhone ? ' · ' + o.driverPhone : ''}</small>` : ''}
         ${o.vehicleName || o.vehicle?.vehicleNumber ? `<br><small>🚛 ${o.vehicleName || ''}${o.vehicle?.vehicleNumber ? ' · ' + o.vehicle.vehicleNumber : ''}</small>` : ''}
-        ${o.deliveryPhotoUrl ? `<br><img src="${o.deliveryPhotoUrl}" class="delivery-photo" alt="Delivery proof">` : ''}
+        ${proofPhotoDetailHtml(o)}
         ${o.forcedComplete ? `<br><small style="color:var(--orange);font-weight:600">⚡ Force completed — ${o.forceReason||''}</small>` : ''}
       </div>`;
     case 'declined':

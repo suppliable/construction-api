@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const driverAuth = require('../middleware/driverAuth');
-const { driverAuth: driverLogin, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, getDriverProfile, updateDriverStatus, getTodayOrders, getDriverOrderDetail, getCodSummary, submitHandover, getDriverCodHistory } = require('../controllers/driverController');
+const { driverAuth: driverLogin, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, uploadProofPhoto, getDriverProfile, updateDriverStatus, getTodayOrders, getDriverOrderDetail, getCodSummary, submitHandover, getDriverCodHistory } = require('../controllers/driverController');
 const { cacheFor } = require('../cache/middleware');
 const { invalidateOrder, invalidateDriverOrders, invalidateDriverProfile } = require('../cache/invalidate');
 const { CACHE_TTL_DRIVER_PROFILE_S, CACHE_TTL_DRIVER_ORDERS_S } = require('../constants');
@@ -60,5 +60,9 @@ router.get('/orders/:orderId/eta', getEta);
 router.post('/orders/:orderId/arrived', invalidateAfterMutation({ order: true, driverOrders: true }), arrived);
 router.post('/orders/:orderId/cod-collected', invalidateAfterMutation({ order: true, driverOrders: true }), codCollected);
 router.post('/orders/:orderId/complete', invalidateAfterMutation({ order: true, driverOrders: true }), completeDelivery);
+// Late proof-photo upload for an order already closed via /complete. driverAuth
+// is already applied by router.use above — re-adding it would cost a second
+// Firestore token lookup on every retry from the client's upload queue.
+router.post('/orders/:orderId/proof-photo', invalidateAfterMutation({ order: true }), uploadProofPhoto);
 
 module.exports = router;

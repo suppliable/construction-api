@@ -10,6 +10,9 @@ const { formatTimestamps } = require('../utils/formatDoc');
 const fcm = require('../services/fcmService');
 
 const upload = multer({ storage: multer.memoryStorage() });
+// Proof photos arrive from the retry queue, sometimes long after delivery and
+// straight off the camera without the app's usual pre-compression — allow 10MB.
+const proofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const { ACTIVE_DRIVER_ORDER_STATUSES, DEFAULT_DRIVER_HISTORY_LIMIT, DRIVER_STATUS_LABELS } = require('../constants');
 const { normalizePhone } = require('../utils/phone');
 
@@ -360,22 +363,31 @@ const completeDelivery = [
         return res.status(400).json({ success: false, error: 'INVALID_OTP', message: 'Invalid OTP' });
       }
 
-      if (!req.file) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'photo is required' });
-      let deliveryPhotoUrl;
-      try {
-        deliveryPhotoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
-      } catch (uploadError) {
-        console.error('[Storage Error] Full error:', uploadError);
-        console.error('[Storage Error] Message:', uploadError.message);
-        console.error('[Storage Error] Code:', uploadError.code);
-        throw uploadError;
+      // Proof photo is optional. Drivers in low-signal areas close the order on
+      // OTP alone and upload the photo later via POST /orders/:orderId/proof-photo;
+      // the order is marked proofPhotoStatus='pending' until it arrives.
+      let deliveryPhotoUrl = null;
+      if (req.file) {
+        try {
+          deliveryPhotoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
+        } catch (uploadError) {
+          console.error('[Storage Error] Full error:', uploadError);
+          console.error('[Storage Error] Message:', uploadError.message);
+          console.error('[Storage Error] Code:', uploadError.code);
+          throw uploadError;
+        }
       }
 
+      const now = new Date().toISOString();
       const updated = await updateOrder(orderId, {
         status: 'delivered',
-        deliveredAt: new Date().toISOString(),
+        deliveredAt: now,
+        otpVerified: true,
         deliveryPhotoUrl,
-        otpVerified: true
+        proofPhotoUrl: deliveryPhotoUrl,
+        proofPhotoStatus: deliveryPhotoUrl ? 'uploaded' : 'pending',
+        proofPhotoUploadId: null,
+        proofPhotoUploadedAt: deliveryPhotoUrl ? now : null,
       }, req.traceContext);
 
       try {
@@ -420,6 +432,74 @@ const completeDelivery = [
     } catch (err) {
       res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
     }
+  }
+];
+
+// POST /api/driver/orders/:orderId/proof-photo
+//
+// Second half of the proof-photo split: uploads the delivery photo for an order
+// that was already closed on OTP alone. Deliberately has NO side effects — no
+// status transition, no invoice, no notification. Those all fired at /complete.
+//
+// Error contract matters here. The client holds a retry queue with a small,
+// finite attempt budget, and treats any 4xx/5xx as a permanent rejection that
+// burns an attempt. So we only return an error status for conditions that will
+// still be true on retry (order missing, wrong driver, wrong status, no file).
+// A transient storage failure is rethrown so the request dies as a connection
+// error instead — which the queue retries without consuming its budget.
+const uploadProofPhoto = [
+  proofUpload.single('photo'),
+  async (req, res) => {
+    const { orderId } = req.params;
+    const uploadId = req.headers['idempotency-key'] || req.body?.uploadId || null;
+
+    const order = await getOrderById(orderId, req.traceContext).catch(() => null);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    }
+    if (order.driverId !== req.driver.driverId) {
+      return res.status(403).json({ success: false, error: 'FORBIDDEN', message: 'This order is not assigned to you' });
+    }
+    // 'arrived' is allowed as well as 'delivered' so a photo captured moments
+    // before the OTP screen isn't rejected by a race with /complete.
+    if (!['arrived', 'delivered'].includes(order.status)) {
+      return res.status(400).json({ success: false, error: 'INVALID_STATUS', message: `Order must be arrived or delivered (current: ${order.status})` });
+    }
+
+    // Replay of an upload we already stored — return the existing URL rather
+    // than writing a second copy to storage.
+    if (uploadId && order.proofPhotoUploadId === uploadId && order.proofPhotoUrl) {
+      return res.json({ success: true, data: { url: order.proofPhotoUrl } });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'photo is required' });
+    }
+
+    // Folder is 'deliveries' (not a per-order path) so this picks up the same
+    // 1280px/q75 optimization profile as /complete — see imageOptimizer.
+    let photoUrl;
+    try {
+      photoUrl = await uploadToFirebase(req.file.buffer, req.file.mimetype, 'deliveries');
+    } catch (uploadError) {
+      // Deliberately NOT a 500. Express 5 would forward a thrown error to the
+      // global handler, which answers 500 — and the client's retry queue counts
+      // any HTTP response as a permanent verdict, burning one of its attempts on
+      // what is usually a transient storage/network blip. Killing the socket
+      // instead surfaces as a connection error, which the queue retries freely.
+      req.log.error({ err: uploadError.message, orderId }, 'proof photo upload failed — closing socket for client retry');
+      return req.destroy();
+    }
+
+    await updateOrder(orderId, {
+      proofPhotoUrl: photoUrl,
+      proofPhotoStatus: 'uploaded',
+      proofPhotoUploadId: uploadId,
+      proofPhotoUploadedAt: new Date().toISOString(),
+      deliveryPhotoUrl: photoUrl,
+    }, req.traceContext);
+
+    res.json({ success: true, data: { url: photoUrl } });
   }
 ];
 
@@ -754,4 +834,4 @@ const submitHandover = async (req, res) => {
   }
 };
 
-module.exports = { driverAuth, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };
+module.exports = { driverAuth, loadingComplete, getEta, updateDriverLocation, arrived, codCollected, completeDelivery, uploadProofPhoto, getTodayOrders, getDriverOrderDetail, getDriverProfile, updateDriverStatus, getCodSummary, submitHandover, getDriverCodHistory };
