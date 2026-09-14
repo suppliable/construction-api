@@ -304,7 +304,6 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   }
 
   const confirmedOrder = { ...order, ...update };
-  mirrorLiveOrder(confirmedOrder);
 
   await invalidateOrder(orderId).catch(() => {});
   if (order.slackTs) {
@@ -331,7 +330,10 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
     try { await saveCart(order.userId, { items: [] }); } catch (_) {}
   }
 
-  return { ...order, ...update, _transitioned: true };
+  const finalOrder = { ...order, ...update };
+  mirrorLiveOrder(finalOrder);
+
+  return { ...finalOrder, _transitioned: true };
 }
 
 /**
