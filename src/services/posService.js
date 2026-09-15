@@ -238,9 +238,13 @@ async function buildDraftLineItems(items, traceContext = null) {
       }
     }
 
-    // Stock check — variant-level first, then product-level
+    // Stock check — variant-level first, then product-level.
+    // Walk-in (counter-only) items are exempt: they are often billed before the
+    // vendor delivers and raises their bill, so Zoho stock legitimately sits at
+    // or below zero at sale time. App-listed items keep the check.
+    const isWalkinItem = product.appVisible === false;
     const availableStock = resolvedVariant?.available_stock ?? product.available_stock ?? null;
-    if (availableStock !== null) {
+    if (availableStock !== null && !isWalkinItem) {
       const label = `${product.name}${resolvedVariantId ? ` (${resolvedVariantId})` : ''}`;
       if (availableStock <= 0) {
         throw Object.assign(new Error(`${label} is out of stock`), { code: 'OUT_OF_STOCK' });
