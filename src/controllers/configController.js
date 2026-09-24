@@ -171,7 +171,30 @@ const pendingOrdersTick = async (req, res) => {
   }
 };
 
+/**
+ * Cloud Scheduler tick: flip lapsed bulk quotes to `expired`.
+ *
+ * The server owns expiry — approve also re-checks validUntil, because a quote
+ * can lapse between firings and must not be approvable in that window.
+ *
+ * Pure read + conditional writes, idempotent: a quote already past its date is
+ * flipped once and then no longer matches the `quoted` filter.
+ */
+const bulkQuoteExpiryTick = async (req, res) => {
+  try {
+    const result = await require('../services/bulkService')
+      .expireLapsedQuotes(req.traceContext);
+    if (result.expired) {
+      req.log.info({ expired: result.expired, quoteIds: result.quoteIds }, 'bulk quotes expired');
+    }
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
+  bulkQuoteExpiryTick,
   getCodThreshold,
   updateCodThreshold,
   getWarehouseStatus,

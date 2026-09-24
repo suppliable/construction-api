@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Bulk Catalogue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --red:#e53935; --blue:#1565c0;
+    --bg:#f0f2f7; --card:#ffffff; --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --green:#10b981; --red2:#ef4444; --amber:#f59e0b;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
+
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
+  .topbar { height:60px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; }
+  .btn-logout:hover { background:var(--bg); }
+
+  .content { padding:24px; max-width:1180px; display:flex; flex-direction:column; gap:20px; }
+
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
+  .card-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .card-title { font-size:15px; font-weight:700; }
+  .card-desc { font-size:12.5px; color:var(--muted); margin-top:3px; }
+  .head-actions { display:flex; align-items:center; gap:10px; }
+
+  .summary-row { display:flex; gap:16px; flex-wrap:wrap; }
+  .summary-tile { flex:1; min-width:170px; background:#fff; border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .summary-tile .label { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.03em; }
+  .summary-tile .value { font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:600; color:var(--navy); margin-top:6px; }
+
+  .notice { background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:10px; padding:12px 16px; font-size:13px; line-height:1.55; }
+  .notice b { font-weight:700; }
+  .notice code { font-family:'JetBrains Mono',monospace; background:rgba(0,0,0,0.05); padding:1px 5px; border-radius:4px; }
+
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { text-align:left; padding:10px 12px; color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:1px solid var(--border); }
+  td { padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .empty { color:var(--muted); font-size:13px; padding:20px 0; text-align:center; }
+  .row-inactive td { opacity:0.5; }
+  .sub-line { font-size:11.5px; color:var(--muted); margin-top:2px; }
+
+  .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .pill-on { background:#d1fae5; color:#065f46; }
+  .pill-off { background:#fee2e2; color:#991b1b; }
+  .pill-warn { background:#fef3c7; color:#92400e; }
+
+  label { display:block; font-size:12.5px; font-weight:600; margin-bottom:5px; }
+  input { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; background:#fff; color:var(--text); }
+  input:focus { outline:none; border-color:var(--blue); }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+  .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
+  .check-row { display:flex; align-items:center; gap:9px; margin-top:14px; }
+  .check-row input { width:auto; }
+  .check-row label { margin:0; }
+  .filter-select { width:auto; min-width:190px; padding:7px 10px; font-size:13px; border:1px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; background:#fff; color:var(--text); }
+
+  .btn { padding:9px 16px; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn-navy { background:var(--navy); color:#fff; }
+  .btn-navy:hover { background:var(--navy-light); }
+  .btn-sm { padding:6px 12px; font-size:13px; }
+  .btn-ghost { background:none; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { background:var(--bg); }
+  .link-btn { background:none; border:none; color:var(--blue); font-size:13px; cursor:pointer; font-family:'DM Sans',sans-serif; font-weight:600; padding:2px 4px; }
+
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.error { background:var(--red2); }
+  #toast.success { background:var(--green); }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:14px; width:100%; max-width:520px; }
+  .modal-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:14px; }
+  .modal-foot { padding:0 22px 20px; display:flex; gap:10px; justify-content:flex-end; }
+  .close-x { background:none; border:none; font-size:22px; color:var(--muted); cursor:pointer; line-height:1; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
+    <a class="nav-item" href="stock.html">📊 Stock Costing</a>
+    <a class="nav-item active" href="bulk-catalogue.html">🏗️ Bulk Catalogue</a>
+    <a class="nav-item" href="bulk-quotes.html">📝 Bulk Quotes</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="notifications.html">📣 Notifications</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Bulk Catalogue</div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+
+  <div class="content">
+    <div class="notice">
+      <b>Bulk products come from Zoho.</b> To offer an item for bulk orders, tick the
+      <code>bulk</code> checkbox on that item in Zoho — its rate, GST, HSN and unit are then used
+      as-is, and orders can raise a Zoho sales order like any other. Products can't be added or
+      edited here. <b>What you set on this page is the minimum order value per category</b>, which
+      is what decides whether a customer can send a quote request at all.
+    </div>
+
+    <div class="summary-row">
+      <div class="summary-tile"><div class="label">Categories</div><div class="value" id="sumCats">—</div></div>
+      <div class="summary-tile"><div class="label">Bulk products</div><div class="value" id="sumProducts">—</div></div>
+      <div class="summary-tile"><div class="label">Needs a minimum</div><div class="value" id="sumUnset">—</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Categories</div>
+          <div class="card-desc">Derived from the Zoho categories of bulk-flagged items. The server enforces the minimum when a customer requests a quote.</div>
+        </div>
+        <button class="link-btn" onclick="loadAll()">↻ Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th class="num">Min order value</th>
+            <th class="num">Products</th>
+            <th>Shown in app</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="catBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Bulk products</div>
+          <div class="card-desc">Read-only — this is what's flagged <code>bulk</code> in Zoho right now.</div>
+        </div>
+        <select class="filter-select" id="catFilter" onchange="renderProducts()"></select>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Category</th>
+            <th>Unit</th>
+            <th class="num">Rate</th>
+            <th class="num">GST</th>
+          </tr>
+        </thead>
+        <tbody id="prodBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Category modal -->
+<div class="modal-overlay" id="catModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="card-title" id="catModalTitle">Category</div>
+        <div class="card-desc" id="catModalSub"></div>
+      </div>
+      <button class="close-x" onclick="closeModal('catModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label for="cMin">Minimum order value (₹)</label>
+        <input type="number" id="cMin" min="0" step="1" placeholder="e.g. 50000">
+        <div class="hint">Enforced per category, per quote request. 0 means no minimum.</div>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="cName">Display name</label>
+          <input type="text" id="cName" placeholder="Leave blank to use the Zoho name">
+        </div>
+        <div>
+          <label for="cSort">Sort order</label>
+          <input type="number" id="cSort" min="0" step="1" placeholder="1">
+          <div class="hint">Lower shows first</div>
+        </div>
+      </div>
+      <div>
+        <label for="cIcon">Icon key</label>
+        <input type="text" id="cIcon" placeholder="e.g. cement">
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="cActive" checked>
+        <label for="cActive">Show this category in the app</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('catModal')">Cancel</button>
+      <button class="btn btn-navy" id="cSaveBtn" onclick="submitCategory()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._t); t._t = setTimeout(() => { t.className = ''; }, 4000);
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+const rupee = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+// Zoho item names carry inch marks and ampersands, so everything is escaped
+// before it reaches innerHTML and handlers pass ids only, never names.
+const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+let CATEGORIES = [];
+let PRODUCTS = [];
+const catById = id => CATEGORIES.find(c => c.id === id) || null;
+
+async function loadAll() {
+  try {
+    const [catRes, prodRes] = await Promise.all([
+      apiFetch('/api/v1/admin/bulk/categories'),
+      apiFetch('/api/v1/admin/bulk/products'),
+    ]);
+    CATEGORIES = (await catRes.json()).data?.categories || [];
+    PRODUCTS = (await prodRes.json()).data?.products || [];
+  } catch (e) { showToast('Could not load the catalogue: ' + e.message, 'error'); return; }
+
+  document.getElementById('sumCats').textContent = CATEGORIES.filter(c => c.active).length.toLocaleString('en-IN');
+  document.getElementById('sumProducts').textContent = PRODUCTS.length.toLocaleString('en-IN');
+  document.getElementById('sumUnset').textContent = CATEGORIES.filter(c => !c.minOrderValue).length.toLocaleString('en-IN');
+
+  renderCategories();
+  renderFilter();
+  renderProducts();
+}
+
+function renderCategories() {
+  const body = document.getElementById('catBody');
+  if (!CATEGORIES.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">No Zoho items are flagged for bulk yet. Tick the <code>bulk</code> checkbox on an item in Zoho.</td></tr>';
+    return;
+  }
+  body.innerHTML = CATEGORIES.map(c => `
+    <tr class="${c.active ? '' : 'row-inactive'}">
+      <td>
+        <strong>${escapeHtml(c.name)}</strong>
+        <div class="sub-line mono">${escapeHtml(c.id)}</div>
+      </td>
+      <td class="num mono">${c.minOrderValue
+        ? rupee(c.minOrderValue)
+        : '<span class="pill pill-warn">Not set</span>'}</td>
+      <td class="num mono">${c.productCount.toLocaleString('en-IN')}</td>
+      <td>${c.active ? '<span class="pill pill-on">Yes</span>' : '<span class="pill pill-off">Hidden</span>'}</td>
+      <td class="num"><button class="link-btn" onclick="openCategory('${escapeHtml(c.id)}')">Edit</button></td>
+    </tr>`).join('');
+}
+
+function renderFilter() {
+  const filter = document.getElementById('catFilter');
+  const prev = filter.value;
+  filter.innerHTML = '<option value="">All categories</option>'
+    + CATEGORIES.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+  filter.value = prev;
+}
+
+function renderProducts() {
+  const filterId = document.getElementById('catFilter').value;
+  const list = filterId ? PRODUCTS.filter(p => p.categoryId === filterId) : PRODUCTS;
+  const body = document.getElementById('prodBody');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="5" class="empty">${
+      PRODUCTS.length ? 'No bulk products in this category.' : 'Nothing is flagged for bulk in Zoho yet.'
+    }</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(p => `
+    <tr>
+      <td><strong>${escapeHtml(p.name)}</strong>
+        ${p.brand ? `<div class="sub-line">${escapeHtml(p.brand)}</div>` : ''}</td>
+      <td>${escapeHtml(p.category || '—')}</td>
+      <td>${escapeHtml(p.unit || '—')}</td>
+      <td class="num mono">${rupee(p.price)}</td>
+      <td class="num mono">${p.gstPercentage}%</td>
+    </tr>`).join('');
+}
+
+let editingCategoryId = null;
+
+function openCategory(categoryId) {
+  const c = catById(categoryId);
+  if (!c) return;
+  editingCategoryId = c.id;
+  document.getElementById('catModalTitle').textContent = c.name;
+  document.getElementById('catModalSub').textContent =
+    `${c.productCount} bulk product(s) · Zoho category "${c.zohoName}"`;
+  document.getElementById('cMin').value = c.minOrderValue || '';
+  document.getElementById('cName').value = c.name === c.zohoName ? '' : c.name;
+  document.getElementById('cSort').value = c.sortOrder === 999 ? '' : c.sortOrder;
+  document.getElementById('cIcon').value = c.iconKey || '';
+  document.getElementById('cActive').checked = c.active;
+  document.getElementById('catModal').classList.add('open');
+}
+
+async function submitCategory() {
+  const minOrderValue = document.getElementById('cMin').value;
+  if (minOrderValue === '' || Number(minOrderValue) < 0) {
+    return showToast('Enter a minimum order value (0 for none)', 'error');
+  }
+  const btn = document.getElementById('cSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await apiFetch('/api/v1/admin/bulk/categories', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: editingCategoryId,
+        minOrderValue: Number(minOrderValue),
+        name: document.getElementById('cName').value.trim(),
+        sortOrder: document.getElementById('cSort').value || 999,
+        iconKey: document.getElementById('cIcon').value.trim(),
+        active: document.getElementById('cActive').checked,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Could not save', 'error');
+    closeModal('catModal');
+    showToast('Category updated', 'success');
+    await loadAll();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
+}
+
+loadAll();
+</script>
+</body>
+</html>

@@ -110,4 +110,43 @@ async function uploadToFirebase(fileBuffer, mimeType, folder) {
   return uploadToPath(result.buffer, result.mimeType, filename);
 }
 
-module.exports = { uploadToFirebase, uploadToPath };
+// ── Pre-signed URLs ───────────────────────────────────────────────────────────
+// uploadToPath streams bytes through this process, which is right for small
+// admin images but wrong for a builder photographing a site over a weak
+// connection. These hand the client a URL it PUTs to directly, so the API never
+// carries the payload. Signing is V4 with the service-account key already loaded
+// above — no extra IAM role needed.
+//
+// firebase-admin bundles @google-cloud/storage, so this adds no dependency.
+function getBucket() {
+  const admin = require('../utils/firebaseAdmin');
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET
+    || `${env.firebaseProjectId}.firebasestorage.app`;
+  return admin.storage().bucket(bucketName);
+}
+
+/**
+ * A URL the client can PUT one object to. The content type is bound into the
+ * signature, so the upload must send the same Content-Type it declared.
+ */
+async function getSignedUploadUrl(filePath, contentType, ttlMinutes = 20) {
+  const [url] = await getBucket().file(filePath).getSignedUrl({
+    version: 'v4',
+    action: 'write',
+    expires: Date.now() + ttlMinutes * 60 * 1000,
+    contentType,
+  });
+  return url;
+}
+
+/** A short-lived read URL. Objects stay private; these are minted on demand. */
+async function getSignedReadUrl(filePath, ttlMinutes = 60) {
+  const [url] = await getBucket().file(filePath).getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + ttlMinutes * 60 * 1000,
+  });
+  return url;
+}
+
+module.exports = { uploadToFirebase, uploadToPath, getSignedUploadUrl, getSignedReadUrl };

@@ -237,6 +237,10 @@ function _orderFromSession(orderId, session) {
       attempts: [],
     },
     createdAt: session.createdAt,
+    // A bulk approval writes a session in exactly this cartData shape, so the
+    // transaction above needs no bulk-specific branch. These two fields are all
+    // that distinguishes the resulting order.
+    ...(session.quoteId ? { quoteId: session.quoteId, orderSource: 'bulk' } : {}),
   };
 }
 
@@ -304,6 +308,20 @@ async function confirmOnlinePayment(orderId, attempt, traceContext = null) {
   }
 
   const confirmedOrder = { ...order, ...update };
+
+  // A paid bulk order closes its quote. Fire-and-forget and lazily required:
+  // the quote is a record of what was agreed, not part of the payment
+  // guarantee, and failing here must not undo a confirmed payment.
+  if (order.quoteId) {
+    require('../repositories/bulkRepository')
+      .updateQuote(order.quoteId, {
+        status: 'ordered',
+        orderId,
+        orderedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, traceContext)
+      .catch(() => {});
+  }
 
   await invalidateOrder(orderId).catch(() => {});
   if (order.slackTs) {

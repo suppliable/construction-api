@@ -77,6 +77,15 @@ async function invalidateDeliveryConfig() {
   });
 }
 
+// The bulk catalogue is admin-curated, so an edit should show up in the app at
+// once rather than after the 10-minute TTL. Clears both the category list and
+// every per-category product list, including their search variants.
+async function invalidateBulkCatalogue() {
+  await withInvalidateSpan('cache.invalidate.bulk_catalogue', { 'cache.pattern': `${prefix}bulk:*` }, () =>
+    delPattern(`${prefix}bulk:*`),
+  );
+}
+
 async function invalidateAfterZohoMutation(method, endpoint) {
   // Lazy require to avoid circular dependency: productService → zohoService → zohoHttp → invalidate.
   const productService = require('../services/productService');
@@ -103,5 +112,6 @@ module.exports = {
   invalidateDriverProfile,
   invalidateConfig,
   invalidateDeliveryConfig,
+  invalidateBulkCatalogue,
   invalidateAfterZohoMutation,
 };
