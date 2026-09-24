@@ -19,4 +19,16 @@ function isAppVisible(item) {
   return !isWalkinOnly(item);
 }
 
-module.exports = { isAppVisible, isWalkinOnly };
+// Bulk orders: an item is offered in the Bulk catalogue when its Zoho item has
+// the `cf_bulk` checkbox ticked. Same shape as cf_walkin above, and the same
+// labelling caveat — create the Zoho field with label "bulk", not "cf_bulk".
+//
+// Sourcing bulk from Zoho rather than a separate list means GST, HSN, rate and
+// units are the ones finance already maintains, and an order placed against a
+// bulk item can raise a Zoho SO like any other, because the item_id is real.
+function isBulkItem(item) {
+  const v = item?.cf_bulk ?? item?.custom_field_hash?.cf_bulk;
+  return v === true || v === 'true';
+}
+
+module.exports = { isAppVisible, isWalkinOnly, isBulkItem };

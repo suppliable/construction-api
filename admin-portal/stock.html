@@ -102,6 +102,8 @@
     <a class="nav-item" href="images.html">🗂️ Item Management</a>
     <a class="nav-item" href="categories.html">📂 Categories</a>
     <a class="nav-item active" href="stock.html">📊 Stock Costing</a>
+    <a class="nav-item" href="bulk-catalogue.html">🏗️ Bulk Catalogue</a>
+    <a class="nav-item" href="bulk-quotes.html">📝 Bulk Quotes</a>
     <a class="nav-item" href="customers.html">👥 Customers</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
@@ -261,14 +263,26 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 const rupee = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 let PRODUCTS = [];
+// productId → name, from both the products list and the ledger. Click handlers
+// pass only ids (Firestore auto-ids are safe inside an onclick attribute) and
+// look the name up here — item names routinely contain " as an inch mark
+// (CPVC PIPE 3/4"), which would close the attribute and break the handler.
+const NAMES = new Map();
+const nameOf = id => NAMES.get(id) || '';
+
+// Item names, categories and units are free text typed by staff, so escape
+// them before they go into innerHTML.
+const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function loadProducts() {
   const res = await apiFetch('/api/v1/admin/stock/products');
   const data = await res.json();
   PRODUCTS = data.data || [];
+  PRODUCTS.forEach(p => NAMES.set(p.id, p.name));
   const sel = document.getElementById('fProduct');
   sel.innerHTML = PRODUCTS.length
-    ? PRODUCTS.map(p => `<option value="${p.id}">${p.name} (${p.category})</option>`).join('')
+    ? PRODUCTS.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.category)})</option>`).join('')
     : '<option value="">— add an item first —</option>';
   onProductChange();
 }
@@ -300,18 +314,20 @@ async function loadLedger() {
   const rowsHtml = [];
   let lastCategory = null;
   data.products.forEach(p => {
+    NAMES.set(p.productId, p.name);
     if (p.category !== lastCategory) {
-      rowsHtml.push(`<tr class="cat-row"><td colspan="6">${p.category}</td></tr>`);
+      rowsHtml.push(`<tr class="cat-row"><td colspan="6">${escapeHtml(p.category)}</td></tr>`);
       lastCategory = p.category;
     }
-    const anomalies = (p.anomalies || []).map(a => `<div class="anomaly">⚠️ ${a.message}</div>`).join('');
+    const anomalies = (p.anomalies || []).map(a => `<div class="anomaly">⚠️ ${escapeHtml(a.message)}</div>`).join('');
+    const unit = escapeHtml(p.unit);
     rowsHtml.push(`<tr>
-      <td><strong>${p.name}</strong>${anomalies}</td>
-      <td class="num mono">${p.onHand.toLocaleString('en-IN')}<span class="unit-tag">${p.unit}</span></td>
+      <td><strong>${escapeHtml(p.name)}</strong>${anomalies}</td>
+      <td class="num mono">${p.onHand.toLocaleString('en-IN')}<span class="unit-tag">${unit}</span></td>
       <td class="num mono">${rupee(p.stockValue)}</td>
-      <td class="num mono rate">${rupee(p.ratePerUnit)}<span class="unit-tag">/${p.unit}</span></td>
+      <td class="num mono rate">${rupee(p.ratePerUnit)}<span class="unit-tag">/${unit}</span></td>
       <td>${p.lastRestockDate || '<span style="color:var(--muted)">—</span>'}</td>
-      <td class="num"><button class="link-btn" onclick="openHistory('${p.productId}','${p.name.replace(/'/g,"\\'")}')">History</button></td>
+      <td class="num"><button class="link-btn" onclick="openHistory('${escapeHtml(p.productId)}')">History</button></td>
     </tr>`);
   });
   body.innerHTML = rowsHtml.join('');
@@ -368,8 +384,8 @@ async function submitProduct() {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
-async function openHistory(productId, name) {
-  document.getElementById('histTitle').textContent = name + ' — restock history';
+async function openHistory(productId) {
+  document.getElementById('histTitle').textContent = nameOf(productId) + ' — restock history';
   const body = document.getElementById('histBody');
   body.innerHTML = '<div class="empty">Loading…</div>';
   document.getElementById('histModal').classList.add('open');
@@ -386,19 +402,19 @@ async function openHistory(productId, name) {
       <td class="num mono">${rupee(r.pricePerUnit)}</td>
       <td class="num mono">${Number(r.qtyReceived).toLocaleString('en-IN')}</td>
       <td class="num mono">${Number(r.stockInHand).toLocaleString('en-IN')}</td>
-      <td class="num"><button class="link-btn" style="color:var(--red2)" onclick="deleteRestock('${r.id}','${productId}','${name.replace(/'/g,"\\'")}')">Delete</button></td>
+      <td class="num"><button class="link-btn" style="color:var(--red2)" onclick="deleteRestock('${escapeHtml(r.id)}','${escapeHtml(productId)}')">Delete</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
 }
 
-async function deleteRestock(restockId, productId, name) {
+async function deleteRestock(restockId, productId) {
   if (!confirm('Delete this restock? The FIFO ledger will recompute.')) return;
   try {
-    const res = await apiFetch('/api/v1/admin/stock/restocks/' + restockId, { method: 'DELETE' });
+    const res = await apiFetch('/api/v1/admin/stock/restocks/' + encodeURIComponent(restockId), { method: 'DELETE' });
     const data = await res.json();
     if (!data.success) return showToast(data.message || 'Failed', 'error');
     showToast('Restock deleted', 'success');
-    await openHistory(productId, name);
+    await openHistory(productId);
     loadLedger();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }

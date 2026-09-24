@@ -17,6 +17,11 @@ const {
   getStockLedger,
 } = require('../controllers/stockController');
 const {
+  listCategories: listBulkCategories, saveCategory: saveBulkCategory,
+  listProducts: listBulkProducts,
+  listQuotes: listBulkQuotes, getQuote: getBulkQuote, publishQuote: publishBulkQuote,
+} = require('../controllers/bulkAdminController');
+const {
   listOrders,
   getOrderStats,
   getNewOrderCount,
@@ -320,6 +325,22 @@ router.post('/stock/products', addStockProduct);
 router.get('/stock/restocks', listStockRestocks);
 router.post('/stock/restocks', addStockRestock);
 router.delete('/stock/restocks/:restockId', deleteStockRestock);
+
+// Bulk catalogue — the browse list behind Bulk Orders & Quotes. Admin-curated
+// (nothing syncs it from Zoho), so these are the only way to manage it. Writes
+// flush the public bulk cache so an edit reaches the app immediately.
+// Products deactivate rather than delete, since existing quotes reference them.
+// Catalogue: products are Zoho items with cf_bulk ticked, so they are read-only
+// here — only the per-category minimum order value is ours to set.
+router.get('/bulk/categories', listBulkCategories);
+router.post('/bulk/categories', saveBulkCategory);
+router.get('/bulk/products', listBulkProducts);
+
+// Quote console. Publishing prices a request and pushes it to the customer;
+// nothing reaches them without this step.
+router.get('/bulk/quotes', listBulkQuotes);
+router.get('/bulk/quotes/:quoteId', getBulkQuote);
+router.post('/bulk/quotes/:quoteId/publish', publishBulkQuote);
 
 // Firebase custom token for the admin live view (RTDB push).
 // The admin portal is not a Firebase Auth client — it authenticates with the

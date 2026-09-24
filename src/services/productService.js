@@ -6,7 +6,7 @@ const {
 const { getImageMap } = require('./firestoreService');
 const remoteConfig = require('./remoteConfigService');
 const { withSpan } = require('../utils/spanTracer');
-const { isAppVisible } = require('../utils/appVisibility');
+const { isAppVisible, isBulkItem } = require('../utils/appVisibility');
 const redis = require('../cache/redis');
 const env = require('../config/env');
 const { PLACEHOLDER_IMAGE } = require('../constants');
@@ -206,6 +206,7 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
       description: group.description || '',
       hasVariants: true,
       appVisible: isAppVisible(firstVariantItem),
+      bulkVisible: isBulkItem(firstVariantItem),
       priceRange,
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
@@ -235,6 +236,7 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
         description: item.description || '',
         hasVariants: false,
         appVisible: isAppVisible(item),
+        bulkVisible: isBulkItem(item),
         price: item.rate,
         stock: item.stock_on_hand || 0,
         available_stock: item.available_stock || 0,
@@ -291,6 +293,7 @@ const getProductById = async (id, traceContext = null) => {
       description: group.description || '',
       hasVariants: true,
       appVisible: isAppVisible(firstVariantItem),
+      bulkVisible: isBulkItem(firstVariantItem),
       priceRange: `₹${Math.min(...prices)} - ₹${Math.max(...prices)}`,
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
@@ -327,6 +330,7 @@ const getProductById = async (id, traceContext = null) => {
         description: group.description || '',
         hasVariants: false,
         appVisible: isAppVisible(fullItem),
+        bulkVisible: isBulkItem(fullItem),
         price: toNumberOrNull(variant.rate) ?? 0,
         stock: stockOnHand,
         available_stock: availableStock,
@@ -353,6 +357,7 @@ const getProductById = async (id, traceContext = null) => {
     description: item.description || '',
     hasVariants: false,
     appVisible: isAppVisible(item),
+    bulkVisible: isBulkItem(item),
     price: item.rate,
     stock: item.stock_on_hand || 0,
     available_stock: item.available_stock || 0,

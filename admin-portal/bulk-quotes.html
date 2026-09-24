@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Bulk Quotes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --red:#e53935; --blue:#1565c0;
+    --bg:#f0f2f7; --card:#ffffff; --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --green:#10b981; --red2:#ef4444; --amber:#f59e0b;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40; }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:background 0.15s; border-left:3px solid transparent; }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; }
+
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; }
+  .topbar { height:60px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 24px; position:sticky; top:0; z-index:30; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .topbar-title { font-size:18px; font-weight:700; }
+  .btn-logout { background:none; border:none; color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:6px 10px; border-radius:6px; }
+  .btn-logout:hover { background:var(--bg); }
+
+  .content { padding:24px; max-width:1180px; display:flex; flex-direction:column; gap:20px; }
+
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border:1px solid var(--border); overflow:hidden; }
+  .card-head { padding:16px 22px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .card-title { font-size:15px; font-weight:700; }
+  .card-desc { font-size:12.5px; color:var(--muted); margin-top:3px; }
+
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tab { padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:#fff; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .tab.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .tab .count { opacity:0.7; margin-left:4px; }
+
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { text-align:left; padding:10px 12px; color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:1px solid var(--border); }
+  td { padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tbody tr.clickable { cursor:pointer; }
+  tbody tr.clickable:hover { background:#fafbfe; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .empty { color:var(--muted); font-size:13px; padding:24px 0; text-align:center; }
+  .sub-line { font-size:11.5px; color:var(--muted); margin-top:2px; }
+
+  .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .s-requested { background:#fef3c7; color:#92400e; }
+  .s-edit_requested { background:#ffedd5; color:#9a3412; }
+  .s-quoted { background:#dbeafe; color:#1e40af; }
+  .s-ordered { background:#d1fae5; color:#065f46; }
+  .s-declined { background:#fee2e2; color:#991b1b; }
+  .s-expired { background:#f3f4f6; color:#6b7280; }
+
+  label { display:block; font-size:12.5px; font-weight:600; margin-bottom:5px; }
+  input, select, textarea { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:13.5px; background:#fff; color:var(--text); }
+  textarea { min-height:60px; resize:vertical; }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--blue); }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
+
+  .btn { padding:9px 16px; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn-navy { background:var(--navy); color:#fff; }
+  .btn-navy:hover { background:var(--navy-light); }
+  .btn-green { background:var(--green); color:#fff; }
+  .btn-sm { padding:6px 12px; font-size:13px; }
+  .btn-ghost { background:none; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { background:var(--bg); }
+  .link-btn { background:none; border:none; color:var(--blue); font-size:13px; cursor:pointer; font-family:'DM Sans',sans-serif; font-weight:600; }
+  .link-btn.danger { color:var(--red2); }
+
+  .req-box { background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:14px 16px; font-size:13.5px; line-height:1.6; }
+  .req-box .k { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:0.03em; font-weight:600; }
+  .photos { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .photos a { display:block; width:92px; height:92px; border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+  .photos img { width:100%; height:100%; object-fit:cover; display:block; }
+
+  .totals { display:flex; flex-direction:column; gap:6px; margin-top:14px; font-size:13.5px; }
+  .totals .row { display:flex; justify-content:space-between; }
+  .totals .grand { font-weight:700; font-size:16px; border-top:1px solid var(--border); padding-top:8px; margin-top:4px; }
+
+  #toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25); transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.error { background:var(--red2); }
+  #toast.success { background:var(--green); }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:none; align-items:flex-start; justify-content:center; padding:20px; overflow:auto; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:14px; width:100%; max-width:860px; margin:auto; }
+  .modal-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; border-radius:14px 14px 0 0; }
+  .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:18px; }
+  .modal-foot { padding:0 22px 20px; display:flex; gap:10px; justify-content:flex-end; align-items:center; }
+  .close-x { background:none; border:none; font-size:22px; color:var(--muted); cursor:pointer; line-height:1; }
+  .line-table input { padding:6px 8px; font-size:13px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
+    <a class="nav-item" href="stock.html">📊 Stock Costing</a>
+    <a class="nav-item" href="bulk-catalogue.html">🏗️ Bulk Catalogue</a>
+    <a class="nav-item active" href="bulk-quotes.html">📝 Bulk Quotes</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="notifications.html">📣 Notifications</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Bulk Quotes</div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+
+  <div class="content">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Quote requests</div>
+          <div class="card-desc">Price a request and publish it. Nothing reaches the customer until you do.</div>
+        </div>
+        <button class="link-btn" onclick="loadQuotes()">↻ Refresh</button>
+      </div>
+      <div style="padding:14px 22px; border-bottom:1px solid var(--border)">
+        <div class="tabs" id="tabs"></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Quote</th>
+            <th>Customer</th>
+            <th>Asked for</th>
+            <th class="num">Total</th>
+            <th>Status</th>
+            <th>Valid until</th>
+          </tr>
+        </thead>
+        <tbody id="quoteBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Quote detail / pricing -->
+<div class="modal-overlay" id="quoteModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="card-title" id="qTitle">Quote</div>
+        <div class="card-desc" id="qSub"></div>
+      </div>
+      <button class="close-x" onclick="closeModal('quoteModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="qRequest"></div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <label style="margin:0">Line items</label>
+          <button class="btn btn-sm btn-ghost" onclick="addLine()">+ Add line</button>
+        </div>
+        <table class="line-table">
+          <thead>
+            <tr>
+              <th style="width:34%">Description</th>
+              <th style="width:12%">Qty</th>
+              <th style="width:12%">Unit</th>
+              <th style="width:16%">Rate (₹)</th>
+              <th style="width:12%">GST %</th>
+              <th style="width:14%" class="num">Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="lineBody"></tbody>
+        </table>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="qDelivery">Delivery / freight (₹)</label>
+          <input type="number" id="qDelivery" min="0" step="1" value="0" oninput="recalc()">
+        </div>
+        <div>
+          <label for="qValidity">Valid for (days)</label>
+          <input type="number" id="qValidity" min="1" step="1" value="7">
+        </div>
+        <div>
+          <label for="qDeliveryDate">Expected delivery</label>
+          <input type="date" id="qDeliveryDate">
+        </div>
+      </div>
+
+      <div>
+        <label for="qTeamNote">Note to customer</label>
+        <textarea id="qTeamNote" placeholder="e.g. Rate held for 7 days. Unloading not included."></textarea>
+      </div>
+
+      <div class="totals">
+        <div class="row"><span>Subtotal</span><span class="mono" id="tSub">₹0</span></div>
+        <div class="row"><span>GST</span><span class="mono" id="tGst">₹0</span></div>
+        <div class="row"><span>Delivery</span><span class="mono" id="tDel">₹0</span></div>
+        <div class="row grand"><span>Total</span><span class="mono" id="tGrand">₹0</span></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="sub-line" id="qHint" style="margin-right:auto"></span>
+      <button class="btn btn-ghost" onclick="closeModal('quoteModal')">Cancel</button>
+      <button class="btn btn-green" id="qPublish" onclick="publish()">Publish quote</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; }
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._t); t._t = setTimeout(() => { t.className = ''; }, 4000);
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+const rupee = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const fmtDate = iso => iso ? new Date(iso).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' }) : '—';
+
+const STATUSES = ['requested','edit_requested','quoted','ordered','declined','expired'];
+let filter = 'requested';
+let QUOTES = [];
+let current = null;
+let lines = [];
+
+function renderTabs(counts) {
+  document.getElementById('tabs').innerHTML =
+    [['requested','New'],['edit_requested','Changes asked'],['quoted','Sent'],
+     ['ordered','Ordered'],['declined','Declined'],['expired','Expired'],['','All']]
+    .map(([v,label]) => {
+      const n = v ? (counts[v] || 0) : Object.values(counts).reduce((a,b)=>a+b,0);
+      return `<button class="tab ${filter===v?'active':''}" onclick="setFilter('${v}')">${label}<span class="count">${n}</span></button>`;
+    }).join('');
+}
+
+function setFilter(v) { filter = v; renderQuotes(); }
+
+async function loadQuotes() {
+  try {
+    const res = await apiFetch('/api/v1/admin/bulk/quotes?limit=200');
+    QUOTES = (await res.json()).data?.quotes || [];
+  } catch (e) { showToast('Could not load quotes: ' + e.message, 'error'); return; }
+  renderQuotes();
+}
+
+function renderQuotes() {
+  const counts = {};
+  QUOTES.forEach(q => { counts[q.status] = (counts[q.status] || 0) + 1; });
+  renderTabs(counts);
+
+  const list = filter ? QUOTES.filter(q => q.status === filter) : QUOTES;
+  const body = document.getElementById('quoteBody');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">Nothing here right now.</td></tr>';
+    return;
+  }
+  body.innerHTML = list.map(q => `
+    <tr class="clickable" onclick="openQuote('${escapeHtml(q.id)}')">
+      <td><strong class="mono">${escapeHtml(q.id)}</strong>
+        <div class="sub-line">${fmtDate(q.createdAt)}</div></td>
+      <td>${escapeHtml(q.customerName || '—')}
+        <div class="sub-line">${escapeHtml(q.customerPhone || '')}</div></td>
+      <td>${q.source === 'freeform'
+            ? '📝 Written request' + (q.photoCount ? ` · ${q.photoCount} photo(s)` : '')
+            : `${q.itemCount} item(s)`}
+        <div class="sub-line">${escapeHtml(q.deliveryPincode || '')}</div></td>
+      <td class="num mono">${q.grandTotal ? rupee(q.grandTotal) : '—'}</td>
+      <td><span class="pill s-${escapeHtml(q.status)}">${escapeHtml(q.status.replace('_',' '))}</span></td>
+      <td class="sub-line">${q.validUntil ? fmtDate(q.validUntil) : '—'}</td>
+    </tr>`).join('');
+}
+
+async function openQuote(quoteId) {
+  try {
+    const res = await apiFetch('/api/v1/admin/bulk/quotes/' + encodeURIComponent(quoteId));
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Could not open quote', 'error');
+    current = data.data.quote;
+  } catch (e) { return showToast('Error: ' + e.message, 'error'); }
+
+  document.getElementById('qTitle').textContent = current.id;
+  document.getElementById('qSub').textContent =
+    `${current.status.replace('_',' ')} · ${current.source === 'freeform' ? 'written request' : 'cart'} · ${fmtDate(current.createdAt)}`;
+
+  const c = current.customer;
+  const photos = (current.photos || []).filter(p => p.url).map(p =>
+    `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(p.url)}" alt="Customer photo"></a>`).join('');
+
+  document.getElementById('qRequest').innerHTML = `
+    <div class="req-box">
+      <div class="k">Customer</div>
+      <div>${escapeHtml(c?.name || '—')}${c?.phone ? ' · ' + escapeHtml(c.phone) : ''}</div>
+      <div class="k" style="margin-top:10px">Delivery site</div>
+      <div>${escapeHtml(current.deliveryAddress || '—')}${current.deliveryPincode ? ' · ' + escapeHtml(current.deliveryPincode) : ''}</div>
+      ${current.note ? `<div class="k" style="margin-top:10px">What they asked for</div><div>${escapeHtml(current.note)}</div>` : ''}
+      ${current.editRequest ? `<div class="k" style="margin-top:10px">Change requested</div><div>${escapeHtml(current.editRequest.message)}</div>` : ''}
+      ${photos ? `<div class="k" style="margin-top:10px">Photos</div><div class="photos">${photos}</div>` : ''}
+    </div>`;
+
+  // Seed the pricing table from what they asked for; a written request starts
+  // with one blank line for ops to fill in.
+  lines = (current.items || []).map(i => ({ ...i }));
+  if (!lines.length) lines = [blankLine()];
+
+  document.getElementById('qDelivery').value = current.deliveryCharge || 0;
+  document.getElementById('qValidity').value = 7;
+  document.getElementById('qDeliveryDate').value = current.deliveryDate || '';
+  document.getElementById('qTeamNote').value = current.teamNote || '';
+
+  const locked = ['ordered'].includes(current.status);
+  document.getElementById('qPublish').style.display = locked ? 'none' : '';
+  document.getElementById('qHint').textContent = locked
+    ? 'This quote has been ordered and can no longer be changed.'
+    : (current.status === 'quoted' ? 'Publishing again replaces the quote the customer sees.' : '');
+
+  renderLines();
+  document.getElementById('quoteModal').classList.add('open');
+}
+
+function blankLine() { return { name:'', quantity:1, unit:'', unitPrice:0, gstRate:18 }; }
+function addLine() { lines.push(blankLine()); renderLines(); }
+function removeLine(i) { lines.splice(i,1); if (!lines.length) lines.push(blankLine()); renderLines(); }
+function setLine(i, field, value) {
+  lines[i][field] = ['quantity','unitPrice','gstRate'].includes(field) ? Number(value) : value;
+  recalc();
+}
+
+function renderLines() {
+  document.getElementById('lineBody').innerHTML = lines.map((l, i) => `
+    <tr>
+      <td><input type="text" value="${escapeHtml(l.name)}" oninput="setLine(${i},'name',this.value)" placeholder="Item description"></td>
+      <td><input type="number" min="0" step="any" value="${l.quantity ?? ''}" oninput="setLine(${i},'quantity',this.value)"></td>
+      <td><input type="text" value="${escapeHtml(l.unit || '')}" oninput="setLine(${i},'unit',this.value)" placeholder="bag"></td>
+      <td><input type="number" min="0" step="0.01" value="${l.unitPrice ?? ''}" oninput="setLine(${i},'unitPrice',this.value)"></td>
+      <td><input type="number" min="0" step="0.01" value="${l.gstRate ?? 0}" oninput="setLine(${i},'gstRate',this.value)"></td>
+      <td class="num mono" id="amt${i}">${rupee((l.quantity||0)*(l.unitPrice||0))}</td>
+      <td class="num"><button class="link-btn danger" onclick="removeLine(${i})">✕</button></td>
+    </tr>`).join('');
+  recalc();
+}
+
+function recalc() {
+  let sub = 0, gst = 0;
+  lines.forEach((l, i) => {
+    const amt = (Number(l.quantity)||0) * (Number(l.unitPrice)||0);
+    sub += amt;
+    gst += amt * (Number(l.gstRate)||0) / 100;
+    const cell = document.getElementById('amt'+i);
+    if (cell) cell.textContent = rupee(amt);
+  });
+  const del = Number(document.getElementById('qDelivery').value) || 0;
+  document.getElementById('tSub').textContent = rupee(sub);
+  document.getElementById('tGst').textContent = rupee(gst);
+  document.getElementById('tDel').textContent = rupee(del);
+  document.getElementById('tGrand').textContent = rupee(sub + gst + del);
+}
+
+async function publish() {
+  const valid = lines.filter(l => String(l.name||'').trim() && Number(l.quantity) > 0);
+  if (!valid.length) return showToast('Add at least one line with a description and quantity', 'error');
+
+  const btn = document.getElementById('qPublish');
+  btn.disabled = true; btn.textContent = 'Publishing…';
+  try {
+    const res = await apiFetch(`/api/v1/admin/bulk/quotes/${encodeURIComponent(current.id)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({
+        items: valid,
+        deliveryCharge: Number(document.getElementById('qDelivery').value) || 0,
+        validityDays: Number(document.getElementById('qValidity').value) || 7,
+        deliveryDate: document.getElementById('qDeliveryDate').value || null,
+        teamNote: document.getElementById('qTeamNote').value.trim(),
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) return showToast(data.message || 'Could not publish', 'error');
+    closeModal('quoteModal');
+    showToast('Quote sent to the customer', 'success');
+    await loadQuotes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Publish quote'; }
+}
+
+loadQuotes();
+</script>
+</body>
+</html>

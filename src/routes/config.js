@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick, pendingOrdersTick } = require('../controllers/configController');
+const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick, pendingOrdersTick, bulkQuoteExpiryTick } = require('../controllers/configController');
 const { requireScheduler } = require('../middleware/schedulerAuth');
 const { cacheFor } = require('../cache/middleware');
 const { invalidateConfig } = require('../cache/invalidate');
@@ -33,5 +33,8 @@ router.post('/warehouse-schedule-tick', requireScheduler, warehouseScheduleTick)
 // orders are themselves the alert condition). Same requireScheduler auth as
 // warehouse-schedule-tick — SCHEDULER_TOKEN is endpoint-agnostic.
 router.post('/pending-orders-tick', requireScheduler, pendingOrdersTick);
+
+// Expires bulk quotes past their validUntil. Same scheduler auth as above.
+router.post('/bulk-quote-expiry-tick', requireScheduler, bulkQuoteExpiryTick);
 
 module.exports = router;

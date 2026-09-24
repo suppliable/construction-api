@@ -21,6 +21,7 @@ const shadesRoutes = require('../shades');
 const paintPricingRoutes = require('../paintPricing');
 const userRoutes = require('../users');
 const paymentRoutes = require('../payments');
+const bulkRoutes = require('../bulk');
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use('/shades', shadesRoutes);
 router.use('/paint-pricing', paintPricingRoutes);
 router.use('/users', userRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/bulk', bulkRoutes);
 
 module.exports = router;

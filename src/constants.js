@@ -89,6 +89,26 @@ const DRIVER_STATUS_LABELS = {
 // ── Delivery ──────────────────────────────────────────────────────────────────
 const DEFAULT_PINCODES = '600119,600130,603103,600097,600100,600126,600115';
 
+// ── Bulk orders & quotes ──────────────────────────────────────────────────────
+// PLACEHOLDERS pending a commercial decision: how long a quote holds is what
+// sets the expiry job and what the customer is told. The client's mock uses 7.
+const BULK_QUOTE_VALIDITY_DAYS = 7;
+// Wire values for bulkQuotes.status.
+const BULK_QUOTE_STATUSES = ['requested', 'quoted', 'edit_requested', 'declined', 'expired', 'ordered'];
+// The client renders quotes newest-first and currently reads the whole list.
+// Serving a page plus a cursor from day one means "load more" is a client-only
+// change later, rather than a synchronised app + backend release.
+const BULK_QUOTES_PAGE_SIZE = 20;
+const BULK_MAX_QUOTE_PHOTOS = 6;
+const BULK_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const BULK_ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png'];
+// Long enough for a slow site connection to finish one upload, short enough that
+// a leaked URL is not a standing write grant.
+const BULK_PHOTO_UPLOAD_URL_TTL_MIN = 20;
+// Read URLs are re-minted whenever a quote is served, so this only has to
+// outlive one viewing session.
+const BULK_PHOTO_READ_URL_TTL_MIN = 60;
+
 // ── External services ─────────────────────────────────────────────────────────
 const MSG91_BASE_URL = 'https://control.msg91.com/api/v5/otp';
 // MSG91 defaults to a 4-digit OTP and a 15-minute expiry. Both must be sent
@@ -134,6 +154,14 @@ module.exports = {
   ORDER_STATUS_LABELS,
   DRIVER_STATUS_LABELS,
   DEFAULT_PINCODES,
+  BULK_QUOTE_VALIDITY_DAYS,
+  BULK_QUOTE_STATUSES,
+  BULK_QUOTES_PAGE_SIZE,
+  BULK_MAX_QUOTE_PHOTOS,
+  BULK_MAX_PHOTO_BYTES,
+  BULK_ALLOWED_PHOTO_TYPES,
+  BULK_PHOTO_UPLOAD_URL_TTL_MIN,
+  BULK_PHOTO_READ_URL_TTL_MIN,
   MSG91_BASE_URL,
   MSG91_OTP_LENGTH,
   MSG91_OTP_EXPIRY_MINUTES,
