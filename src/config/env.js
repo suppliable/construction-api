@@ -35,6 +35,12 @@ const schema = z.object({
     .regex(/^[0-9a-f]{24}$/, 'MSG91_TEMPLATE_ID must be a 24-character hex template id'),
   MSG91_SENDER_ID: z.string().optional(),
 
+  // Demo login bypass (see utils/demoAuth.js). Both or neither: a half-set pair
+  // would otherwise silently leave the demo account unreachable at review time.
+  // DEMO_PHONE takes one or more Indian mobiles, comma-separated.
+  DEMO_PHONE: z.string().min(1).optional(),
+  DEMO_OTP: z.string().regex(/^\d{6}$/, 'DEMO_OTP must be exactly 6 digits').optional(),
+
   // Optional
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
@@ -81,6 +87,13 @@ const schema = z.object({
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 }).superRefine((data, ctx) => {
+  if (Boolean(data.DEMO_PHONE) !== Boolean(data.DEMO_OTP)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DEMO_PHONE'],
+      message: 'DEMO_PHONE and DEMO_OTP must be set together (or both left unset)',
+    });
+  }
   if (data.PAYMENT_GATEWAY === 'cashfree') {
     for (const key of ['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY', 'CASHFREE_WEBHOOK_SECRET', 'PAYMENT_RETURN_URL_BASE']) {
       if (!data[key]) {
@@ -145,5 +158,12 @@ const appEnv = firebaseProjectId.includes('suppliable-app')
 
 // eslint-disable-next-line no-console -- intentional boot-time signal so it's obvious which env this container is talking to
 console.log(`[Config] Booting in app_env=${appEnv} node_env=${result.data.NODE_ENV} (firebase project_id=${firebaseProjectId})`);
+
+if (result.data.DEMO_PHONE) {
+  // Loud on purpose: this is a real auth bypass, and the only signal that it's
+  // live in an environment where nobody meant it to be.
+  // eslint-disable-next-line no-console -- boot-time signal, same as above
+  console.warn(`[Config] Demo login ENABLED for ${result.data.DEMO_PHONE.split(',').length} phone number(s) — OTP bypass is active`);
+}
 
 module.exports = { ...result.data, appEnv, firebaseProjectId };

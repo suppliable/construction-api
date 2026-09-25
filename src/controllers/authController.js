@@ -5,6 +5,7 @@ const { syncCustomer } = require('../services/customerService');
 const { getCustomerByPhone } = require('../services/firestoreService');
 const msg91 = require('../services/msg91Service');
 const { normalizePhone, isValidIndianMobile } = require('../utils/phone');
+const { isDemoPhone, matchesDemoOtp } = require('../utils/demoAuth');
 const {
   checkOtpSendLimit,
   recordOtpSend,
@@ -67,6 +68,13 @@ async function sendOtp(req, res) {
 
   const normalized = normalizePhone(phone);
 
+  // Demo account — no SMS to send, so no MSG91 call and no send-side limits to
+  // trip. verify-otp still enforces its lockout against the fixed OTP.
+  if (isDemoPhone(normalized)) {
+    req.log.warn({ phone: `***${normalized.slice(-4)}` }, 'demo phone: skipping MSG91 send');
+    return res.json({ success: true, message: 'OTP sent successfully' });
+  }
+
   try {
     checkOtpSendLimit(normalized);
     checkResendCooldown(normalized);
@@ -106,6 +114,18 @@ async function verifyOtp(req, res) {
   } catch (err) {
     req.log.warn({ phone: normalized, reason: err.message }, 'verify otp locked out');
     return res.status(err.status || 429).json({ success: false, message: err.message });
+  }
+
+  // Demo account — accept the fixed OTP instead of asking MSG91. Failures still
+  // count toward the lockout so the fixed OTP can't be brute-forced.
+  if (isDemoPhone(normalized)) {
+    if (!matchesDemoOtp(otp)) {
+      recordFailedVerify(normalized);
+      req.log.warn({ phone: `***${normalized.slice(-4)}` }, 'demo otp rejected');
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+    req.log.warn({ phone: `***${normalized.slice(-4)}` }, 'demo phone: OTP accepted without MSG91');
+    return issueSession(req, res, normalized);
   }
 
   let msg91Res;
@@ -162,6 +182,11 @@ async function resendOtp(req, res) {
   }
 
   const normalized = normalizePhone(phone);
+
+  if (isDemoPhone(normalized)) {
+    req.log.warn({ phone: `***${normalized.slice(-4)}` }, 'demo phone: skipping MSG91 resend');
+    return res.json({ success: true, message: 'OTP resent successfully' });
+  }
 
   try {
     checkOtpSendLimit(normalized);
