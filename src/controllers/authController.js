@@ -6,10 +6,12 @@ const { getCustomerByPhone } = require('../services/firestoreService');
 const msg91 = require('../services/msg91Service');
 const { normalizePhone, isValidIndianMobile } = require('../utils/phone');
 const { isDemoPhone, matchesDemoOtp } = require('../utils/demoAuth');
+const { MSG91_OTP_EXPIRY_MINUTES } = require('../constants');
 const {
   checkOtpSendLimit,
   recordOtpSend,
   checkResendCooldown,
+  hasRecentOtpSend,
   checkVerifyLockout,
   recordFailedVerify,
   clearVerifyAttempts
@@ -198,13 +200,41 @@ async function resendOtp(req, res) {
 
   req.log.info({ phone: `***${normalized.slice(-4)}` }, 'resend otp request');
 
+  // Captured BEFORE the call: distinguishes "nothing to resend" from a genuine
+  // upstream failure. Deliberately does not short-circuit the MSG91 call — these
+  // stores are per-instance, so on a multi-instance rollout a send can land on
+  // one container and the resend on another. Letting MSG91 decide first means a
+  // legitimate cross-instance resend still succeeds; this flag only ever refines
+  // an error MSG91 has already returned.
+  const hadRecentSend = hasRecentOtpSend(normalized, MSG91_OTP_EXPIRY_MINUTES * 60 * 1000);
+
   try {
     await msg91.resendOtp(normalized, req.traceContext, req.log);
     recordOtpSend(normalized);
     return res.json({ success: true, message: 'OTP resent successfully' });
   } catch (err) {
-    req.log.error({ err: err.response?.data || err.message, phone: normalized }, 'msg91 resend failure');
-    return res.status(500).json({ success: false, message: 'Unable to resend OTP' });
+    const body = err.msg91Body || err.response?.data;
+    req.log.error({ err: body || err.message, phone: normalized, hadRecentSend }, 'msg91 resend failure');
+
+    // There is no live OTP to retry — either none was ever sent to this number or
+    // the last one expired. Actionable for the caller, so 409 with a code and
+    // customer-ready copy rather than an opaque 500.
+    if (!hadRecentSend || msg91.isNoActiveOtpError(err)) {
+      req.log.warn({ phone: `***${normalized.slice(-4)}`, hadRecentSend }, 'resend rejected: no active OTP');
+      return res.status(409).json({
+        success: false,
+        error: 'NO_ACTIVE_OTP',
+        message: "We couldn't find a recent code for this number. Tap Send OTP to get a new one.",
+      });
+    }
+
+    // Upstream failed for some other reason. 502, not 500: the request was fine,
+    // the provider wasn't.
+    return res.status(502).json({
+      success: false,
+      error: 'PROVIDER_ERROR',
+      message: 'Unable to resend OTP right now. Please try again in a moment.',
+    });
   }
 }
 

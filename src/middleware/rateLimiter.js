@@ -86,6 +86,15 @@ function checkResendCooldown(phone) {
   }
 }
 
+// Was an OTP actually sent to this phone recently enough that one could still be
+// live? Reads phoneSendLog, NOT resendLog — checkResendCooldown deletes the
+// resendLog entry once the 30s cooldown lapses, so it cannot answer this.
+// Read-only: never prunes, so it is safe to call before the limit checks.
+function hasRecentOtpSend(phone, withinMs) {
+  const cutoff = Date.now() - withinMs;
+  return (phoneSendLog.get(phone) || []).some(t => t > cutoff);
+}
+
 // ── VERIFY ATTEMPT TRACKING (per phone) ───────────────────
 function checkVerifyLockout(phone) {
   const state = verifyAttempts.get(phone);
@@ -122,6 +131,7 @@ module.exports = {
   ipRateLimiter,
   guestFcmRateLimiter,
   checkResendCooldown,
+  hasRecentOtpSend,
   checkVerifyLockout,
   recordFailedVerify,
   clearVerifyAttempts

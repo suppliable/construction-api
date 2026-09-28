@@ -113,6 +113,25 @@ async function verifyOtp(normalizedPhone, otp, traceContext = null, log = logger
   }
 }
 
+// MSG91 publishes no stable code for "there is no live OTP to retry", so this
+// matches the message text and is only ever a SECONDARY signal — the caller's own
+// send log is the primary one. An unrecognised rejection is deliberately NOT
+// classified here: it falls through to a generic provider failure and the full
+// body is logged, so patterns can be added as real ones are observed.
+const NO_ACTIVE_OTP_PATTERNS = [
+  /no\s+otp/i,
+  /otp\s+(?:is\s+)?(?:not\s+sent|expired)/i,
+  /expired/i,
+  /not\s+found/i,
+];
+
+function isNoActiveOtpError(err) {
+  const body = err?.msg91Body ?? err?.response?.data;
+  const message = typeof body === 'string' ? body : body?.message;
+  if (!message) return false;
+  return NO_ACTIVE_OTP_PATTERNS.some(re => re.test(message));
+}
+
 async function resendOtp(normalizedPhone, traceContext = null, log = logger) {
   const span = createSpan(traceContext, 'msg91.api.resendOtp', { 'peer.service': 'msg91', endpoint: '/api/v5/otp/retry' });
   const url = `${BASE}/retry`;
@@ -137,4 +156,4 @@ async function resendOtp(normalizedPhone, traceContext = null, log = logger) {
   }
 }
 
-module.exports = { sendOtp, verifyOtp, resendOtp };
+module.exports = { sendOtp, verifyOtp, resendOtp, isNoActiveOtpError };
