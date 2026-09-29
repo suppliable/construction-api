@@ -98,6 +98,11 @@ REQUIRED_SECRETS=(
   JWT_SECRET
 )
 OPTIONAL_SECRETS=(
+  # Demo login for App Store / Play reviewers. Optional, but BOTH must be present
+  # or neither — config/env.js refuses to boot on a half-set pair, which would
+  # take the whole service down rather than just disabling the demo account.
+  DEMO_PHONE
+  DEMO_OTP
   ZOHO_API_DOMAIN
   GOOGLE_MAPS_API_KEY
   WAREHOUSE_LAT
