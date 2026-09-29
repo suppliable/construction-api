@@ -146,6 +146,40 @@ function getScheduleStatus(now = new Date(), schedule = FALLBACK_SCHEDULE) {
   return { open: true, reason: null, opensAt: openAt, closesAt: closeAt };
 }
 
+// Minutes in a day. Used as the "rest of today" expiry: minute 1440 is the next
+// IST midnight, which istInstantFromMinutes resolves correctly by rolling the day.
+const DAY_MINUTES = 24 * 60;
+
+/**
+ * An instant on the same IST calendar day as `now`, at `minutes` past IST
+ * midnight. `minutes` may be >= DAY_MINUTES to reach a later day (1440 = the
+ * upcoming midnight). Exact because IST is a fixed UTC+05:30 with no DST, so the
+ * offset can be written into the string rather than computed.
+ */
+function istInstantFromMinutes(now, minutes) {
+  const base = Date.parse(`${istDateKey(now)}T00:00:00.000+05:30`);
+  return new Date(base + minutes * 60_000);
+}
+
+/**
+ * The next schedule boundary still to come TODAY (in IST minutes past midnight),
+ * or null when today holds no further boundary — a closed day, a holiday, or a
+ * time already past closing.
+ */
+function nextBoundaryMinutes(now = new Date(), schedule = FALLBACK_SCHEDULE) {
+  const { weekday, minutes } = nowInIST(now);
+  const dayKey = weekday.toLowerCase().slice(0, 3);
+
+  if (schedule.holidays && schedule.holidays.includes(istDateKey(now))) return null;
+  const hours = schedule.days ? schedule.days[dayKey] : null;
+  if (!hours) return null;
+
+  const [openAt, closeAt] = hours;
+  if (minutes < openAt) return openAt;
+  if (minutes < closeAt) return closeAt;
+  return null;
+}
+
 // Customer-facing message for a schedule-driven closure. `status` is the object
 // returned by getScheduleStatus, so the copy reflects the live schedule's hours
 // rather than the hardcoded defaults.
@@ -192,6 +226,9 @@ function formatISTDate(date) {
 
 module.exports = {
   getScheduleStatus,
+  istInstantFromMinutes,
+  nextBoundaryMinutes,
+  DAY_MINUTES,
   scheduleClosedMessage,
   parseSchedule,
   formatISTTime,

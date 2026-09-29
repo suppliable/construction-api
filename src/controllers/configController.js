@@ -1,6 +1,6 @@
 const { getSettings, updateSettings } = require('../services/firestoreService');
 const remoteConfig = require('../services/remoteConfigService');
-const { computeWarehouseStatus, resolveClosedUntil, resolveForceOpenUntil } = require('../utils/warehouseStatus');
+const { computeWarehouseStatus, resolveOverrideExpiry, loadSchedule } = require('../utils/warehouseStatus');
 const { notifyWarehouseTransition, notifyPendingOrders } = require('../services/slackService');
 const { findOrders } = require('../repositories/orderRepository');
 
@@ -39,56 +39,49 @@ const getWarehouseStatus = async (req, res) => {
   }
 };
 
+/**
+ * Admin open/close. Writes a TODAY-ONLY override that expires by itself, so the
+ * schedule always resumes without anyone remembering to undo this.
+ *
+ * `force` and the old duration params (closedForMinutes / closedUntil /
+ * forceOpenForMinutes / forceOpenUntil) are gone: opening outside hours IS the
+ * override, and every override is time-bound by construction. A closure spanning
+ * more than today belongs in the schedule's `holidays` list, not here.
+ */
 const updateWarehouseStatus = async (req, res) => {
   try {
-    const { isOpen, closedMessage, force } = req.body;
+    const { isOpen, closedMessage } = req.body;
     if (isOpen === undefined || isOpen === null) {
       return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'isOpen is required' });
     }
-    const update = { warehouseOpen: Boolean(isOpen) };
+
+    const now = new Date();
+    const state = isOpen ? 'open' : 'closed';
+    // The schedule is needed to place the expiry for an 'open' override, which
+    // hands back at the next boundary rather than running to midnight.
+    const schedule = await loadSchedule();
+    const until = resolveOverrideExpiry(state, now, schedule);
+
+    const update = { override: state, overrideUntil: until.toISOString() };
     if (closedMessage !== undefined) update.warehouseClosedMessage = closedMessage;
 
-    if (isOpen) {
-      // Reopening clears any pending timed maintenance close.
-      update.warehouseClosedUntil = null;
-
-      // `force: true` is a deliberate policy bypass — it lets the store accept
-      // orders outside its configured schedule, which normally means no one is
-      // staffed to fulfil them. Without it, isOpen:true only clears the admin
-      // close and stays capped by the schedule (existing behaviour).
-      if (force) {
-        const { until, error } = resolveForceOpenUntil(req.body, new Date());
-        if (error) {
-          return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: error });
-        }
-        update.warehouseForceOpen = true;
-        update.warehouseForceOpenUntil = until || null;
-      } else {
-        update.warehouseForceOpen = false;
-        update.warehouseForceOpenUntil = null;
-      }
-    } else {
-      const { until, error } = resolveClosedUntil(req.body, new Date());
-      if (error) {
-        return res.status(400).json({ success: false, error: 'INVALID_PARAM', message: error });
-      }
-      // A timed close sets an expiry; an indefinite close clears any stale one.
-      update.warehouseClosedUntil = until || null;
-      // A manual close also cancels any force-open in effect — close always wins.
-      update.warehouseForceOpen = false;
-      update.warehouseForceOpenUntil = null;
-    }
+    // Clear the previous model's fields so a stale indefinite close can't be
+    // resurrected by anything still reading them.
+    update.warehouseOpen = null;
+    update.warehouseClosedUntil = null;
+    update.warehouseForceOpen = null;
+    update.warehouseForceOpenUntil = null;
 
     await updateSettings(update, req.traceContext);
     const settings = await getSettings(req.traceContext);
-    const status = await computeWarehouseStatus(settings);
+    const status = await computeWarehouseStatus(settings, now, schedule);
 
     // Announce the admin action to the broadcast channel. Fire-and-forget: a
     // Slack outage must not fail the admin's request.
     notifyWarehouseTransition({
       kind: 'manual',
       isOpen: status.isOpen,
-      until: status.closedUntil,
+      until: status.overrideUntil,
       message: status.closedMessage,
     });
 
@@ -132,7 +125,7 @@ const warehouseScheduleTick = async (req, res) => {
     await notifyWarehouseTransition({
       kind: 'scheduled',
       isOpen: status.isOpen,
-      until: status.closedUntil,
+      until: status.overrideUntil,
       message: status.closedMessage,
     });
 

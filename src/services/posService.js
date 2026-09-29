@@ -2,6 +2,7 @@
 
 const axios = require('axios');
 const admin = require('../utils/firebaseAdmin');
+const { activeOverride } = require('../utils/warehouseStatus');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const { dbOp } = require('../utils/dbOp');
 const { getCustomerByPhone, saveCustomer, getCustomer } = require('../repositories/customerRepository');
@@ -609,7 +610,7 @@ async function convertPOSDraftToOrder(draftId, { paymentMethod } = {}, traceCont
 
   // Warehouse open check — same guard used in createOrder
   const settings = await getSettings(traceContext);
-  if (settings.warehouseOpen === false) {
+  if (activeOverride(settings) === 'closed') {
     throw Object.assign(
       new Error(settings.warehouseClosedMessage || 'We are currently closed.'),
       { code: 'WAREHOUSE_CLOSED' }

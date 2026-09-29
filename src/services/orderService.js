@@ -1,6 +1,7 @@
 'use strict';
 
 const admin = require('../utils/firebaseAdmin');
+const { activeOverride } = require('../utils/warehouseStatus');
 const { getCustomer, getAddressById, saveOrder, getSettings, getOrderById, updateOrder } = require('./firestoreService');
 const { getCheckoutSession, deleteCheckoutSession } = require('../repositories/checkoutSessionRepository');
 const remoteConfig = require('./remoteConfigService');
@@ -26,7 +27,9 @@ function mirrorLiveOrder(order) {
 // and buildAndSaveOnlineOrder (new checkout flow).
 async function _buildCartData(userId, addressId, traceContext) {
   const settings = await getSettings(traceContext);
-  if (settings.warehouseOpen === false) {
+  // Blocks on an admin override only, NOT on the schedule — unchanged from the
+  // previous model, which read the old warehouseOpen flag here.
+  if (activeOverride(settings) === 'closed') {
     throw new StockError(settings.warehouseClosedMessage || 'We are currently closed.', [], true);
   }
 
