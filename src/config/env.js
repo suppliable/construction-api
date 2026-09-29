@@ -87,13 +87,6 @@ const schema = z.object({
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 }).superRefine((data, ctx) => {
-  if (Boolean(data.DEMO_PHONE) !== Boolean(data.DEMO_OTP)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['DEMO_PHONE'],
-      message: 'DEMO_PHONE and DEMO_OTP must be set together (or both left unset)',
-    });
-  }
   if (data.PAYMENT_GATEWAY === 'cashfree') {
     for (const key of ['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY', 'CASHFREE_WEBHOOK_SECRET', 'PAYMENT_RETURN_URL_BASE']) {
       if (!data[key]) {
@@ -159,11 +152,19 @@ const appEnv = firebaseProjectId.includes('suppliable-app')
 // eslint-disable-next-line no-console -- intentional boot-time signal so it's obvious which env this container is talking to
 console.log(`[Config] Booting in app_env=${appEnv} node_env=${result.data.NODE_ENV} (firebase project_id=${firebaseProjectId})`);
 
-if (result.data.DEMO_PHONE) {
+// Demo login needs BOTH vars. A half-set pair leaves the bypass off (see
+// utils/demoAuth.js) and is reported loudly here rather than failing the boot:
+// refusing to start would turn a typo in a demo-login variable into a full API
+// outage, and it buys no safety, since the bypass is already inert.
+if (result.data.DEMO_PHONE && result.data.DEMO_OTP) {
   // Loud on purpose: this is a real auth bypass, and the only signal that it's
   // live in an environment where nobody meant it to be.
   // eslint-disable-next-line no-console -- boot-time signal, same as above
   console.warn(`[Config] Demo login ENABLED for ${result.data.DEMO_PHONE.split(',').length} phone number(s) — OTP bypass is active`);
+} else if (result.data.DEMO_PHONE || result.data.DEMO_OTP) {
+  const missing = result.data.DEMO_PHONE ? 'DEMO_OTP' : 'DEMO_PHONE';
+  // eslint-disable-next-line no-console -- boot-time signal, same as above
+  console.error(`[Config] Demo login DISABLED — ${missing} is not set. Both DEMO_PHONE and DEMO_OTP are required; the OTP bypass is inactive.`);
 }
 
 module.exports = { ...result.data, appEnv, firebaseProjectId };
