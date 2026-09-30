@@ -96,31 +96,66 @@ async function readVendorSchedules() {
 
 // ── LOW STOCK ─────────────────────────────────────────────
 
+// Normalised key for matching an item's vendor_name to a Zoho contact.
+function vendorKey(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 async function buildLowStock(traceContext) {
-  const items = await zohoGetAll(
-    '/inventory/v1/items',
-    { filter_by: 'StockAlert.BelowReorderLevel' },
-    traceContext, 'zoho.api.lowStockItems', 'items'
-  );
+  // Zoho Inventory has NO server-side low-stock filter — filter_by only accepts
+  // Status.* values and rejects anything else with "Invalid value passed for
+  // filter_by". So the whole catalogue is pulled (same paging as
+  // getZohoProducts) and the reorder comparison happens here. The 30-minute
+  // cache is what keeps this off Zoho on every page load.
+  //
+  // Items carry vendor_name but not vendor_id in the list response, while
+  // vendorSchedule is keyed by Zoho contact_id — so the vendor contact list is
+  // fetched alongside and used to resolve one to the other.
+  const [items, contacts] = await Promise.all([
+    zohoGetAll('/inventory/v1/items', {}, traceContext, 'zoho.api.lowStockItems', 'items'),
+    zohoGetAll('/inventory/v1/contacts', { contact_type: 'vendor' }, traceContext, 'zoho.api.listVendors', 'contacts')
+      .catch(() => []),
+  ]);
+
+  const contactByName = new Map();
+  for (const c of contacts) {
+    const key = vendorKey(c.contact_name || c.company_name);
+    if (key) contactByName.set(key, c);
+  }
+
   const schedules = await readVendorSchedules();
 
+  // A reorder_level of 0 means "not tracked for reordering" — including those
+  // would flag every zero-stock item in the catalogue.
+  const lowItems = items.filter(i =>
+    i.status !== 'inactive' &&
+    toNumber(i.reorder_level) > 0 &&
+    toNumber(i.stock_on_hand) <= toNumber(i.reorder_level)
+  );
+
   const groups = new Map();
-  for (const it of items) {
-    const stockOnHand = toNumber(it.stock_on_hand);
-    const reorderLevel = toNumber(it.reorder_level);
-    const vendorId = it.preferred_vendor_id || UNASSIGNED_VENDOR_ID;
+  for (const it of lowItems) {
+    const rawName = it.vendor_name || '';
+    const contact = contactByName.get(vendorKey(rawName));
+    // Prefer the real contact id so schedules attach; fall back to a stable
+    // name-derived key so an unmatched vendor still groups sensibly rather than
+    // collapsing into "unassigned" with everyone else.
+    const vendorId = it.vendor_id || contact?.contact_id
+      || (rawName ? `name:${vendorKey(rawName)}` : UNASSIGNED_VENDOR_ID);
 
     if (!groups.has(vendorId)) {
       const sched = schedules[vendorId] || {};
       groups.set(vendorId, {
         vendorId,
-        vendorName: it.preferred_vendor_name || sched.vendorName
-          || (vendorId === UNASSIGNED_VENDOR_ID ? 'No Vendor Assigned' : 'Unknown Vendor'),
-        vendorPhone: sched.vendorPhone || null,
+        vendorName: rawName || contact?.contact_name || 'No Vendor Assigned',
+        vendorPhone: sched.vendorPhone || contact?.mobile || contact?.phone || null,
         dayOfWeek: sched.dayOfWeek ?? null,
         items: [],
       });
     }
+
+    const stockOnHand = toNumber(it.stock_on_hand);
+    const reorderLevel = toNumber(it.reorder_level);
     groups.get(vendorId).items.push({
       itemId: it.item_id,
       name: it.name,
@@ -131,6 +166,8 @@ async function buildLowStock(traceContext) {
       // clamped so an odd Zoho row can never suggest a negative order.
       deficit: Math.max(0, reorderLevel - stockOnHand),
       suggestedOrderQty: Math.max(0, reorderLevel * 2 - stockOnHand),
+      // No rack custom field exists in this Zoho org; kept so the column lights
+      // up automatically if one is added later.
       rackNumber: it.cf_rack_number || '',
     });
   }
@@ -138,7 +175,7 @@ async function buildLowStock(traceContext) {
   const vendors = [...groups.values()];
   return {
     vendors,
-    totalLowStockItems: items.length,
+    totalLowStockItems: lowItems.length,
     totalVendors: vendors.length,
     generatedAt: new Date().toISOString(),
   };
