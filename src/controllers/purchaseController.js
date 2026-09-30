@@ -14,6 +14,7 @@ const { getAccessToken } = require('../services/zohoService');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const { createSpan } = require('../utils/spanTracer');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
+const admin = require('../utils/firebaseAdmin');
 const redis = require('../cache/redis');
 
 const LOW_STOCK_CACHE_KEY = 'purchase:lowstock';
@@ -220,9 +221,15 @@ async function lowStockCountsByVendor(traceContext) {
 // PO-YYYY-NNN. The counter is bumped in a transaction so two managers clicking
 // at once cannot mint the same number. The sequence restarts each calendar year.
 async function nextPoNumber() {
-  const ref = db().collection('purchaseOrderMeta').doc('counter');
+  // Raw Firestore, not getTrackedDb(): the tracker returns TrackedDoc wrappers,
+  // while runTransaction passes straight through to the real client — so a
+  // wrapped ref inside tx.get() fails with "Value for argument refOrQuery must
+  // be a DocumentReference". The counter is one doc per year, so the lost read
+  // accounting is negligible.
+  const raw = admin.firestore();
+  const ref = raw.collection('purchaseOrderMeta').doc('counter');
   const year = new Date().getFullYear();
-  const next = await db().runTransaction(async (tx) => {
+  const next = await raw.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const cur = snap.exists ? snap.data() : {};
     const seq = cur.year === year ? toNumber(cur.lastPoNumber, 0) + 1 : 1;
@@ -267,10 +274,15 @@ const createPurchaseOrder = async (req, res) => {
       items: cleanItems,
     };
 
-    const ref = await db().collection('purchaseOrders').add(po);
+    // TrackedCollection exposes no .add(), so the id is minted locally from a
+    // raw ref (no network call) and the write itself still goes through the
+    // tracker.
+    const poId = admin.firestore().collection('purchaseOrders').doc().id;
+    await db().collection('purchaseOrders').doc(poId).set(po);
+
     res.json({
       success: true,
-      data: { poId: ref.id, poNumber, vendorName, totalItems: cleanItems.length, createdAt },
+      data: { poId, poNumber, vendorName, totalItems: cleanItems.length, createdAt },
     });
   } catch (err) {
     req.log?.error?.({ err: err.message }, 'create purchase order failed');
