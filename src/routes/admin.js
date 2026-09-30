@@ -85,6 +85,11 @@ router.use((req, res, next) => {
   next();
 });
 
+// Purchase management (low stock, POs, checklist, vendor schedule). Mounted
+// here rather than in routes/v1/index.js so it sits below the admin-token gate
+// above and needs no auth of its own.
+router.use('/purchases', require('./purchases'));
+
 // Invalidate order detail cache only after a successful mutation response.
 // Doing this pre-handler can allow a race where stale data is re-cached
 // before the write commits.
