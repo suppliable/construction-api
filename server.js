@@ -5,6 +5,8 @@ const env = require('./src/config/env');
 
 const { startTelemetry, shutdownTelemetry } = require('./src/observability/otel');
 const logger = require('./src/utils/logger');
+const { buildErrorBody } = require('./src/utils/safeError');
+const { sanitizeServerErrors } = require('./src/middleware/sanitizeServerErrors');
 
 // Allowlist of headers worth logging in DEBUG_PAYLOADS mode. Everything
 // else (helmet boilerplate, accept-encoding, host, user-agent, etc.) is
@@ -147,7 +149,7 @@ function createApp() {
   });
 
   // v1 routes — versioned, full middleware stack (versionGate → maintenanceMode → routes)
-  app.use('/api/v1', versionGate, maintenanceMode, controllerSpan, v1Router);
+  app.use('/api/v1', versionGate, maintenanceMode, controllerSpan, sanitizeServerErrors, v1Router);
 
   // Global error handler
   app.use((err, req, res, next) => {
@@ -158,7 +160,12 @@ function createApp() {
     } else {
       log.warn({ code: err.code, message: err.message, path: req.path }, 'Client error');
     }
-    const body = { success: false, error: err.code || 'SERVER_ERROR', message: err.message };
+    // A 5xx message is an unanticipated exception's text — never safe to echo
+    // (a Firestore FAILED_PRECONDITION carries a console URL naming the GCP
+    // project). Deliberate 4xx messages are written to be read, so they pass
+    // through unchanged.
+    const { body, correlationId } = buildErrorBody(err, statusCode);
+    if (correlationId) log.error({ correlationId, err: err.message }, 'Unhandled error (client shown generic message)');
     if (err.issues) body.issues = err.issues;
     if (err.canAddToCart) body.canAddToCart = true;
     res.status(statusCode).json(body);

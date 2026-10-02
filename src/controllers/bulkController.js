@@ -7,14 +7,14 @@
 // all, because the pincode check is what routes them there.
 
 const bulkService = require('../services/bulkService');
+const { buildErrorBody } = require('../utils/safeError');
 const { getAddressById, getCustomer } = require('../services/firestoreService');
 
 function sendError(res, err, log) {
-  if (err && err.statusCode) {
-    return res.status(err.statusCode).json({ success: false, error: err.code, message: err.message });
-  }
-  if (log) log.error({ err: err.message }, 'bulk.controller.failed');
-  return res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  const statusCode = (err && err.statusCode) || 500;
+  const { body, correlationId } = buildErrorBody(err, statusCode);
+  if (correlationId && log) log.error({ correlationId, err: err.message }, 'bulk.controller.failed');
+  return res.status(statusCode).json(body);
 }
 
 // GET /api/v1/bulk/availability?pincode= — public

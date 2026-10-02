@@ -16,6 +16,7 @@ const { createSpan } = require('../utils/spanTracer');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 const admin = require('../utils/firebaseAdmin');
 const redis = require('../cache/redis');
+const { buildErrorBody } = require('../utils/safeError');
 
 const LOW_STOCK_CACHE_KEY = 'purchase:lowstock';
 const LOW_STOCK_CACHE_TTL_S = 30 * 60;
@@ -201,7 +202,7 @@ const getLowStock = async (req, res) => {
     res.json({ success: true, data: { ...data, cached: false } });
   } catch (err) {
     req.log?.error?.({ err: err.response?.data || err.message }, 'low stock fetch failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -286,7 +287,7 @@ const createPurchaseOrder = async (req, res) => {
     });
   } catch (err) {
     req.log?.error?.({ err: err.message }, 'create purchase order failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -333,7 +334,7 @@ const listPurchaseOrders = async (req, res) => {
     });
   } catch (err) {
     req.log?.error?.({ err: err.message }, 'list purchase orders failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -346,7 +347,7 @@ const getPurchaseOrder = async (req, res) => {
     }
     res.json({ success: true, data: { poId: doc.id, ...doc.data() } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -416,7 +417,7 @@ const updatePurchaseOrder = async (req, res) => {
     res.json({ success: true, data: { poId, ...updated.data() } });
   } catch (err) {
     req.log?.error?.({ err: err.message }, 'update purchase order failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -447,7 +448,7 @@ const getVendorSchedules = async (req, res) => {
     res.json({ success: true, data: { vendors, totalVendors: vendors.length } });
   } catch (err) {
     req.log?.error?.({ err: err.response?.data || err.message }, 'vendor schedule fetch failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -471,7 +472,7 @@ const upsertVendorSchedule = async (req, res) => {
     await db().collection('vendorSchedule').doc(vendorId).set(update, { merge: true });
     res.json({ success: true, data: { vendorId, ...update } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -525,7 +526,7 @@ const getChecklist = async (req, res) => {
     });
   } catch (err) {
     req.log?.error?.({ err: err.message }, 'checklist fetch failed');
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -555,7 +556,7 @@ const checkVendor = async (req, res) => {
 
     res.json({ success: true, data: { vendorId, date: dateKey, ...entry } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
@@ -596,7 +597,7 @@ const getChecklistHistory = async (req, res) => {
 
     res.json({ success: true, data: { dates, vendors } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json(buildErrorBody(err, 500).body);
   }
 };
 
