@@ -39,7 +39,11 @@ function buildErrorBody(err, statusCode) {
   if (isServerError) {
     const id = correlationId();
     body.error = 'SERVER_ERROR';
-    body.message = GENERIC_5XX_MESSAGE;
+    // The ref is appended to the message as well as exposed as its own field:
+    // every existing client already renders `message`, so this surfaces a
+    // quotable id in the app and the admin portal with no client change. Without
+    // it the generic copy is a dead end for whoever has to debug the report.
+    body.message = `${GENERIC_5XX_MESSAGE} (ref: ${id})`;
     body.correlationId = id;
     return { body, correlationId: id };
   }

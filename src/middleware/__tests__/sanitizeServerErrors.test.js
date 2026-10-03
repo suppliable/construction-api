@@ -23,7 +23,8 @@ const FIRESTORE_LEAK =
 describe('sanitizeServerErrors', () => {
   test('replaces a leaking 500 message and adds a correlationId', () => {
     const { sent } = run(500, { success: false, error: 'SERVER_ERROR', message: FIRESTORE_LEAK });
-    expect(sent.message).toBe('Something went wrong. Please try again.');
+    expect(sent.message).toContain('Something went wrong. Please try again.');
+    expect(sent.message).toContain(`(ref: ${sent.correlationId})`);
     expect(sent.message).not.toContain('console.firebase.google.com');
     expect(sent.message).not.toContain('suppliable-dev');
     expect(sent.message).not.toContain('FAILED_PRECONDITION');
@@ -54,7 +55,7 @@ describe('sanitizeServerErrors', () => {
     const { sent } = run(500, { success: false, message: 'boom', issues: ['a'], canAddToCart: true });
     expect(sent.issues).toEqual(['a']);
     expect(sent.canAddToCart).toBe(true);
-    expect(sent.message).toBe('Something went wrong. Please try again.');
+    expect(sent.message).toContain('Something went wrong. Please try again.');
   });
 
   test('does not mint a second correlationId over an already-sanitised body', () => {
@@ -65,6 +66,7 @@ describe('sanitizeServerErrors', () => {
 
   test('503 and other 5xx are covered, not just 500', () => {
     const { sent } = run(503, { success: false, message: 'upstream exploded at /srv/app/x.js:42' });
-    expect(sent.message).toBe('Something went wrong. Please try again.');
+    expect(sent.message).toContain('Something went wrong. Please try again.');
+    expect(sent.message).not.toContain('/srv/app');
   });
 });
