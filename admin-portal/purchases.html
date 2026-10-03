@@ -255,7 +255,9 @@
     <!-- TAB 1 -->
     <div class="tab-panel active" id="panel-lowstock">
       <div class="stats" id="lowStockStats"></div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <input class="input" id="vendorSearch" placeholder="🔍 Search vendor or item…" style="min-width:280px;flex:1;max-width:420px;"
+               oninput="renderLowStock()">
         <button class="btn" onclick="loadLowStock(true)">🔄 Refresh from Zoho</button>
       </div>
       <div id="lowStockBody"><div class="spinner"></div></div>
@@ -279,17 +281,28 @@
       <div id="checklistHead"></div>
       <div id="checklistBody"><div class="spinner"></div></div>
       <div class="card" style="margin-top:20px;">
-        <div class="card-head"><div><div class="card-title">4-Week History</div>
-          <div class="card-sub">✅ checked · ⏭️ skipped · ⬜ missed · — not scheduled</div></div></div>
-        <div class="card-body" style="overflow-x:auto;" id="historyBody"><div class="spinner"></div></div>
+        <div class="card-head">
+          <div><div class="card-title">Checklist History</div>
+            <div class="card-sub">✅ checked · ⏭️ skipped · ⬜ missed · — not scheduled</div></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn small" onclick="histWeek(-1)">‹ Prev</button>
+            <span id="histLabel" class="mono" style="font-size:12px;min-width:150px;text-align:center;">—</span>
+            <button class="btn small" id="histNext" onclick="histWeek(1)">Next ›</button>
+          </div>
+        </div>
+        <div class="card-body" id="historyBody"><div class="spinner"></div></div>
       </div>
     </div>
 
     <!-- TAB 4 -->
     <div class="tab-panel" id="panel-vendors">
       <div class="card">
-        <div class="card-head"><div><div class="card-title">Vendor Delivery Days</div>
-          <div class="card-sub" id="vendorSummary">Loading…</div></div></div>
+        <div class="card-head">
+          <div><div class="card-title">Vendor Delivery Days</div>
+            <div class="card-sub" id="vendorSummary">Loading…</div></div>
+          <input class="input" id="vendorTableSearch" placeholder="🔍 Search vendor…" style="min-width:220px;"
+                 oninput="filterVendorRows()">
+        </div>
         <div id="vendorBody"><div class="spinner"></div></div>
       </div>
     </div>
@@ -337,10 +350,15 @@ function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
+// wa.me accepts a message with NO recipient — it opens WhatsApp Web with the
+// text ready and lets the user pick the contact. Since no Zoho vendor currently
+// has a phone on file, refusing to open would make the button dead for everyone.
 function sendWhatsApp(phone, text) {
   const clean = String(phone || '').replace(/[^0-9]/g, '');
+  const msg = encodeURIComponent(text);
+  if (!clean) { window.open(`https://wa.me/?text=${msg}`, '_blank'); return; }
   const number = clean.startsWith('91') ? clean : '91' + clean;
-  window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
+  window.open(`https://wa.me/${number}?text=${msg}`, '_blank');
 }
 
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -410,13 +428,21 @@ function renderLowStock() {
     <div class="stat orange"><div class="label">Vendors to Order From</div><div class="value">${d.totalVendors}</div></div>
     <div class="stat blue"><div class="label">Today's Scheduled Vendors</div><div class="value">${todayCount}</div></div>`;
 
-  // Today's vendors first — the purchase manager works this page in schedule order.
+  // Match on item names too, not just the vendor: a manager searching "Ramco"
+  // is looking for whoever supplies it, and may not know the vendor's name.
+  const q = (document.getElementById('vendorSearch')?.value || '').trim().toLowerCase();
+  const matches = v => !q
+    || v.vendorName.toLowerCase().includes(q)
+    || v.items.some(i => String(i.name).toLowerCase().includes(q));
+
   const vendors = [...d.vendors]
-    .filter(v => v.items.length > 0)
+    .filter(v => v.items.length > 0 && matches(v))
     .sort((a, b) => (b.dayOfWeek === dow) - (a.dayOfWeek === dow) || a.vendorName.localeCompare(b.vendorName));
 
   if (!vendors.length) {
-    document.getElementById('lowStockBody').innerHTML = '<div class="empty">🎉 Nothing below reorder level right now.</div>';
+    document.getElementById('lowStockBody').innerHTML = q
+      ? `<div class="empty">No vendor or item matching “${escHtml(q)}”.</div>`
+      : '<div class="empty">🎉 Nothing below reorder level right now.</div>';
     return;
   }
 
@@ -439,14 +465,13 @@ function renderLowStock() {
       </div>
       <div class="card-body">
         <table>
-          <thead><tr><th>Rack</th><th>Item Name</th><th>Stock</th><th>Reorder</th><th>Deficit</th><th>Order Qty</th></tr></thead>
+          <thead><tr><th>Rack</th><th>Item Name</th><th>Stock</th><th>Reorder</th><th>Order Qty</th></tr></thead>
           <tbody>${v.items.map(i => `
             <tr>
               <td class="mono">${escHtml(i.rackNumber) || '—'}</td>
               <td>${escHtml(i.name)}</td>
               <td class="mono">${i.stockOnHand}</td>
               <td class="mono">${i.reorderLevel}</td>
-              <td class="mono" style="color:var(--red2);font-weight:600;">${i.deficit}</td>
               <td><input class="qty-input" type="number" min="0" value="${i.suggestedOrderQty}"
                     data-item-id="${escHtml(i.itemId)}" data-name="${escHtml(i.name)}"
                     data-unit="${escHtml(i.unit)}" data-rack="${escHtml(i.rackNumber)}"
@@ -454,8 +479,9 @@ function renderLowStock() {
             </tr>`).join('')}</tbody>
         </table>
         <div class="btn-row">
-          <button class="btn" onclick="waFromVendor('${escHtml(v.vendorId)}')" ${v.vendorPhone ? '' : 'disabled title="No phone on file"'}>
-            ${v.vendorPhone ? '💬 Send via WhatsApp' : '⚠️ No phone on file'}
+          <button class="btn" onclick="waFromVendor('${escHtml(v.vendorId)}')"
+                  title="${v.vendorPhone ? 'Opens this vendor\'s WhatsApp chat' : 'No number on file — WhatsApp will ask you to pick the contact'}">
+            ${v.vendorPhone ? '💬 Send via WhatsApp' : '💬 WhatsApp (pick contact)'}
           </button>
           <button class="btn primary" onclick="createPO('${escHtml(v.vendorId)}', this)">📋 Create Purchase Order</button>
         </div>
@@ -585,6 +611,10 @@ function renderPanel() {
   const p = currentPO;
   const done = { draft: true, sent: ['sent','received'].includes(p.status), received: p.status === 'received' };
   const readOnly = p.status === 'received' || p.status === 'cancelled';
+  // Items are only editable while the PO is still a draft. Once it is sent the
+  // vendor already has the list, so changing it would make the PO disagree with
+  // what they were told.
+  const isDraft = p.status === 'draft';
 
   document.getElementById('panel').innerHTML = `
     <div class="panel-head">
@@ -608,15 +638,18 @@ function renderPanel() {
       ${p.invoiceNumber ? `<div style="margin-bottom:14px;"><span class="pill green">Invoice ${escHtml(p.invoiceNumber)}</span>
         <span class="muted" style="font-size:12px;">${p.invoiceDate ? ' · ' + escHtml(p.invoiceDate) : ''}</span></div>` : ''}
       <table>
-        <thead><tr><th>Item</th><th>Rack</th><th>Order Qty</th><th>Received</th></tr></thead>
-        <tbody>${(p.items || []).map(i => `
-          <tr>
-            <td>${escHtml(i.itemName)} <span class="muted">${escHtml(i.unit)}</span></td>
-            <td class="mono">${escHtml(i.rackNumber) || '—'}</td>
-            <td class="mono">${i.orderQty}</td>
-            <td class="mono">${i.receivedQty === null || i.receivedQty === undefined ? '—' : i.receivedQty}</td>
-          </tr>`).join('')}</tbody>
+        <thead><tr><th>Item</th><th>Rack</th><th>Order Qty</th>${isDraft ? '<th></th>' : '<th>Received</th>'}</tr></thead>
+        <tbody id="poItemRows">${(p.items || []).map(i => poItemRow(i, isDraft)).join('')}</tbody>
       </table>
+      ${isDraft ? `
+      <div style="margin-top:12px;border-top:1px dashed var(--border);padding-top:12px;">
+        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Add another item</label>
+        <input class="input" id="poItemSearch" placeholder="🔍 Search the full catalogue…" style="width:100%;"
+               oninput="searchPoItems(this.value)" autocomplete="off">
+        <div id="poSearchResults"></div>
+        <button class="btn primary small" style="margin-top:10px;" onclick="saveDraftItems()">💾 Save Items</button>
+        <span class="saved-tick" id="poItemsSaved" style="display:none;">Saved ✓</span>
+      </div>` : ''}
       <div class="field" style="margin-top:16px;">
         <label>Notes</label>
         <textarea id="poNotes" rows="3" ${readOnly ? 'disabled' : ''}>${escHtml(p.notes || '')}</textarea>
@@ -634,9 +667,84 @@ function renderPanel() {
     </div>`;
 }
 
+function poItemRow(i, isDraft) {
+  const qty = isDraft
+    ? `<input class="qty-input po-qty" type="number" min="0" value="${i.orderQty}" data-item-id="${escHtml(i.itemId)}"
+         data-name="${escHtml(i.itemName)}" data-unit="${escHtml(i.unit)}" data-rack="${escHtml(i.rackNumber || '')}"
+         data-stock="${i.stockOnHand || 0}" data-reorder="${i.reorderLevel || 0}">`
+    : `<span class="mono">${i.orderQty}</span>`;
+  const last = isDraft
+    ? `<button class="btn small" title="Remove" onclick="this.closest('tr').remove()">✕</button>`
+    : `<span class="mono">${i.receivedQty === null || i.receivedQty === undefined ? '—' : i.receivedQty}</span>`;
+  return `<tr>
+    <td>${escHtml(i.itemName)} <span class="muted">${escHtml(i.unit)}</span></td>
+    <td class="mono">${escHtml(i.rackNumber) || '—'}</td>
+    <td>${qty}</td>
+    <td>${last}</td>
+  </tr>`;
+}
+
+let _poSearchTimer = null;
+function searchPoItems(q) {
+  clearTimeout(_poSearchTimer);
+  const box = document.getElementById('poSearchResults');
+  if (!q || q.trim().length < 2) { box.innerHTML = ''; return; }
+  // Debounced so typing doesn't fire a request per keystroke.
+  _poSearchTimer = setTimeout(async () => {
+    try {
+      const res = await apiFetch('/api/v1/admin/purchases/items/search?q=' + encodeURIComponent(q.trim()));
+      const json = await res.json();
+      const items = json.data?.items || [];
+      if (!items.length) { box.innerHTML = '<div class="muted" style="padding:8px 2px;font-size:13px;">No match</div>'; return; }
+      box.innerHTML = `<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-top:8px;">
+        ${items.map(i => `
+          <div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:center;">
+            <div style="min-width:0;">
+              <div style="font-size:13px;">${escHtml(i.name)}</div>
+              <div class="muted" style="font-size:11px;">stock ${i.stockOnHand} · reorder ${i.reorderLevel}
+                ${i.belowReorder ? '<span class="pill red" style="margin-left:6px;">low</span>' : ''}</div>
+            </div>
+            <button class="btn small" onclick='addPoItem(${JSON.stringify(i).replace(/'/g, "&apos;")})'>+ Add</button>
+          </div>`).join('')}
+      </div>`;
+    } catch (e) { box.innerHTML = `<div class="muted" style="padding:8px 2px;">Search failed: ${escHtml(e.message)}</div>`; }
+  }, 250);
+}
+
+function addPoItem(i) {
+  const tbody = document.getElementById('poItemRows');
+  if ([...tbody.querySelectorAll('.po-qty')].some(x => x.dataset.itemId === i.itemId)) {
+    return showToast('That item is already on this PO', 'error');
+  }
+  // Default to the shortfall, or 1 for an item that is not actually low — the
+  // manager asked for it deliberately, so never add a zero-quantity row.
+  const qty = i.suggestedOrderQty > 0 ? i.suggestedOrderQty : 1;
+  tbody.insertAdjacentHTML('beforeend', poItemRow({
+    itemId: i.itemId, itemName: i.name, unit: i.unit, rackNumber: i.rackNumber,
+    stockOnHand: i.stockOnHand, reorderLevel: i.reorderLevel, orderQty: qty, receivedQty: null,
+  }, true));
+  document.getElementById('poItemSearch').value = '';
+  document.getElementById('poSearchResults').innerHTML = '';
+}
+
+async function saveDraftItems() {
+  const items = [...document.querySelectorAll('#poItemRows .po-qty')].map(inp => ({
+    itemId: inp.dataset.itemId,
+    itemName: inp.dataset.name,
+    unit: inp.dataset.unit,
+    rackNumber: inp.dataset.rack,
+    stockOnHand: Number(inp.dataset.stock),
+    reorderLevel: Number(inp.dataset.reorder),
+    orderQty: Number(inp.value) || 0,
+  })).filter(i => i.orderQty > 0);
+  if (!items.length) return showToast('Add at least one item with a quantity', 'error');
+  try {
+    await putPO(currentPO.poId, { items }, `✅ Saved ${items.length} item${items.length === 1 ? '' : 's'}`);
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
 function waFromPO() {
   const p = currentPO;
-  if (!p.vendorPhone) return showToast('No phone on file for this vendor', 'error');
   const items = (p.items || []).map(i => ({ name: i.itemName, orderQty: i.orderQty, unit: i.unit }));
   sendWhatsApp(p.vendorPhone, buildPOMessage(p.vendorName, p.poNumber, items));
 }
@@ -785,24 +893,69 @@ async function skipVendor(vendorId, reason) {
   catch (e) { showToast(e.message, 'error'); }
 }
 
+let histData = null;
+let histOffset = 0; // 0 = current week, -1 = previous, …
+
+function histWeek(delta) {
+  const maxBack = -3; // 28 days of data = 4 weeks
+  histOffset = Math.min(0, Math.max(maxBack, histOffset + delta));
+  renderHistory();
+}
+
 async function loadHistory() {
   const body = document.getElementById('historyBody');
   try {
     const res = await apiFetch('/api/v1/admin/purchases/checklist/history?days=28');
     const json = await res.json();
     if (!json.success) throw new Error(json.message || 'Failed');
-    const { dates, vendors } = json.data;
-    if (!vendors.length) { body.innerHTML = '<div class="empty">No vendors scheduled yet.</div>'; return; }
-    const glyph = { checked:'✅', skipped:'⏭️', missed:'⬜', 'not-scheduled':'—' };
-    body.innerHTML = `<table style="min-width:900px;">
-      <thead><tr><th>Vendor</th>${dates.map(d => `<th class="hist-cell">${d.slice(8)}</th>`).join('')}</tr></thead>
-      <tbody>${vendors.map(v => `
-        <tr><td style="white-space:nowrap;">${escHtml(v.vendorName)}</td>
-        ${v.cells.map(c => `<td class="hist-cell" title="${c.date}${c.skipReason ? ' — ' + escHtml(c.skipReason) : ''}">${glyph[c.state]}</td>`).join('')}
-        </tr>`).join('')}</tbody></table>`;
+    histData = json.data;
+    histOffset = 0;
+    renderHistory();
   } catch (e) {
     body.innerHTML = `<div class="empty">Could not load history.<br><span class="muted">${escHtml(e.message)}</span></div>`;
   }
+}
+
+// Seven columns fit any screen, so the table never needs sideways scrolling —
+// which is what made the old 28-column grid unusable (it was also clipped by the
+// card's overflow:hidden, so the extra columns could not be reached at all).
+function renderHistory() {
+  const body = document.getElementById('historyBody');
+  if (!histData) return;
+  const { dates, vendors } = histData;
+  if (!vendors.length) { body.innerHTML = '<div class="empty">No vendors scheduled yet.</div>'; return; }
+
+  const end = dates.length + histOffset * 7;
+  const start = Math.max(0, end - 7);
+  const slice = dates.slice(start, end);
+  const glyph = { checked: '✅', skipped: '⏭️', missed: '⬜', 'not-scheduled': '—' };
+  const dayShort = d => new Date(d + 'T12:00:00+05:30')
+    .toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit' });
+
+  document.getElementById('histLabel').textContent =
+    slice.length ? `${slice[0].slice(5)} → ${slice[slice.length - 1].slice(5)}` : '—';
+  document.getElementById('histNext').disabled = histOffset >= 0;
+
+  body.innerHTML = `<table>
+    <thead><tr>
+      <th style="position:sticky;left:0;background:var(--card);">Vendor</th>
+      ${slice.map(d => `<th class="hist-cell">${dayShort(d)}</th>`).join('')}
+      <th class="hist-cell" title="Checked or skipped, across all 28 days">4-wk</th>
+    </tr></thead>
+    <tbody>${vendors.map(v => {
+      const cells = v.cells.filter(c => slice.includes(c.date));
+      const scheduled = v.cells.filter(c => c.state !== 'not-scheduled');
+      const done = scheduled.filter(c => c.state === 'checked' || c.state === 'skipped').length;
+      const pct = scheduled.length ? Math.round((done / scheduled.length) * 100) : null;
+      return `<tr>
+        <td style="white-space:nowrap;position:sticky;left:0;background:var(--card);">${escHtml(v.vendorName)}</td>
+        ${slice.map(d => {
+          const c = cells.find(x => x.date === d) || { state: 'not-scheduled' };
+          return `<td class="hist-cell" title="${d}${c.skipReason ? ' — ' + escHtml(c.skipReason) : ''}">${glyph[c.state]}</td>`;
+        }).join('')}
+        <td class="hist-cell">${pct === null ? '—' : `<span class="pill ${pct >= 80 ? 'green' : pct >= 50 ? 'amber' : 'red'}">${done}/${scheduled.length}</span>`}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
 }
 
 // ── TAB 4: VENDOR SCHEDULE ────────────────────────────────
@@ -839,6 +992,26 @@ async function loadVendors() {
     window._vendors = vendors;
   } catch (e) {
     body.innerHTML = `<div class="empty">Could not load vendors.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+  }
+}
+
+// Row-level filter: the table is already rendered, so hide rather than re-render
+// and lose any dropdown the user is mid-way through changing.
+function filterVendorRows() {
+  const q = (document.getElementById('vendorTableSearch')?.value || '').trim().toLowerCase();
+  let shown = 0;
+  (window._vendors || []).forEach(v => {
+    const row = document.getElementById('v-' + v.vendorId);
+    if (!row) return;
+    const hit = !q || String(v.vendorName).toLowerCase().includes(q);
+    row.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const sum = document.getElementById('vendorSummary');
+  if (sum && q) sum.textContent = `${shown} vendor${shown === 1 ? '' : 's'} matching “${q}”`;
+  else if (sum) {
+    const withDay = (window._vendors || []).filter(v => v.dayOfWeek !== null && v.dayOfWeek !== undefined).length;
+    sum.textContent = `${withDay} of ${(window._vendors || []).length} vendors have a delivery day set`;
   }
 }
 

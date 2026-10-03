@@ -19,7 +19,11 @@ const redis = require('../cache/redis');
 const { buildErrorBody } = require('../utils/safeError');
 
 const LOW_STOCK_CACHE_KEY = 'purchase:lowstock';
+// buildLowStock already pulls the whole catalogue to filter it; the slim copy is
+// kept so item search can run in memory instead of hitting Zoho per keystroke.
+const CATALOGUE_CACHE_KEY = 'purchase:catalogue';
 const LOW_STOCK_CACHE_TTL_S = 30 * 60;
+const ITEM_SEARCH_LIMIT = 25;
 const PO_LIST_LIMIT = 50;
 const UNASSIGNED_VENDOR_ID = 'unassigned';
 
@@ -164,15 +168,29 @@ async function buildLowStock(traceContext) {
       unit: it.unit || '',
       stockOnHand,
       reorderLevel,
-      // Shortfall against the reorder point, and enough to reach double it —
-      // clamped so an odd Zoho row can never suggest a negative order.
-      deficit: Math.max(0, reorderLevel - stockOnHand),
-      suggestedOrderQty: Math.max(0, reorderLevel * 2 - stockOnHand),
+      // Order exactly the shortfall against the reorder point. Clamped so an odd
+      // Zoho row can never suggest a negative order. (A separate `deficit` field
+      // used to exist; it is now the same number, so the column was dropped.)
+      suggestedOrderQty: Math.max(0, reorderLevel - stockOnHand),
       // No rack custom field exists in this Zoho org; kept so the column lights
       // up automatically if one is added later.
       rackNumber: it.cf_rack_number || '',
     });
   }
+
+  // Stash the slim catalogue on the way past — free, since we already have it.
+  const catalogue = items
+    .filter(i => i.status !== 'inactive')
+    .map(i => ({
+      itemId: i.item_id,
+      name: i.name,
+      unit: i.unit || '',
+      stockOnHand: toNumber(i.stock_on_hand),
+      reorderLevel: toNumber(i.reorder_level),
+      rackNumber: i.cf_rack_number || '',
+      vendorName: i.vendor_name || '',
+    }));
+  await redis.set(CATALOGUE_CACHE_KEY, JSON.stringify(catalogue), { ex: LOW_STOCK_CACHE_TTL_S }).catch(() => {});
 
   const vendors = [...groups.values()];
   return {
@@ -216,6 +234,49 @@ async function lowStockCountsByVendor(traceContext) {
   for (const v of (data?.vendors || [])) counts[v.vendorId] = v.items.length;
   return counts;
 }
+
+// GET /api/v1/admin/purchases/items/search?q=
+// Searches the whole catalogue, not just low-stock items — a manager topping up
+// an order needs items that are above reorder level too.
+const searchItems = async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    if (q.length < 2) {
+      return res.json({ success: true, data: { items: [], query: q } });
+    }
+
+    let catalogue = await redis.get(CATALOGUE_CACHE_KEY).catch(() => null);
+    if (catalogue) catalogue = typeof catalogue === 'string' ? JSON.parse(catalogue) : catalogue;
+    if (!catalogue) {
+      // Cold cache — rebuilding low stock repopulates the catalogue as a side effect.
+      await buildLowStock(req.traceContext);
+      catalogue = await redis.get(CATALOGUE_CACHE_KEY).catch(() => null);
+      if (catalogue) catalogue = typeof catalogue === 'string' ? JSON.parse(catalogue) : catalogue;
+    }
+
+    const all = catalogue || [];
+    // Prefix matches first — typing "ram" should surface "Ramco…" above an item
+    // that merely contains "ram" mid-word.
+    const starts = [];
+    const contains = [];
+    for (const it of all) {
+      const name = String(it.name || '').toLowerCase();
+      if (name.startsWith(q)) starts.push(it);
+      else if (name.includes(q)) contains.push(it);
+      if (starts.length >= ITEM_SEARCH_LIMIT) break;
+    }
+    const items = [...starts, ...contains].slice(0, ITEM_SEARCH_LIMIT).map(i => ({
+      ...i,
+      belowReorder: i.reorderLevel > 0 && i.stockOnHand <= i.reorderLevel,
+      suggestedOrderQty: Math.max(0, i.reorderLevel - i.stockOnHand),
+    }));
+
+    res.json({ success: true, data: { items, query: q, total: items.length } });
+  } catch (err) {
+    req.log?.error?.({ err: err.message }, 'item search failed');
+    res.status(500).json(buildErrorBody(err, 500).body);
+  }
+};
 
 // ── PURCHASE ORDERS ───────────────────────────────────────
 
@@ -396,20 +457,44 @@ const updatePurchaseOrder = async (req, res) => {
     if (invoiceDate !== undefined) update.invoiceDate = invoiceDate || null;
     if (notes !== undefined) update.notes = notes;
 
-    // Received quantities are merged by itemId so a partial payload can't drop
-    // the rest of the line items.
     if (Array.isArray(items)) {
-      const byId = new Map(items.map(i => [i.itemId, i]));
-      update.items = (current.items || []).map(existing => {
-        const incoming = byId.get(existing.itemId);
-        if (!incoming) return existing;
-        return {
-          ...existing,
-          receivedQty: incoming.receivedQty === undefined || incoming.receivedQty === null
-            ? existing.receivedQty
-            : toNumber(incoming.receivedQty),
-        };
-      });
+      const targetStatus = update.status || current.status;
+      if (current.status === 'draft' && targetStatus === 'draft') {
+        // Draft is still being composed, so the list is replaced wholesale —
+        // that is what lets the manager add items the low-stock view never
+        // suggested, or remove ones they changed their mind about.
+        update.items = items.map(i => ({
+          itemId: i.itemId || null,
+          itemName: i.itemName || i.name || '',
+          unit: i.unit || '',
+          rackNumber: i.rackNumber || '',
+          stockOnHand: toNumber(i.stockOnHand),
+          reorderLevel: toNumber(i.reorderLevel),
+          orderQty: toNumber(i.orderQty),
+          receivedQty: null,
+        })).filter(i => i.orderQty > 0);
+
+        if (!update.items.length) {
+          return res.status(400).json({
+            success: false, error: 'EMPTY_ITEMS',
+            message: 'A purchase order must have at least one item with a quantity',
+          });
+        }
+      } else {
+        // Sent or later: the vendor already has this list, so quantities ordered
+        // are fixed and only receivedQty may be merged in, by itemId.
+        const byId = new Map(items.map(i => [i.itemId, i]));
+        update.items = (current.items || []).map(existing => {
+          const incoming = byId.get(existing.itemId);
+          if (!incoming) return existing;
+          return {
+            ...existing,
+            receivedQty: incoming.receivedQty === undefined || incoming.receivedQty === null
+              ? existing.receivedQty
+              : toNumber(incoming.receivedQty),
+          };
+        });
+      }
     }
 
     await ref.update(update);
@@ -603,6 +688,7 @@ const getChecklistHistory = async (req, res) => {
 
 module.exports = {
   getLowStock,
+  searchItems,
   createPurchaseOrder,
   listPurchaseOrders,
   getPurchaseOrder,

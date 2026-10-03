@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getLowStock,
+  searchItems,
   createPurchaseOrder,
   listPurchaseOrders,
   getPurchaseOrder,
@@ -17,6 +18,7 @@ const {
 // so every route here inherits the same auth as the rest of the admin surface.
 
 router.get('/low-stock', getLowStock);
+router.get('/items/search', searchItems);
 
 router.get('/orders', listPurchaseOrders);
 router.post('/orders', createPurchaseOrder);
