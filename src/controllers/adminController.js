@@ -30,7 +30,7 @@ function formatDuration(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 const { createZohoSalesOrder, confirmZohoSalesOrder, createZohoInvoiceFromSO, updateZohoSOOrderId, updateZohoInvoiceShippingAddress, markZohoInvoiceAsSent } = require('../services/zohoOrderService');
-const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks, createZohoContact, searchZohoContactByPhone } = require('../services/zohoService');
+const { getAccessToken, updateZohoItemFeatured, getZohoItemGroupById, updateZohoContact, recordPaymentInZohoBooks, createZohoContact, searchZohoContactByPhone, getZohoContactById } = require('../services/zohoService');
 const { uploadToFirebase } = require('../services/storageService');
 const { setFeatured } = require('../services/firestoreService');
 const { clearCache, getAllProducts } = require('../services/productService');
@@ -186,8 +186,24 @@ const acceptOrder = async (req, res) => {
     if (!customer) {
       return res.status(400).json({ success: false, error: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
     }
-    if (!customer.zoho_contact_id) {
-      // POS-created customers may not have a Zoho contact yet — find or create one now
+    // A stored zoho_contact_id is not proof the contact still exists: it can point
+    // at a deleted contact, or at one created against a different Zoho org before
+    // a migration. Zoho answers 1002 for both. createZohoSalesOrder below is the
+    // ONLY un-caught Zoho call in this handler, so a stale id surfaced as an
+    // opaque 500 and left the order permanently unacceptable. Verify, then repair.
+    let contactOk = Boolean(customer.zoho_contact_id);
+    if (contactOk) {
+      const existing = await getZohoContactById(customer.zoho_contact_id, req.traceContext).catch(() => null);
+      if (!existing) {
+        req.log.warn({ staleContactId: customer.zoho_contact_id, userId: customer.userId },
+          'Stored Zoho contact no longer exists — re-resolving');
+        contactOk = false;
+      }
+    }
+
+    if (!contactOk) {
+      // POS-created customers may not have a Zoho contact yet, and a stale stored
+      // id lands here too — find or create either way.
       try {
         const found = await searchZohoContactByPhone(customer.phone, req.traceContext).catch(() => null);
         if (found?.contact_id) {
