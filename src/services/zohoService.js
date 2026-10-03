@@ -191,6 +191,35 @@ async function createZohoContact(contactData, traceContext = null) {
   }
 }
 
+// Does this contact still exist in our Zoho org? Returns null on 404 rather than
+// throwing, so callers can treat "gone" as a normal outcome. A stored
+// zoho_contact_id can go stale — the contact may have been deleted, or created
+// against a different Zoho organization before a migration — and Zoho answers
+// 1002 "The Contact is not accessible" for both.
+async function getZohoContactById(contactId, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.getContactById', { 'peer.service': 'zoho', endpoint: '/books/v3/contacts/:id' });
+  try {
+    const token = await getAccessToken();
+    const res = await withRetry('zoho.api.getContactById', () =>
+      axios.get(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/contacts/${contactId}`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params: { organization_id: process.env.ZOHO_ORG_ID },
+        timeout: DEFAULT_TIMEOUT_MS,
+      })
+    );
+    span.end({ success: true });
+    return res.data.contact || null;
+  } catch (error) {
+    const code = error.response?.data?.code;
+    if (error.response?.status === 404 || code === 1002) {
+      span.end({ success: true, found: false });
+      return null;
+    }
+    span.end({ success: false, error: error.response?.data || error.message });
+    throw error;
+  }
+}
+
 async function searchZohoContactByName(name, traceContext = null) {
   try {
     const token = await getAccessToken();
@@ -477,6 +506,7 @@ module.exports = {
   updateZohoItemFeatured,
   searchZohoContactByPhone,
   searchZohoContactByName,
+  getZohoContactById,
   findContactByExactName,
   recordPaymentInZohoBooks
 };
