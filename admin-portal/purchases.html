@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliable Admin — Purchases</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:#1e2235; --navy-light:#2a3050; --navy-hover:#323a5c;
+    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --amber:#f59e0b; --blue2:#3b82f6; --purple:#8b5cf6;
+    --orange:#f97316; --green:#10b981; --red2:#ef4444;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+
+  /* SIDEBAR */
+  .sidebar {
+    width:220px; min-height:100vh; background:var(--navy);
+    display:flex; flex-direction:column; position:fixed; left:0; top:0; z-index:40;
+  }
+  .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
+  .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px;
+    padding:11px 16px; color:rgba(255,255,255,0.75); font-size:14px; font-weight:500;
+    cursor:pointer; text-decoration:none; transition:background 0.15s;
+    border-left:3px solid transparent;
+  }
+  .nav-item:hover { background:var(--navy-light); color:#fff; }
+  .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
+  .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
+  .online-indicator { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.5); font-size:12px; }
+  .online-dot { width:8px; height:8px; background:var(--green); border-radius:50%; flex-shrink:0; }
+
+  /* MAIN */
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+  .topbar {
+    height:60px; background:#fff; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; position:sticky; top:0; z-index:30;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+  }
+  .topbar-title { font-size:18px; font-weight:700; color:var(--text); }
+  .topbar-right { display:flex; align-items:center; gap:12px; }
+  .btn-logout {
+    background:none; border:1px solid var(--border); border-radius:8px;
+    padding:8px 14px; cursor:pointer; font-size:13px; font-weight:500;
+    color:var(--muted); font-family:inherit; transition:background 0.15s;
+  }
+  .btn-logout:hover { background:var(--bg); color:var(--text); }
+  .content { padding:24px; flex:1; }
+
+  /* TABS */
+  .tabs { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .tab {
+    padding:9px 16px; border-radius:999px; border:1px solid var(--border);
+    background:#fff; color:var(--muted); font-size:13px; font-weight:600;
+    cursor:pointer; font-family:inherit; transition:all 0.15s;
+  }
+  .tab:hover { background:var(--bg); }
+  .tab.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+
+  /* STATS */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px; }
+  .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .stat .label { font-size:12px; color:var(--muted); font-weight:500; }
+  .stat .value { font-size:26px; font-weight:700; margin-top:4px; }
+  .stat.red .value { color:var(--red2); }
+  .stat.orange .value { color:var(--orange); }
+  .stat.blue .value { color:var(--blue2); }
+  .stat.grey .value { color:var(--muted); }
+  .stat.green .value { color:var(--green); }
+
+  /* CARDS + TABLES */
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; margin-bottom:16px; overflow:hidden; }
+  .card.today { border-left:4px solid var(--orange); }
+  .card-head {
+    padding:14px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .card-title { font-size:15px; font-weight:700; }
+  .card-sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .card-body { padding:14px 18px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th {
+    text-align:left; padding:9px 10px; font-size:11px; font-weight:600;
+    color:var(--muted); text-transform:uppercase; letter-spacing:0.4px;
+    border-bottom:1px solid var(--border); white-space:nowrap;
+  }
+  td { padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:none; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .qty-input {
+    width:84px; padding:6px 8px; border:1px solid var(--border); border-radius:6px;
+    font-family:inherit; font-size:13px; text-align:right;
+  }
+  .qty-input:focus { outline:none; border-color:var(--blue2); }
+
+  /* BADGES */
+  .pill {
+    display:inline-block; padding:3px 10px; border-radius:999px;
+    font-size:11px; font-weight:600; white-space:nowrap;
+  }
+  .pill.grey { background:#eef0f4; color:var(--muted); }
+  .pill.blue { background:#dbeafe; color:#1d4ed8; }
+  .pill.green { background:#d1fae5; color:#047857; }
+  .pill.red { background:#fee2e2; color:#b91c1c; }
+  .pill.orange { background:#ffedd5; color:#c2410c; }
+  .pill.amber { background:#fef3c7; color:#92400e; }
+
+  /* BUTTONS */
+  .btn {
+    padding:9px 14px; border-radius:8px; border:1px solid var(--border);
+    background:#fff; font-size:13px; font-weight:600; cursor:pointer;
+    font-family:inherit; color:var(--text); transition:all 0.15s;
+  }
+  .btn:hover:not(:disabled) { background:var(--bg); }
+  .btn:disabled { opacity:0.55; cursor:not-allowed; }
+  .btn.primary { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .btn.primary:hover:not(:disabled) { background:var(--navy-light); }
+  .btn.green { background:var(--green); color:#fff; border-color:var(--green); }
+  .btn.red { background:var(--red2); color:#fff; border-color:var(--red2); }
+  .btn.small { padding:6px 10px; font-size:12px; }
+  .btn-row { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+
+  .muted { color:var(--muted); }
+  .empty { text-align:center; padding:48px 20px; color:var(--muted); font-size:14px; }
+  .spinner {
+    width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--navy);
+    border-radius:50%; animation:spin 0.7s linear infinite; margin:40px auto;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .saved-tick { color:var(--green); font-size:12px; font-weight:600; margin-left:8px; }
+  a.tel { color:var(--blue); text-decoration:none; }
+  a.tel:hover { text-decoration:underline; }
+  select.input, input.input {
+    padding:7px 10px; border:1px solid var(--border); border-radius:7px;
+    font-family:inherit; font-size:13px; background:#fff; color:var(--text);
+  }
+
+  /* DETAIL PANEL */
+  .overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:50;
+    opacity:0; pointer-events:none; transition:opacity 0.2s;
+  }
+  .overlay.show { opacity:1; pointer-events:auto; }
+  .panel {
+    position:fixed; top:0; right:0; height:100vh; width:560px; max-width:94vw;
+    background:#fff; z-index:60; box-shadow:-8px 0 30px rgba(0,0,0,0.18);
+    transform:translateX(100%); transition:transform 0.25s; overflow-y:auto;
+  }
+  .panel.show { transform:translateX(0); }
+  .panel-head { padding:20px; border-bottom:1px solid var(--border); }
+  .panel-body { padding:20px; }
+  .panel-foot { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; flex-wrap:wrap; }
+  .timeline { display:flex; align-items:flex-start; gap:8px; margin:18px 0; }
+  .tl-step { flex:1; text-align:center; font-size:12px; }
+  .tl-dot {
+    width:26px; height:26px; border-radius:50%; margin:0 auto 6px;
+    background:#eef0f4; color:var(--muted); display:flex; align-items:center;
+    justify-content:center; font-size:13px; font-weight:700;
+  }
+  .tl-step.done .tl-dot { background:var(--green); color:#fff; }
+  .tl-step.done .tl-label { color:var(--text); font-weight:600; }
+  .tl-label { color:var(--muted); }
+  .tl-time { font-size:10px; color:var(--muted); margin-top:2px; }
+
+  /* MODAL */
+  .modal {
+    position:fixed; inset:0; z-index:70; display:none;
+    align-items:center; justify-content:center; background:rgba(0,0,0,0.45); padding:20px;
+  }
+  .modal.show { display:flex; }
+  .modal-box { background:#fff; border-radius:14px; width:520px; max-width:100%; max-height:88vh; overflow-y:auto; }
+  .modal-head { padding:18px 20px; border-bottom:1px solid var(--border); font-weight:700; }
+  .modal-body { padding:20px; }
+  .modal-foot { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; font-weight:600; margin-bottom:5px; }
+  .field .req { color:var(--red2); }
+  .field input, .field textarea, .field select {
+    width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:8px;
+    font-family:inherit; font-size:13px;
+  }
+
+  /* HISTORY GRID */
+  .hist-cell { text-align:center; font-size:13px; padding:5px 3px; }
+
+  #toast {
+    position:fixed; bottom:24px; right:24px; z-index:999;
+    background:var(--navy); color:#fff; padding:14px 20px; border-radius:10px;
+    font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,0.25);
+    transform:translateY(80px); opacity:0; transition:all 0.3s; pointer-events:none;
+  }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.error { background:var(--red2); }
+  #toast.success { background:var(--green); }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <div class="name">🧱 Suppliable</div>
+    <div class="sub">Admin Portal</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" href="orders.html">📦 Orders</a>
+    <a class="nav-item" href="pos.html">🛒 POS</a>
+    <a class="nav-item" href="cod.html">💰 COD Reconciliation</a>
+    <a class="nav-item" href="abandoned.html">🛒 Abandoned Carts</a>
+    <a class="nav-item" href="images.html">🗂️ Item Management</a>
+    <a class="nav-item" href="categories.html">📂 Categories</a>
+    <a class="nav-item" href="stock.html">📊 Stock Costing</a>
+    <a class="nav-item active" href="purchases.html">📦 Purchases</a>
+    <a class="nav-item" href="customers.html">👥 Customers</a>
+    <a class="nav-item" href="shades.html">🎨 Shades</a>
+    <a class="nav-item" href="notifications.html">📣 Notifications</a>
+    <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="online-indicator"><span class="online-dot"></span> Online</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Purchases</div>
+    <div class="topbar-right">
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="tabs">
+      <button class="tab active" data-tab="lowstock" onclick="switchTab('lowstock')">📦 Low Stock</button>
+      <button class="tab" data-tab="orders" onclick="switchTab('orders')">📋 Purchase Orders</button>
+      <button class="tab" data-tab="checklist" onclick="switchTab('checklist')">✅ Checklist</button>
+      <button class="tab" data-tab="vendors" onclick="switchTab('vendors')">⚙️ Vendor Schedule</button>
+    </div>
+
+    <!-- TAB 1 -->
+    <div class="tab-panel active" id="panel-lowstock">
+      <div class="stats" id="lowStockStats"></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <input class="input" id="vendorSearch" placeholder="🔍 Search vendor or item…" style="min-width:280px;flex:1;max-width:420px;"
+               oninput="renderLowStock()">
+        <button class="btn" onclick="loadLowStock(true)">🔄 Refresh from Zoho</button>
+      </div>
+      <div id="lowStockBody"><div class="spinner"></div></div>
+    </div>
+
+    <!-- TAB 2 -->
+    <div class="tab-panel" id="panel-orders">
+      <div class="tabs" id="poFilters">
+        <button class="tab active" data-status="" onclick="filterPOs('')">All</button>
+        <button class="tab" data-status="draft" onclick="filterPOs('draft')">Draft</button>
+        <button class="tab" data-status="sent" onclick="filterPOs('sent')">Sent</button>
+        <button class="tab" data-status="received" onclick="filterPOs('received')">Received</button>
+        <button class="tab" data-status="cancelled" onclick="filterPOs('cancelled')">Cancelled</button>
+      </div>
+      <div class="stats" id="poStats"></div>
+      <div class="card"><div id="poBody"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- TAB 3 -->
+    <div class="tab-panel" id="panel-checklist">
+      <div id="checklistHead"></div>
+      <div id="checklistBody"><div class="spinner"></div></div>
+      <div class="card" style="margin-top:20px;">
+        <div class="card-head">
+          <div><div class="card-title">Checklist History</div>
+            <div class="card-sub">✅ checked · ⏭️ skipped · ⬜ missed · — not scheduled</div></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn small" onclick="histWeek(-1)">‹ Prev</button>
+            <span id="histLabel" class="mono" style="font-size:12px;min-width:150px;text-align:center;">—</span>
+            <button class="btn small" id="histNext" onclick="histWeek(1)">Next ›</button>
+          </div>
+        </div>
+        <div class="card-body" id="historyBody"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- TAB 4 -->
+    <div class="tab-panel" id="panel-vendors">
+      <div class="card">
+        <div class="card-head">
+          <div><div class="card-title">Vendor Delivery Days</div>
+            <div class="card-sub" id="vendorSummary">Loading…</div></div>
+          <input class="input" id="vendorTableSearch" placeholder="🔍 Search vendor…" style="min-width:220px;"
+                 oninput="filterVendorRows()">
+        </div>
+        <div id="vendorBody"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+<div class="panel" id="panel"></div>
+
+<div class="modal" id="receiveModal">
+  <div class="modal-box">
+    <div class="modal-head">📥 Receive Purchase Order</div>
+    <div class="modal-body" id="receiveBody"></div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeReceive()">Cancel</button>
+      <button class="btn green" id="confirmReceiveBtn" onclick="confirmReceive()">✅ Confirm Receipt</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+const token = sessionStorage.getItem('adminToken');
+if (!token) window.location.href = 'login.html';
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API_BASE + url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
+  return res;
+}
+function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, 4000);
+}
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+// wa.me accepts a message with NO recipient — it opens WhatsApp Web with the
+// text ready and lets the user pick the contact. Since no Zoho vendor currently
+// has a phone on file, refusing to open would make the button dead for everyone.
+function sendWhatsApp(phone, text) {
+  const clean = String(phone || '').replace(/[^0-9]/g, '');
+  const msg = encodeURIComponent(text);
+  if (!clean) { window.open(`https://wa.me/?text=${msg}`, '_blank'); return; }
+  const number = clean.startsWith('91') ? clean : '91' + clean;
+  window.open(`https://wa.me/${number}?text=${msg}`, '_blank');
+}
+
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function istTodayKey() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Kolkata', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+}
+function todayDow() { return new Date(istTodayKey() + 'T12:00:00+05:30').getDay(); }
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', hour:'numeric', minute:'2-digit' });
+}
+function daysAgo(iso) {
+  if (!iso) return 'Never';
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return d <= 0 ? 'Today' : d === 1 ? '1 day ago' : d + ' days ago';
+}
+
+// Plain-text table for WhatsApp: monospace isn't guaranteed, so columns are
+// padded to the longest item name to stay readable in a proportional font.
+function buildPOMessage(vendorName, poNumber, items) {
+  const date = new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+  const maxLen = Math.max(...items.map(i => i.name.length), 16);
+  const divider = '─'.repeat(maxLen + 14);
+  const header = 'ITEM'.padEnd(maxLen + 2) + '   QTY  UNIT';
+  const itemLines = items.map(i => i.name.padEnd(maxLen + 2) + String(i.orderQty).padStart(6) + '  ' + i.unit).join('\n');
+  return 'Hi ' + vendorName + '! 👋\nPurchase Order — Suppliable\nDate: ' + date +
+    (poNumber ? ' | PO#: ' + poNumber : '') +
+    '\n\n*Items to Order:*\n' + divider + '\n' + header + '\n' + divider + '\n' + itemLines + '\n' + divider +
+    '\nTotal Items: ' + items.length +
+    '\n\nPlease confirm availability and delivery date.\n\nThank you! 🙏\nSpeedlah Tech Pvt Ltd\n📞 +91 97909 76614';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tabs .tab[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  if (name === 'orders') loadPOs();
+  if (name === 'checklist') { loadChecklist(); loadHistory(); }
+  if (name === 'vendors') loadVendors();
+}
+
+// ── TAB 1: LOW STOCK ──────────────────────────────────────
+let lowStockData = null;
+
+async function loadLowStock(refresh) {
+  const body = document.getElementById('lowStockBody');
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/low-stock' + (refresh ? '?refresh=1' : ''));
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to load');
+    lowStockData = json.data;
+    renderLowStock();
+    if (refresh) showToast('✅ Refreshed from Zoho', 'success');
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Could not load low stock data.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+    showToast('Failed to load low stock: ' + e.message, 'error');
+  }
+}
+
+function renderLowStock() {
+  const d = lowStockData;
+  const dow = todayDow();
+  const todayCount = d.vendors.filter(v => v.dayOfWeek === dow).length;
+
+  document.getElementById('lowStockStats').innerHTML = `
+    <div class="stat red"><div class="label">Total Low Stock Items</div><div class="value">${d.totalLowStockItems}</div></div>
+    <div class="stat orange"><div class="label">Vendors to Order From</div><div class="value">${d.totalVendors}</div></div>
+    <div class="stat blue"><div class="label">Today's Scheduled Vendors</div><div class="value">${todayCount}</div></div>`;
+
+  // Match on item names too, not just the vendor: a manager searching "Ramco"
+  // is looking for whoever supplies it, and may not know the vendor's name.
+  const q = (document.getElementById('vendorSearch')?.value || '').trim().toLowerCase();
+  const matches = v => !q
+    || v.vendorName.toLowerCase().includes(q)
+    || v.items.some(i => String(i.name).toLowerCase().includes(q));
+
+  const vendors = [...d.vendors]
+    .filter(v => v.items.length > 0 && matches(v))
+    .sort((a, b) => (b.dayOfWeek === dow) - (a.dayOfWeek === dow) || a.vendorName.localeCompare(b.vendorName));
+
+  if (!vendors.length) {
+    document.getElementById('lowStockBody').innerHTML = q
+      ? `<div class="empty">No vendor or item matching “${escHtml(q)}”.</div>`
+      : '<div class="empty">🎉 Nothing below reorder level right now.</div>';
+    return;
+  }
+
+  document.getElementById('lowStockBody').innerHTML = vendors.map(v => {
+    const isToday = v.dayOfWeek === dow;
+    const dayBadge = (v.dayOfWeek === null || v.dayOfWeek === undefined)
+      ? '<span class="pill grey">No day set</span>'
+      : `<span class="pill ${isToday ? 'orange' : 'grey'}">Every ${DAY_NAMES[v.dayOfWeek]}</span>`;
+    const phone = v.vendorPhone
+      ? `<a class="tel" href="tel:${escHtml(v.vendorPhone)}">${escHtml(v.vendorPhone)}</a>`
+      : '<span class="muted">No phone on file</span>';
+    return `
+    <div class="card ${isToday ? 'today' : ''}" data-vendor="${escHtml(v.vendorId)}">
+      <div class="card-head">
+        <div>
+          <div class="card-title">${escHtml(v.vendorName)} ${isToday ? '<span class="pill orange">📅 Scheduled Today</span>' : ''}</div>
+          <div class="card-sub">${phone} · ${v.items.length} item${v.items.length === 1 ? '' : 's'} below reorder</div>
+        </div>
+        <div>${dayBadge}</div>
+      </div>
+      <div class="card-body">
+        <table>
+          <thead><tr><th>Rack</th><th>Item Name</th><th>Stock</th><th>Reorder</th><th>Order Qty</th></tr></thead>
+          <tbody>${v.items.map(i => `
+            <tr>
+              <td class="mono">${escHtml(i.rackNumber) || '—'}</td>
+              <td>${escHtml(i.name)}</td>
+              <td class="mono">${i.stockOnHand}</td>
+              <td class="mono">${i.reorderLevel}</td>
+              <td><input class="qty-input" type="number" min="0" value="${i.suggestedOrderQty}"
+                    data-item-id="${escHtml(i.itemId)}" data-name="${escHtml(i.name)}"
+                    data-unit="${escHtml(i.unit)}" data-rack="${escHtml(i.rackNumber)}"
+                    data-stock="${i.stockOnHand}" data-reorder="${i.reorderLevel}"></td>
+            </tr>`).join('')}</tbody>
+        </table>
+        <div class="btn-row">
+          <button class="btn" onclick="waFromVendor('${escHtml(v.vendorId)}')"
+                  title="${v.vendorPhone ? 'Opens this vendor\'s WhatsApp chat' : 'No number on file — WhatsApp will ask you to pick the contact'}">
+            ${v.vendorPhone ? '💬 Send via WhatsApp' : '💬 WhatsApp (pick contact)'}
+          </button>
+          <button class="btn primary" onclick="createPO('${escHtml(v.vendorId)}', this)">📋 Create Purchase Order</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Reads the (possibly edited) qty inputs for one vendor card.
+function collectVendorItems(vendorId) {
+  const card = document.querySelector(`.card[data-vendor="${CSS.escape(vendorId)}"]`);
+  if (!card) return [];
+  return [...card.querySelectorAll('.qty-input')]
+    .map(inp => ({
+      itemId: inp.dataset.itemId,
+      itemName: inp.dataset.name,
+      name: inp.dataset.name,
+      unit: inp.dataset.unit,
+      rackNumber: inp.dataset.rack,
+      stockOnHand: Number(inp.dataset.stock),
+      reorderLevel: Number(inp.dataset.reorder),
+      orderQty: Number(inp.value) || 0,
+    }))
+    .filter(i => i.orderQty > 0);
+}
+
+function waFromVendor(vendorId) {
+  const v = lowStockData.vendors.find(x => x.vendorId === vendorId);
+  const items = collectVendorItems(vendorId);
+  if (!items.length) return showToast('Set at least one order quantity', 'error');
+  sendWhatsApp(v.vendorPhone, buildPOMessage(v.vendorName, null, items));
+}
+
+async function createPO(vendorId, btn) {
+  const v = lowStockData.vendors.find(x => x.vendorId === vendorId);
+  const items = collectVendorItems(vendorId);
+  if (!items.length) return showToast('Set at least one order quantity', 'error');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/orders', {
+      method: 'POST',
+      body: JSON.stringify({ vendorId, vendorName: v.vendorName, vendorPhone: v.vendorPhone, items, notes: '' }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    showToast(`✅ ${json.data.poNumber} created`, 'success');
+    btn.className = 'btn green';
+    btn.textContent = `✅ ${json.data.poNumber} — View PO`;
+    btn.onclick = () => { switchTab('orders'); setTimeout(() => openPO(json.data.poId), 300); };
+    btn.disabled = false;
+  } catch (e) {
+    showToast('Could not create PO: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '📋 Create Purchase Order';
+  }
+}
+
+// ── TAB 2: PURCHASE ORDERS ────────────────────────────────
+let poFilter = '';
+
+function filterPOs(status) {
+  poFilter = status;
+  document.querySelectorAll('#poFilters .tab').forEach(b => b.classList.toggle('active', b.dataset.status === status));
+  loadPOs();
+}
+
+async function loadPOs() {
+  const body = document.getElementById('poBody');
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/orders' + (poFilter ? '?status=' + poFilter : ''));
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    const d = json.data;
+    document.getElementById('poStats').innerHTML = `
+      <div class="stat grey"><div class="label">Draft</div><div class="value">${d.totalDraft}</div></div>
+      <div class="stat blue"><div class="label">Sent</div><div class="value">${d.totalSent}</div></div>
+      <div class="stat green"><div class="label">Received</div><div class="value">${d.totalReceived}</div></div>
+      <div class="stat red"><div class="label">Cancelled</div><div class="value">${d.totalCancelled}</div></div>`;
+
+    if (!d.orders.length) { body.innerHTML = '<div class="empty">No purchase orders yet.</div>'; return; }
+    body.innerHTML = `<table>
+      <thead><tr><th>PO Number</th><th>Vendor</th><th>Items</th><th>Created</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>${d.orders.map(o => `
+        <tr style="cursor:pointer" onclick="openPO('${o.poId}')">
+          <td class="mono" style="font-weight:600;">${escHtml(o.poNumber)}</td>
+          <td>${escHtml(o.vendorName)}</td>
+          <td class="mono">${o.itemCount}</td>
+          <td class="muted">${fmtDateTime(o.createdAt)}</td>
+          <td>${statusPill(o.status)}</td>
+          <td onclick="event.stopPropagation()">
+            <button class="btn small" onclick="openPO('${o.poId}')">👁</button>
+            ${o.status === 'draft' ? `<button class="btn small" onclick="markSent('${o.poId}')">Mark Sent</button>` : ''}
+            ${o.status === 'sent' ? `<button class="btn small green" onclick="openPO('${o.poId}', true)">Receive</button>` : ''}
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Could not load purchase orders.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+  }
+}
+
+function statusPill(s) {
+  const map = { draft:'grey', sent:'blue', received:'green', cancelled:'red' };
+  return `<span class="pill ${map[s] || 'grey'}">${s ? s[0].toUpperCase() + s.slice(1) : '—'}</span>`;
+}
+
+let currentPO = null;
+
+async function openPO(poId, goStraightToReceive) {
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/orders/' + poId);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Not found');
+    currentPO = json.data;
+    renderPanel();
+    document.getElementById('overlay').classList.add('show');
+    document.getElementById('panel').classList.add('show');
+    if (goStraightToReceive) openReceive();
+  } catch (e) { showToast('Could not open PO: ' + e.message, 'error'); }
+}
+
+function closePanel() {
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('panel').classList.remove('show');
+}
+
+function renderPanel() {
+  const p = currentPO;
+  const done = { draft: true, sent: ['sent','received'].includes(p.status), received: p.status === 'received' };
+  const readOnly = p.status === 'received' || p.status === 'cancelled';
+  // Items are only editable while the PO is still a draft. Once it is sent the
+  // vendor already has the list, so changing it would make the PO disagree with
+  // what they were told.
+  const isDraft = p.status === 'draft';
+
+  document.getElementById('panel').innerHTML = `
+    <div class="panel-head">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+        <div>
+          <div style="font-size:22px;font-weight:700;" class="mono">${escHtml(p.poNumber)}</div>
+          <div class="card-sub">${escHtml(p.vendorName)}${p.vendorPhone ? ` · <a class="tel" href="tel:${escHtml(p.vendorPhone)}">${escHtml(p.vendorPhone)}</a>` : ''}</div>
+          <div class="card-sub">Created ${fmtDateTime(p.createdAt)}</div>
+        </div>
+        <button class="btn small" onclick="closePanel()">✕</button>
+      </div>
+      ${p.status === 'cancelled'
+        ? `<div style="margin-top:12px;"><span class="pill red">Cancelled</span> <span class="muted" style="font-size:12px;">${fmtDateTime(p.cancelledAt)}</span></div>`
+        : `<div class="timeline">
+            <div class="tl-step ${done.draft ? 'done' : ''}"><div class="tl-dot">1</div><div class="tl-label">Draft</div><div class="tl-time">${fmtDateTime(p.createdAt)}</div></div>
+            <div class="tl-step ${done.sent ? 'done' : ''}"><div class="tl-dot">2</div><div class="tl-label">Sent</div><div class="tl-time">${p.sentAt ? fmtDateTime(p.sentAt) : ''}</div></div>
+            <div class="tl-step ${done.received ? 'done' : ''}"><div class="tl-dot">3</div><div class="tl-label">Received</div><div class="tl-time">${p.receivedAt ? fmtDateTime(p.receivedAt) : ''}</div></div>
+          </div>`}
+    </div>
+    <div class="panel-body">
+      ${p.invoiceNumber ? `<div style="margin-bottom:14px;"><span class="pill green">Invoice ${escHtml(p.invoiceNumber)}</span>
+        <span class="muted" style="font-size:12px;">${p.invoiceDate ? ' · ' + escHtml(p.invoiceDate) : ''}</span></div>` : ''}
+      <table>
+        <thead><tr><th>Item</th><th>Rack</th><th>Order Qty</th>${isDraft ? '<th></th>' : '<th>Received</th>'}</tr></thead>
+        <tbody id="poItemRows">${(p.items || []).map(i => poItemRow(i, isDraft)).join('')}</tbody>
+      </table>
+      ${isDraft ? `
+      <div style="margin-top:12px;border-top:1px dashed var(--border);padding-top:12px;">
+        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Add another item</label>
+        <input class="input" id="poItemSearch" placeholder="🔍 Search the full catalogue…" style="width:100%;"
+               oninput="searchPoItems(this.value)" autocomplete="off">
+        <div id="poSearchResults"></div>
+        <button class="btn primary small" style="margin-top:10px;" onclick="saveDraftItems()">💾 Save Items</button>
+        <span class="saved-tick" id="poItemsSaved" style="display:none;">Saved ✓</span>
+      </div>` : ''}
+      <div class="field" style="margin-top:16px;">
+        <label>Notes</label>
+        <textarea id="poNotes" rows="3" ${readOnly ? 'disabled' : ''}>${escHtml(p.notes || '')}</textarea>
+      </div>
+    </div>
+    <div class="panel-foot">
+      ${p.status === 'draft' ? `
+        <button class="btn" onclick="waFromPO()">💬 Send WhatsApp</button>
+        <button class="btn primary" onclick="markSent('${p.poId}')">✅ Mark as Sent</button>
+        <button class="btn red" onclick="cancelPO('${p.poId}')">❌ Cancel PO</button>` : ''}
+      ${p.status === 'sent' ? `
+        <button class="btn" onclick="waFromPO()">💬 Resend WhatsApp</button>
+        <button class="btn green" onclick="openReceive()">📥 Mark as Received</button>` : ''}
+      ${readOnly ? '<span class="muted" style="font-size:13px;">This purchase order is closed and read-only.</span>' : ''}
+    </div>`;
+}
+
+function poItemRow(i, isDraft) {
+  const qty = isDraft
+    ? `<input class="qty-input po-qty" type="number" min="0" value="${i.orderQty}" data-item-id="${escHtml(i.itemId)}"
+         data-name="${escHtml(i.itemName)}" data-unit="${escHtml(i.unit)}" data-rack="${escHtml(i.rackNumber || '')}"
+         data-stock="${i.stockOnHand || 0}" data-reorder="${i.reorderLevel || 0}">`
+    : `<span class="mono">${i.orderQty}</span>`;
+  const last = isDraft
+    ? `<button class="btn small" title="Remove" onclick="this.closest('tr').remove()">✕</button>`
+    : `<span class="mono">${i.receivedQty === null || i.receivedQty === undefined ? '—' : i.receivedQty}</span>`;
+  return `<tr>
+    <td>${escHtml(i.itemName)} <span class="muted">${escHtml(i.unit)}</span></td>
+    <td class="mono">${escHtml(i.rackNumber) || '—'}</td>
+    <td>${qty}</td>
+    <td>${last}</td>
+  </tr>`;
+}
+
+let _poSearchTimer = null;
+function searchPoItems(q) {
+  clearTimeout(_poSearchTimer);
+  const box = document.getElementById('poSearchResults');
+  if (!q || q.trim().length < 2) { box.innerHTML = ''; return; }
+  // Debounced so typing doesn't fire a request per keystroke.
+  _poSearchTimer = setTimeout(async () => {
+    try {
+      const res = await apiFetch('/api/v1/admin/purchases/items/search?q=' + encodeURIComponent(q.trim()));
+      const json = await res.json();
+      const items = json.data?.items || [];
+      if (!items.length) { box.innerHTML = '<div class="muted" style="padding:8px 2px;font-size:13px;">No match</div>'; return; }
+      box.innerHTML = `<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-top:8px;">
+        ${items.map(i => `
+          <div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:center;">
+            <div style="min-width:0;">
+              <div style="font-size:13px;">${escHtml(i.name)}</div>
+              <div class="muted" style="font-size:11px;">stock ${i.stockOnHand} · reorder ${i.reorderLevel}
+                ${i.belowReorder ? '<span class="pill red" style="margin-left:6px;">low</span>' : ''}</div>
+            </div>
+            <button class="btn small" onclick='addPoItem(${JSON.stringify(i).replace(/'/g, "&apos;")})'>+ Add</button>
+          </div>`).join('')}
+      </div>`;
+    } catch (e) { box.innerHTML = `<div class="muted" style="padding:8px 2px;">Search failed: ${escHtml(e.message)}</div>`; }
+  }, 250);
+}
+
+function addPoItem(i) {
+  const tbody = document.getElementById('poItemRows');
+  if ([...tbody.querySelectorAll('.po-qty')].some(x => x.dataset.itemId === i.itemId)) {
+    return showToast('That item is already on this PO', 'error');
+  }
+  // Default to the shortfall, or 1 for an item that is not actually low — the
+  // manager asked for it deliberately, so never add a zero-quantity row.
+  const qty = i.suggestedOrderQty > 0 ? i.suggestedOrderQty : 1;
+  tbody.insertAdjacentHTML('beforeend', poItemRow({
+    itemId: i.itemId, itemName: i.name, unit: i.unit, rackNumber: i.rackNumber,
+    stockOnHand: i.stockOnHand, reorderLevel: i.reorderLevel, orderQty: qty, receivedQty: null,
+  }, true));
+  document.getElementById('poItemSearch').value = '';
+  document.getElementById('poSearchResults').innerHTML = '';
+}
+
+async function saveDraftItems() {
+  const items = [...document.querySelectorAll('#poItemRows .po-qty')].map(inp => ({
+    itemId: inp.dataset.itemId,
+    itemName: inp.dataset.name,
+    unit: inp.dataset.unit,
+    rackNumber: inp.dataset.rack,
+    stockOnHand: Number(inp.dataset.stock),
+    reorderLevel: Number(inp.dataset.reorder),
+    orderQty: Number(inp.value) || 0,
+  })).filter(i => i.orderQty > 0);
+  if (!items.length) return showToast('Add at least one item with a quantity', 'error');
+  try {
+    await putPO(currentPO.poId, { items }, `✅ Saved ${items.length} item${items.length === 1 ? '' : 's'}`);
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+function waFromPO() {
+  const p = currentPO;
+  const items = (p.items || []).map(i => ({ name: i.itemName, orderQty: i.orderQty, unit: i.unit }));
+  sendWhatsApp(p.vendorPhone, buildPOMessage(p.vendorName, p.poNumber, items));
+}
+
+async function putPO(poId, body, okMsg) {
+  const res = await apiFetch('/api/v1/admin/purchases/orders/' + poId, { method: 'PUT', body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.message || 'Update failed');
+  currentPO = json.data;
+  if (okMsg) showToast(okMsg, 'success');
+  renderPanel();
+  loadPOs();
+  return json.data;
+}
+
+async function markSent(poId) {
+  try { await putPO(poId, { status: 'sent' }, '✅ Marked as sent'); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+async function cancelPO(poId) {
+  if (!confirm('Cancel this purchase order? This cannot be undone.')) return;
+  try { await putPO(poId, { status: 'cancelled' }, 'PO cancelled'); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+function openReceive() {
+  const p = currentPO;
+  document.getElementById('receiveBody').innerHTML = `
+    <div class="field">
+      <label>Invoice Number <span class="req">*</span></label>
+      <input id="invNumber" placeholder="e.g. INV-2045">
+    </div>
+    <div class="field">
+      <label>Invoice Date</label>
+      <input id="invDate" type="date" value="${istTodayKey()}">
+    </div>
+    <div class="field">
+      <label>Received Quantities</label>
+      <table>
+        <thead><tr><th>Item</th><th>Ordered</th><th>Received</th></tr></thead>
+        <tbody>${(p.items || []).map(i => `
+          <tr>
+            <td>${escHtml(i.itemName)}</td>
+            <td class="mono">${i.orderQty}</td>
+            <td><input class="qty-input recv-input" type="number" min="0"
+                  value="${i.receivedQty === null || i.receivedQty === undefined ? i.orderQty : i.receivedQty}"
+                  data-item-id="${escHtml(i.itemId)}"></td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div class="field">
+      <label>Notes</label>
+      <textarea id="recvNotes" rows="2">${escHtml(p.notes || '')}</textarea>
+    </div>`;
+  document.getElementById('receiveModal').classList.add('show');
+}
+function closeReceive() { document.getElementById('receiveModal').classList.remove('show'); }
+
+async function confirmReceive() {
+  const invoiceNumber = document.getElementById('invNumber').value.trim();
+  if (!invoiceNumber) return showToast('Invoice number is required', 'error');
+  const items = [...document.querySelectorAll('.recv-input')]
+    .map(i => ({ itemId: i.dataset.itemId, receivedQty: Number(i.value) || 0 }));
+  const btn = document.getElementById('confirmReceiveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await putPO(currentPO.poId, {
+      status: 'received', invoiceNumber,
+      invoiceDate: document.getElementById('invDate').value,
+      notes: document.getElementById('recvNotes').value,
+      items,
+    }, `✅ PO received — Invoice ${invoiceNumber} recorded`);
+    closeReceive();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '✅ Confirm Receipt'; }
+}
+
+// ── TAB 3: CHECKLIST ──────────────────────────────────────
+async function loadChecklist() {
+  const body = document.getElementById('checklistBody');
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/checklist?date=' + istTodayKey());
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    const d = json.data;
+    const nice = new Date(d.date + 'T12:00:00+05:30').toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    document.getElementById('checklistHead').innerHTML =
+      `<div style="font-size:20px;font-weight:700;margin-bottom:16px;">${d.dayName}, ${nice}</div>`;
+
+    if (!d.vendors.length) {
+      body.innerHTML = '<div class="empty">No vendors scheduled for today.<br>Set delivery days in the Vendor Schedule tab.</div>';
+      return;
+    }
+    body.innerHTML = d.vendors.map(v => {
+      const chip = v.skipped
+        ? `<span class="pill amber">⏭️ Skipped — ${escHtml(v.skipReason || '')}</span>`
+        : v.checkedAt ? `<span class="pill green">✅ Checked ${fmtDateTime(v.checkedAt)}</span>`
+        : '<span class="pill grey">⬜ Pending</span>';
+      const pending = !v.checkedAt && !v.skipped;
+      return `
+      <div class="card" id="chk-${escHtml(v.vendorId)}">
+        <div class="card-head">
+          <div>
+            <div class="card-title">${escHtml(v.vendorName)}</div>
+            <div class="card-sub">
+              ${v.vendorPhone ? `<a class="tel" href="tel:${escHtml(v.vendorPhone)}">${escHtml(v.vendorPhone)}</a>` : '<span class="muted">No phone</span>'}
+              · <span class="pill ${v.lowStockCount ? 'red' : 'grey'}">${v.lowStockCount} low stock</span>
+            </div>
+          </div>
+          <div>${chip}</div>
+        </div>
+        ${pending ? `<div class="card-body"><div class="btn-row" style="margin-top:0;">
+          <button class="btn green" onclick="markChecked('${escHtml(v.vendorId)}')">✅ Mark Checked</button>
+          <select class="input" onchange="skipVendor('${escHtml(v.vendorId)}', this.value)">
+            <option value="">⏭️ Skip…</option>
+            <option>No stock needed</option>
+            <option>Vendor holiday</option>
+            <option>Already ordered</option>
+            <option>Other</option>
+          </select>
+        </div></div>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Could not load checklist.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+  }
+}
+
+async function postCheck(vendorId, payload, msg) {
+  const res = await apiFetch(`/api/v1/admin/purchases/checklist/${encodeURIComponent(vendorId)}/check`, {
+    method: 'POST', body: JSON.stringify({ date: istTodayKey(), ...payload }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.message || 'Failed');
+  showToast(msg, 'success');
+  loadChecklist(); loadHistory();
+}
+async function markChecked(vendorId) {
+  try { await postCheck(vendorId, { skipped: false }, '✅ Marked as checked'); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+async function skipVendor(vendorId, reason) {
+  if (!reason) return;
+  try { await postCheck(vendorId, { skipped: true, skipReason: reason }, '⏭️ Skipped — ' + reason); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+let histData = null;
+let histOffset = 0; // 0 = current week, -1 = previous, …
+
+function histWeek(delta) {
+  const maxBack = -3; // 28 days of data = 4 weeks
+  histOffset = Math.min(0, Math.max(maxBack, histOffset + delta));
+  renderHistory();
+}
+
+async function loadHistory() {
+  const body = document.getElementById('historyBody');
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/checklist/history?days=28');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    histData = json.data;
+    histOffset = 0;
+    renderHistory();
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Could not load history.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+  }
+}
+
+// Seven columns fit any screen, so the table never needs sideways scrolling —
+// which is what made the old 28-column grid unusable (it was also clipped by the
+// card's overflow:hidden, so the extra columns could not be reached at all).
+function renderHistory() {
+  const body = document.getElementById('historyBody');
+  if (!histData) return;
+  const { dates, vendors } = histData;
+  if (!vendors.length) { body.innerHTML = '<div class="empty">No vendors scheduled yet.</div>'; return; }
+
+  const end = dates.length + histOffset * 7;
+  const start = Math.max(0, end - 7);
+  const slice = dates.slice(start, end);
+  const glyph = { checked: '✅', skipped: '⏭️', missed: '⬜', 'not-scheduled': '—' };
+  const dayShort = d => new Date(d + 'T12:00:00+05:30')
+    .toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit' });
+
+  document.getElementById('histLabel').textContent =
+    slice.length ? `${slice[0].slice(5)} → ${slice[slice.length - 1].slice(5)}` : '—';
+  document.getElementById('histNext').disabled = histOffset >= 0;
+
+  body.innerHTML = `<table>
+    <thead><tr>
+      <th style="position:sticky;left:0;background:var(--card);">Vendor</th>
+      ${slice.map(d => `<th class="hist-cell">${dayShort(d)}</th>`).join('')}
+      <th class="hist-cell" title="Checked or skipped, across all 28 days">4-wk</th>
+    </tr></thead>
+    <tbody>${vendors.map(v => {
+      const cells = v.cells.filter(c => slice.includes(c.date));
+      const scheduled = v.cells.filter(c => c.state !== 'not-scheduled');
+      const done = scheduled.filter(c => c.state === 'checked' || c.state === 'skipped').length;
+      const pct = scheduled.length ? Math.round((done / scheduled.length) * 100) : null;
+      return `<tr>
+        <td style="white-space:nowrap;position:sticky;left:0;background:var(--card);">${escHtml(v.vendorName)}</td>
+        ${slice.map(d => {
+          const c = cells.find(x => x.date === d) || { state: 'not-scheduled' };
+          return `<td class="hist-cell" title="${d}${c.skipReason ? ' — ' + escHtml(c.skipReason) : ''}">${glyph[c.state]}</td>`;
+        }).join('')}
+        <td class="hist-cell">${pct === null ? '—' : `<span class="pill ${pct >= 80 ? 'green' : pct >= 50 ? 'amber' : 'red'}">${done}/${scheduled.length}</span>`}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+// ── TAB 4: VENDOR SCHEDULE ────────────────────────────────
+async function loadVendors() {
+  const body = document.getElementById('vendorBody');
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/vendors/schedule');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    const vendors = json.data.vendors;
+    const withDay = vendors.filter(v => v.dayOfWeek !== null && v.dayOfWeek !== undefined).length;
+    document.getElementById('vendorSummary').textContent = `${withDay} of ${vendors.length} vendors have a delivery day set`;
+
+    if (!vendors.length) { body.innerHTML = '<div class="empty">No vendors found in Zoho Inventory.</div>'; return; }
+    body.innerHTML = `<table>
+      <thead><tr><th>Vendor Name</th><th>Phone</th><th>Delivery Day</th><th>Active</th><th>Last Checked</th></tr></thead>
+      <tbody>${vendors.map(v => `
+        <tr id="v-${escHtml(v.vendorId)}">
+          <td>${escHtml(v.vendorName)}</td>
+          <td>${v.vendorPhone
+            ? `<a class="tel" href="tel:${escHtml(v.vendorPhone)}">${escHtml(v.vendorPhone)}</a>`
+            : '<span title="Add phone in Zoho Inventory to enable WhatsApp">⚠️</span>'}</td>
+          <td>
+            <select class="input" onchange="saveVendor('${escHtml(v.vendorId)}', { dayOfWeek: this.value === '' ? null : Number(this.value) })">
+              <option value="" ${v.dayOfWeek === null || v.dayOfWeek === undefined ? 'selected' : ''}>Not Set</option>
+              ${DAY_NAMES.map((n, i) => `<option value="${i}" ${v.dayOfWeek === i ? 'selected' : ''}>${n}</option>`).join('')}
+            </select>
+          </td>
+          <td><input type="checkbox" ${v.isActive ? 'checked' : ''}
+                onchange="saveVendor('${escHtml(v.vendorId)}', { isActive: this.checked })"></td>
+          <td class="muted">${daysAgo(v.lastCheckedAt)}<span class="saved-tick" id="tick-${escHtml(v.vendorId)}" style="display:none;">Saved ✓</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    window._vendors = vendors;
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Could not load vendors.<br><span class="muted">${escHtml(e.message)}</span></div>`;
+  }
+}
+
+// Row-level filter: the table is already rendered, so hide rather than re-render
+// and lose any dropdown the user is mid-way through changing.
+function filterVendorRows() {
+  const q = (document.getElementById('vendorTableSearch')?.value || '').trim().toLowerCase();
+  let shown = 0;
+  (window._vendors || []).forEach(v => {
+    const row = document.getElementById('v-' + v.vendorId);
+    if (!row) return;
+    const hit = !q || String(v.vendorName).toLowerCase().includes(q);
+    row.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const sum = document.getElementById('vendorSummary');
+  if (sum && q) sum.textContent = `${shown} vendor${shown === 1 ? '' : 's'} matching “${q}”`;
+  else if (sum) {
+    const withDay = (window._vendors || []).filter(v => v.dayOfWeek !== null && v.dayOfWeek !== undefined).length;
+    sum.textContent = `${withDay} of ${(window._vendors || []).length} vendors have a delivery day set`;
+  }
+}
+
+async function saveVendor(vendorId, patch) {
+  const v = (window._vendors || []).find(x => x.vendorId === vendorId) || {};
+  try {
+    const res = await apiFetch('/api/v1/admin/purchases/vendors/schedule', {
+      method: 'POST',
+      body: JSON.stringify({ vendorId, vendorName: v.vendorName, vendorPhone: v.vendorPhone, ...patch }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed');
+    Object.assign(v, patch);
+    const tick = document.getElementById('tick-' + vendorId);
+    if (tick) { tick.style.display = 'inline'; setTimeout(() => { tick.style.display = 'none'; }, 2000); }
+  } catch (e) { showToast('Could not save: ' + e.message, 'error'); }
+}
+
+loadLowStock(false);
+</script>
+</body>
+</html>
