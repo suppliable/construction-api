@@ -82,23 +82,43 @@ async function getAvailability(pincode, traceContext = null) {
  * all. Whether it reaches the normal storefront is decided elsewhere, by
  * appVisible alone, so a cf_bulk item stays counter-only in the app.
  */
-async function getBulkProducts(traceContext = null) {
-  const [all, overlays] = await Promise.all([
-    getAllProducts(null, traceContext, { includeHidden: true }),
-    bulkRepo.listCategoryOverlays(traceContext),
-  ]);
-  // Default OFF: a missing overlay must not opt a category in, or the first
-  // deploy would flood bulk with the entire Zoho catalogue.
-  const enabled = new Set(
-    overlays.filter(o => o.bulkEnabled === true).map(o => o.id)
-  );
-  if (!enabled.size) return [];
+// Indicative unit price.
+//
+// A variant-grouped product has NO flat `price` — the numbers live on its
+// variants, and the group only carries a pre-formatted priceRange string. Every
+// Zoho item here is a variant inside a group, so reading p.price gave 0 for the
+// entire bulk catalogue: "from ₹0" in the app, zero-value quote lines, and a
+// category minimum that could never be reached.
+//
+// The lowest variant price is used, matching the "from ₹X" label the app shows.
+function indicativePrice(p) {
+  if (p && p.hasVariants) {
+    const prices = (p.variants || []).map(v => Number(v.price) || 0).filter(n => n > 0);
+    return prices.length ? Math.min(...prices) : 0;
+  }
+  return Number(p?.price ?? 0);
+}
 
-  return all.filter(p => {
-    if (!enabled.has(categorySlug(p.category))) return false;
-    const isWalkin = p.appVisible === false;
-    return !isWalkin || p.bulkVisible === true;
-  });
+async function enabledCategoryIds(traceContext = null) {
+  const overlays = await bulkRepo.listCategoryOverlays(traceContext);
+  // Default OFF: a missing overlay must not opt a category in.
+  return new Set(overlays.filter(o => o.bulkEnabled === true).map(o => o.id));
+}
+
+// show in bulk = category enabled AND (not walk-in OR cf_bulk)
+function isBulkEligible(p, enabled) {
+  if (!p || !enabled.has(categorySlug(p.category))) return false;
+  const isWalkin = p.appVisible === false;
+  return !isWalkin || p.bulkVisible === true;
+}
+
+async function getBulkProducts(traceContext = null) {
+  const [all, enabled] = await Promise.all([
+    getAllProducts(null, traceContext, { includeHidden: true }),
+    enabledCategoryIds(traceContext),
+  ]);
+  if (!enabled.size) return [];
+  return all.filter(p => isBulkEligible(p, enabled));
 }
 
 /**
@@ -158,7 +178,7 @@ function toProductDTO(p) {
     unit: { singular: unit, plural: unit },
     // Indicative only. The priced quote carries the real number; the client
     // labels this "indicative" everywhere it is shown.
-    price: Number(p.price ?? 0),
+    price: indicativePrice(p),
     imageUrl: p.imageUrl || null,
     description: p.description || null,
     available: p.hasVariants
@@ -308,14 +328,18 @@ async function createQuoteRequest({ userId, source, items, note, addressId, phot
   // Priced from Zoho rather than from client-sent numbers.
   let lineItems = [];
   if (requestedItems.length) {
-    const resolved = await Promise.all(
-      requestedItems.map(i => getProductById(i.productId, traceContext).catch(() => null))
-    );
+    const [resolved, enabled] = await Promise.all([
+      Promise.all(requestedItems.map(i => getProductById(i.productId, traceContext).catch(() => null))),
+      enabledCategoryIds(traceContext),
+    ]);
 
     lineItems = requestedItems.map((i, idx) => {
       const p = resolved[idx];
       if (!p) throw new NotFoundError(`Product not found: ${i.productId}`, 'NOT_FOUND');
-      if (!p.bulkVisible) {
+      // Same rule the catalogue is built from. Checking p.bulkVisible alone
+      // (the old per-product cf_bulk flag) would now reject almost everything,
+      // since category membership — not cf_bulk — is what admits a product.
+      if (!isBulkEligible(p, enabled)) {
         throw new ValidationError(`${p.name} is not available for bulk orders`, 'VALIDATION_ERROR');
       }
       const quantity = Number(i.quantity);
@@ -331,7 +355,7 @@ async function createQuoteRequest({ userId, source, items, note, addressId, phot
         packLabel: unit,
         quantity,
         unit,
-        unitPrice: Number(p.price ?? 0),
+        unitPrice: indicativePrice(p),
         gstRate: Number(p.gst_percentage ?? 0),
       };
     });
