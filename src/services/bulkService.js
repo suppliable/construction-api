@@ -69,15 +69,81 @@ async function getAvailability(pincode, traceContext = null) {
 // ---- catalogue (sourced from Zoho) ----
 
 /**
- * Every Zoho item flagged for bulk.
+ * The bulk catalogue, selected by CATEGORY rather than per product.
  *
- * includeHidden is deliberate: cf_walkin governs the instant storefront and
- * cf_bulk governs this one, so an item can be bulk-only without appearing in
- * the app's normal catalogue.
+ *   show in bulk = category enabled AND (not walk-in OR cf_bulk)
+ *
+ * An admin switches a category on and every Zoho item in it is offered, minus
+ * the counter-only ones. cf_bulk is purely the escape hatch for a walk-in item
+ * the buyer should still be able to order in bulk — it does NOT stand on its
+ * own, so it cannot pull an item in from a category that is switched off.
+ *
+ * includeHidden is deliberate: it is what lets a walk-in item be considered at
+ * all. Whether it reaches the normal storefront is decided elsewhere, by
+ * appVisible alone, so a cf_bulk item stays counter-only in the app.
  */
 async function getBulkProducts(traceContext = null) {
-  const all = await getAllProducts(null, traceContext, { includeHidden: true });
-  return all.filter(p => p.bulkVisible);
+  const [all, overlays] = await Promise.all([
+    getAllProducts(null, traceContext, { includeHidden: true }),
+    bulkRepo.listCategoryOverlays(traceContext),
+  ]);
+  // Default OFF: a missing overlay must not opt a category in, or the first
+  // deploy would flood bulk with the entire Zoho catalogue.
+  const enabled = new Set(
+    overlays.filter(o => o.bulkEnabled === true).map(o => o.id)
+  );
+  if (!enabled.size) return [];
+
+  return all.filter(p => {
+    if (!enabled.has(categorySlug(p.category))) return false;
+    const isWalkin = p.appVisible === false;
+    return !isWalkin || p.bulkVisible === true;
+  });
+}
+
+/**
+ * Every Zoho category with its bulk status — including ones never configured,
+ * which is what the admin needs in order to switch them on in the first place.
+ * The customer-facing listCategories only ever sees enabled ones.
+ */
+async function listAllCategoriesForAdmin(traceContext = null) {
+  const [all, overlays] = await Promise.all([
+    getAllProducts(null, traceContext, { includeHidden: true }),
+    bulkRepo.listCategoryOverlays(traceContext),
+  ]);
+  const overlayById = new Map(overlays.map(o => [o.id, o]));
+
+  const byId = new Map();
+  for (const p of all) {
+    const id = categorySlug(p.category);
+    if (!byId.has(id)) {
+      byId.set(id, { id, zohoName: p.category || 'Uncategorised', total: 0, walkin: 0, eligible: 0 });
+    }
+    const row = byId.get(id);
+    row.total++;
+    const isWalkin = p.appVisible === false;
+    if (isWalkin) row.walkin++;
+    // What would actually appear if this category were switched on.
+    if (!isWalkin || p.bulkVisible === true) row.eligible++;
+  }
+
+  return [...byId.values()].map(c => {
+    const o = overlayById.get(c.id) || {};
+    return {
+      id: c.id,
+      name: o.name || c.zohoName,
+      zohoName: c.zohoName,
+      iconKey: o.iconKey || null,
+      bulkEnabled: o.bulkEnabled === true,
+      minOrderValue: Number(o.minOrderValue ?? 0),
+      sortOrder: o.sortOrder ?? 999,
+      active: o.active !== false,
+      totalItems: c.total,
+      walkinItems: c.walkin,
+      eligibleItems: c.eligible,
+      configured: !!overlayById.get(c.id),
+    };
+  }).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }
 
 function toProductDTO(p) {
@@ -613,6 +679,7 @@ module.exports = {
   getAvailability,
   getBulkProducts,
   listCategories,
+  listAllCategoriesForAdmin,
   listCategoryProducts,
   createPhotoSlot,
   createQuoteRequest,

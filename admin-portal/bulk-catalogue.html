@@ -136,12 +136,12 @@
       <b>Bulk products come from Zoho.</b> To offer an item for bulk orders, tick the
       <code>bulk</code> checkbox on that item in Zoho — its rate, GST, HSN and unit are then used
       as-is, and orders can raise a Zoho sales order like any other. Products can't be added or
-      edited here. <b>What you set on this page is the minimum order value per category</b>, which
+      edited here. <b>Switch a category on to offer every item in it</b>, and set its minimum order value, which
       is what decides whether a customer can send a quote request at all.
     </div>
 
     <div class="summary-row">
-      <div class="summary-tile"><div class="label">Categories</div><div class="value" id="sumCats">—</div></div>
+      <div class="summary-tile"><div class="label">Categories in bulk</div><div class="value" id="sumCats">—</div></div>
       <div class="summary-tile"><div class="label">Bulk products</div><div class="value" id="sumProducts">—</div></div>
       <div class="summary-tile"><div class="label">Needs a minimum</div><div class="value" id="sumUnset">—</div></div>
     </div>
@@ -158,13 +158,14 @@
         <thead>
           <tr>
             <th>Category</th>
+            <th>In bulk</th>
+            <th class="num">Items if enabled</th>
             <th class="num">Min order value</th>
-            <th class="num">Products</th>
             <th>Shown in app</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="catBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        <tbody id="catBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
 
@@ -203,6 +204,11 @@
       <button class="close-x" onclick="closeModal('catModal')">×</button>
     </div>
     <div class="modal-body">
+      <div class="check-row" style="margin-bottom:14px;">
+        <input type="checkbox" id="cBulkEnabled">
+        <label for="cBulkEnabled"><b>Offer this whole category in Bulk</b></label>
+      </div>
+      <div class="hint" id="cBulkHint" style="margin:-8px 0 14px;"></div>
       <div>
         <label for="cMin">Minimum order value (₹)</label>
         <input type="number" id="cMin" min="0" step="1" placeholder="e.g. 50000">
@@ -276,9 +282,14 @@ async function loadAll() {
     PRODUCTS = (await prodRes.json()).data?.products || [];
   } catch (e) { showToast('Could not load the catalogue: ' + e.message, 'error'); return; }
 
-  document.getElementById('sumCats').textContent = CATEGORIES.filter(c => c.active).length.toLocaleString('en-IN');
+  const enabled = CATEGORIES.filter(c => c.bulkEnabled);
+  document.getElementById('sumCats').textContent =
+    `${enabled.length} / ${CATEGORIES.length}`;
   document.getElementById('sumProducts').textContent = PRODUCTS.length.toLocaleString('en-IN');
-  document.getElementById('sumUnset').textContent = CATEGORIES.filter(c => !c.minOrderValue).length.toLocaleString('en-IN');
+  // Only enabled categories matter here — a minimum on a switched-off category
+  // is not something anyone needs to action.
+  document.getElementById('sumUnset').textContent =
+    enabled.filter(c => !c.minOrderValue).length.toLocaleString('en-IN');
 
   renderCategories();
   renderFilter();
@@ -288,19 +299,25 @@ async function loadAll() {
 function renderCategories() {
   const body = document.getElementById('catBody');
   if (!CATEGORIES.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty">No Zoho items are flagged for bulk yet. Tick the <code>bulk</code> checkbox on an item in Zoho.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty">No Zoho categories found.</td></tr>';
     return;
   }
   body.innerHTML = CATEGORIES.map(c => `
-    <tr class="${c.active ? '' : 'row-inactive'}">
+    <tr class="${c.bulkEnabled ? '' : 'row-inactive'}">
       <td>
         <strong>${escapeHtml(c.name)}</strong>
         <div class="sub-line mono">${escapeHtml(c.id)}</div>
       </td>
+      <td>${c.bulkEnabled
+        ? '<span class="pill pill-on">Enabled</span>'
+        : '<span class="pill pill-off">Off</span>'}</td>
+      <td class="num mono" title="${c.totalItems} items in Zoho, ${c.walkinItems} walk-in only">
+        ${c.eligibleItems.toLocaleString('en-IN')}
+        ${c.walkinItems ? `<div class="sub-line">${c.walkinItems} walk-in excluded</div>` : ''}
+      </td>
       <td class="num mono">${c.minOrderValue
         ? rupee(c.minOrderValue)
         : '<span class="pill pill-warn">Not set</span>'}</td>
-      <td class="num mono">${c.productCount.toLocaleString('en-IN')}</td>
       <td>${c.active ? '<span class="pill pill-on">Yes</span>' : '<span class="pill pill-off">Hidden</span>'}</td>
       <td class="num"><button class="link-btn" onclick="openCategory('${escapeHtml(c.id)}')">Edit</button></td>
     </tr>`).join('');
@@ -343,7 +360,13 @@ function openCategory(categoryId) {
   editingCategoryId = c.id;
   document.getElementById('catModalTitle').textContent = c.name;
   document.getElementById('catModalSub').textContent =
-    `${c.productCount} bulk product(s) · Zoho category "${c.zohoName}"`;
+    `Zoho category "${c.zohoName}" · ${c.totalItems} item(s)`;
+  document.getElementById('cBulkEnabled').checked = c.bulkEnabled === true;
+  document.getElementById('cBulkHint').innerHTML = c.walkinItems
+    ? `Switching this on offers <b>${c.eligibleItems}</b> item(s) in Bulk. `
+      + `${c.walkinItems} walk-in item(s) are excluded unless the <code>bulk</code> `
+      + `checkbox is ticked on them in Zoho.`
+    : `Switching this on offers <b>${c.eligibleItems}</b> item(s) in Bulk.`;
   document.getElementById('cMin').value = c.minOrderValue || '';
   document.getElementById('cName').value = c.name === c.zohoName ? '' : c.name;
   document.getElementById('cSort').value = c.sortOrder === 999 ? '' : c.sortOrder;
@@ -369,6 +392,7 @@ async function submitCategory() {
         sortOrder: document.getElementById('cSort').value || 999,
         iconKey: document.getElementById('cIcon').value.trim(),
         active: document.getElementById('cActive').checked,
+        bulkEnabled: document.getElementById('cBulkEnabled').checked,
       }),
     });
     const data = await res.json();

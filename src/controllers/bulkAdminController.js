@@ -39,41 +39,14 @@ function parseMoney(value) {
 // categories whose overlay is switched off, so they can be switched back on.
 const listCategories = async (req, res) => {
   try {
-    const [products, overlays] = await Promise.all([
-      bulkService.getBulkProducts(req.traceContext),
-      bulkRepo.listCategoryOverlays(req.traceContext),
-    ]);
-    const overlayById = new Map(overlays.map(o => [o.id, o]));
-
-    const byId = new Map();
-    for (const p of products) {
-      const id = bulkService.categorySlug(p.category);
-      if (!byId.has(id)) byId.set(id, { id, zohoName: p.category || 'Uncategorised', productCount: 0 });
-      byId.get(id).productCount++;
-    }
-
-    const categories = [...byId.values()].map(c => {
-      const o = overlayById.get(c.id) || {};
-      return {
-        id: c.id,
-        name: o.name || c.zohoName,
-        zohoName: c.zohoName,
-        iconKey: o.iconKey || null,
-        minOrderValue: Number(o.minOrderValue ?? 0),
-        sortOrder: o.sortOrder ?? 999,
-        active: o.active !== false,
-        productCount: c.productCount,
-        configured: !!overlayById.get(c.id),
-      };
-    }).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-
+    const categories = await bulkService.listAllCategoriesForAdmin(req.traceContext);
     res.json({ success: true, data: { categories } });
   } catch (err) { sendError(res, err, req.log); }
 };
 
 const saveCategory = async (req, res) => {
   try {
-    const { id, name, iconKey, minOrderValue, sortOrder, active } = req.body || {};
+    const { id, name, iconKey, minOrderValue, sortOrder, active, bulkEnabled } = req.body || {};
     if (!id) return badRequest(res, 'Category id is required');
 
     const min = parseMoney(minOrderValue);
@@ -82,6 +55,9 @@ const saveCategory = async (req, res) => {
     const saved = await bulkRepo.setCategoryOverlay(id, {
       name: String(name || '').trim() || null,
       iconKey: String(iconKey || '').trim() || null,
+      // The switch that puts a whole Zoho category into the bulk catalogue.
+      // Explicit boolean: absent must stay OFF, never default on.
+      bulkEnabled: bulkEnabled === true || bulkEnabled === 'true',
       minOrderValue: min,
       sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 999,
       active: active !== false,
