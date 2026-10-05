@@ -184,7 +184,41 @@ function toProductDTO(p) {
     available: p.hasVariants
       ? (p.variants || []).some(v => (v.available_stock ?? 0) > 0)
       : true,
+    // The customer picks a variant, and its id is a REAL Zoho item_id — unlike
+    // the product id above, which is a group id and cannot be a sales-order
+    // line. Without this the quote cannot say which size was ordered, and is
+    // priced at the cheapest variant whatever the customer meant.
+    hasVariants: p.hasVariants === true,
+    variants: p.hasVariants
+      ? (p.variants || []).map(v => ({
+        id: v.id,
+        name: v.name || '',
+        price: Number(v.price) || 0,
+        available: (v.available_stock ?? 0) > 0,
+      }))
+      : [],
   };
+}
+
+/**
+ * The variant a requested line refers to.
+ *
+ * A grouped product MUST carry one: its own id is a Zoho group id, so a line
+ * without a variant has no usable item_id and no honest price. A single-variant
+ * group is resolved implicitly, since there is nothing to choose.
+ */
+function resolveVariant(p, variantId) {
+  if (!p || p.hasVariants !== true) return null;
+  const variants = p.variants || [];
+  if (variantId) {
+    const hit = variants.find(v => String(v.id) === String(variantId));
+    if (!hit) {
+      throw new ValidationError(`Choose a valid option for ${p.name}`, 'VALIDATION_ERROR');
+    }
+    return hit;
+  }
+  if (variants.length === 1) return variants[0];
+  throw new ValidationError(`Choose a size for ${p.name}`, 'VARIANT_REQUIRED');
 }
 
 async function listCategories(traceContext = null) {
@@ -228,7 +262,9 @@ async function listCategoryProducts(categoryId, search, traceContext = null) {
   const term = (search || '').trim().toLowerCase();
   if (term) {
     rows = rows.filter(r =>
-      `${r.name || ''} ${r.brand || ''} ${r.unit || ''}`.toLowerCase().includes(term)
+      `${r.name || ''} ${r.brand || ''} ${r.unit || ''} `
+        .concat((r.variants || []).map(v => v.name).join(' '))
+        .toLowerCase().includes(term)
     );
   }
   return rows.map(toProductDTO);
@@ -347,15 +383,22 @@ async function createQuoteRequest({ userId, source, items, note, addressId, phot
         throw new ValidationError(`Enter a quantity for ${p.name}`, 'VALIDATION_ERROR');
       }
       const unit = p.unit || 'unit';
+      const variant = resolveVariant(p, i.variantId);
       return {
         productId: p.id,
-        zohoItemId: p.id,
+        variantId: variant ? variant.id : null,
+        // The REAL Zoho item id. p.id is a group id for a variant product and
+        // Zoho will not accept it as a sales-order line, so an approved quote
+        // could never raise an SO.
+        zohoItemId: variant ? variant.id : p.id,
         categoryId: categorySlug(p.category),
-        name: p.name,
+        // Carries the size, so the admin pricing the quote sees exactly what
+        // was asked for.
+        name: variant ? variant.name : p.name,
         packLabel: unit,
         quantity,
         unit,
-        unitPrice: indicativePrice(p),
+        unitPrice: variant ? Number(variant.price) || 0 : indicativePrice(p),
         gstRate: Number(p.gst_percentage ?? 0),
       };
     });
@@ -682,6 +725,8 @@ function toQuoteDTO(q) {
       quantity: i.quantity,
       unit: i.unit,
       unitPrice: i.unitPrice,
+      // So the app can show which option was ordered without parsing the name.
+      variantId: i.variantId ?? null,
     })),
     subtotal: q.subtotal ?? 0,
     deliveryCharge: q.deliveryCharge ?? 0,
