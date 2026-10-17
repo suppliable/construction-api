@@ -50,13 +50,17 @@ async function createZohoSalesOrder(zohoContactId, lineItems, shippingAddress, d
     const zohoLineItems = lineItems.map(item => {
       const gstRate = item.gstRate || 18;
       const baseRate = Math.round((item.unitPrice / (1 + gstRate / 100)) * 100) / 100;
+      // The variant is worth naming on the SO, but only once: a bulk line's
+      // name already carries the size, and a raw item id told nobody anything.
+      const variantHint = item.variantName || item.variantId || null;
+      const needsHint = variantHint && !String(item.name || '').includes(String(variantHint));
       return {
         item_id: item.zohoItemId || item.productId,
         name: [
           item.name,
-          item.variantId || null,
+          needsHint ? variantHint : null,
           item.shadeCode ? `(${item.shadeCode} - ${item.shadeName})` : null,
-        ].filter(Boolean).join(' '),
+        ].filter(Boolean).join(' ').substring(0, 100),
         description: item.shadeCode
           ? `Shade: ${item.shadeCode} - ${item.shadeName || ''} (${item.shadeTier || ''} shade)`
           : '',
