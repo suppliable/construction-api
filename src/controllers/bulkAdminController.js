@@ -131,7 +131,11 @@ const getQuote = async (req, res) => {
     if (!quote) return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Quote not found' });
 
     // Photo links are short-lived signed reads, so they are minted per view.
-    const hydrated = await bulkService.hydratePhotos(quote);
+    // Line names are repaired on the way out too, so the pricing table says
+    // which product each size belongs to — and posts it back on publish.
+    const hydrated = await bulkService.hydrateItemNames(
+      await bulkService.hydratePhotos(quote), req.traceContext
+    );
     const customer = quote.userId ? await getCustomer(quote.userId, req.traceContext).catch(() => null) : null;
 
     res.json({

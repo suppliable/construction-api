@@ -221,6 +221,67 @@ function resolveVariant(p, variantId) {
   throw new ValidationError(`Choose a size for ${p.name}`, 'VARIANT_REQUIRED');
 }
 
+/**
+ * What the customer reads on a quote line.
+ *
+ * In Zoho the orderable item is the variant, and a variant's name is only its
+ * attribute — "1 inch (25 mm)". Three sizes of pipe quoted that way are three
+ * indistinguishable lines, so the product leads and the variant qualifies it.
+ * Groups whose options already repeat the group name are left alone rather than
+ * doubled up.
+ */
+function lineDisplayName(productName, variantName) {
+  const product = String(productName || '').trim();
+  const variant = String(variantName || '').trim();
+  if (!product) return variant;
+  if (!variant) return product;
+  if (variant.toLowerCase().includes(product.toLowerCase())) return variant;
+  return `${product} — ${variant}`;
+}
+
+/**
+ * Fills in the product behind each line of an older quote.
+ *
+ * Lines written before `productName` existed carry the variant's name alone, so
+ * a quote raised then is unreadable in the app and in the pricing console. The
+ * catalogue they are resolved against is the cached one, and lines that already
+ * name their product cost nothing — the quote is returned untouched.
+ *
+ * A name ops typed by hand is kept: only a name that is still the bare variant
+ * (or the bare product) is recomposed.
+ */
+async function hydrateItemNames(quote, traceContext = null) {
+  const items = quote?.items || [];
+  const stale = items.some(i => i && !i.productName && (i.productId || i.zohoItemId));
+  if (!stale) return quote;
+
+  const repaired = await Promise.all(items.map(async i => {
+    if (!i || i.productName || !(i.productId || i.zohoItemId)) return i;
+
+    const p = await getProductById(i.productId || i.zohoItemId, traceContext).catch(() => null);
+    if (!p) return i;
+
+    const variantKey = i.variantId ?? i.zohoItemId;
+    const variant = (p.variants || []).find(v => String(v.id) === String(variantKey)) || null;
+    const productName = p.name || '';
+    const variantName = variant ? (variant.name || '') : (i.variantName || null);
+
+    const typed = String(i.name || '').trim();
+    const untouched = !typed
+      || typed === String(variantName || '').trim()
+      || typed === productName.trim();
+
+    return {
+      ...i,
+      productName,
+      variantName,
+      name: untouched ? (lineDisplayName(productName, variantName) || typed) : typed,
+    };
+  }));
+
+  return { ...quote, items: repaired };
+}
+
 async function listCategories(traceContext = null) {
   const [products, overlays] = await Promise.all([
     getBulkProducts(traceContext),
@@ -392,9 +453,13 @@ async function createQuoteRequest({ userId, source, items, note, addressId, phot
         // could never raise an SO.
         zohoItemId: variant ? variant.id : p.id,
         categoryId: categorySlug(p.category),
-        // Carries the size, so the admin pricing the quote sees exactly what
-        // was asked for.
-        name: variant ? variant.name : p.name,
+        // Both halves are kept, because neither alone reads as a product: the
+        // variant's name is only its size, and the product's name is only the
+        // group. `name` is the line as it should be read; a client that wants
+        // the size on its own line has the parts without parsing a string.
+        productName: p.name || '',
+        variantName: variant ? (variant.name || '') : null,
+        name: lineDisplayName(p.name, variant ? variant.name : null),
         packLabel: unit,
         quantity,
         unit,
@@ -473,7 +538,8 @@ async function listQuotes(userId, { limit, cursor } = {}, traceContext = null) {
     : BULK_QUOTES_PAGE_SIZE;
 
   const page = await bulkRepo.listQuotesByUser(userId, pageSize, cursor || null, traceContext);
-  const hydrated = await Promise.all(page.quotes.map(hydratePhotos));
+  const hydrated = await Promise.all(page.quotes.map(async q =>
+    hydrateItemNames(await hydratePhotos(q), traceContext)));
 
   return {
     quotes: hydrated.map(toQuoteDTO),
@@ -495,7 +561,7 @@ async function loadOwnedQuote(userId, quoteId, traceContext = null) {
 
 async function getQuote(userId, quoteId, traceContext = null) {
   const quote = await loadOwnedQuote(userId, quoteId, traceContext);
-  return toQuoteDTO(await hydratePhotos(quote));
+  return toQuoteDTO(await hydrateItemNames(await hydratePhotos(quote), traceContext));
 }
 
 // ---- customer actions on a quote ----
@@ -514,7 +580,7 @@ async function requestEdit(userId, quoteId, message, traceContext = null) {
     editRequest: { message: text, at: new Date().toISOString() },
     updatedAt: new Date().toISOString(),
   }, traceContext);
-  return toQuoteDTO(await hydratePhotos(updated));
+  return toQuoteDTO(await hydrateItemNames(await hydratePhotos(updated), traceContext));
 }
 
 async function declineQuote(userId, quoteId, reason, traceContext = null) {
@@ -529,7 +595,7 @@ async function declineQuote(userId, quoteId, reason, traceContext = null) {
     declinedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }, traceContext);
-  return toQuoteDTO(await hydratePhotos(updated));
+  return toQuoteDTO(await hydrateItemNames(await hydratePhotos(updated), traceContext));
 }
 
 // ---- ops: pricing a quote ----
@@ -566,8 +632,13 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
 
     return {
       productId: r.productId || null,
+      // Dropped until now, which is how a priced quote lost the size the
+      // customer had chosen on the way to the sales order.
+      variantId: r.variantId ?? null,
       zohoItemId: r.zohoItemId || r.productId || null,
       categoryId: r.categoryId || null,
+      productName: String(r.productName || '').trim() || null,
+      variantName: String(r.variantName || '').trim() || null,
       name,
       packLabel: String(r.packLabel || '').trim(),
       quantity,
@@ -576,6 +647,11 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
       gstRate: Number(r.gstRate ?? 0),
     };
   });
+
+  // A row the console seeded from a quote raised before product names were
+  // stored comes back naming only the size. Repair it here, once, so the
+  // customer's copy and the sales order both read properly.
+  const named = (await hydrateItemNames({ items: lineItems }, traceContext)).items;
 
   const round2 = n => Math.round(n * 100) / 100;
   const subtotal = round2(lineItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
@@ -590,7 +666,7 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
 
   const updated = await bulkRepo.updateQuote(quoteId, {
     status: 'quoted',
-    items: lineItems,
+    items: named,
     subtotal,
     gstAmount,
     deliveryCharge: round2(freight),
@@ -620,7 +696,9 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
  * understands, which is why that shared transaction needed almost no change.
  */
 async function approveQuote(userId, quoteId, { customerName, customerPhone, customerEmail } = {}, traceContext = null) {
-  const quote = await loadOwnedQuote(userId, quoteId, traceContext);
+  // Named here as well as on read: these items become the order's line items
+  // and then the Zoho sales order, which must not say "1 inch (25 mm)" either.
+  const quote = await hydrateItemNames(await loadOwnedQuote(userId, quoteId, traceContext), traceContext);
 
   if (quote.status === 'ordered') {
     throw new ConflictError('This quote has already been ordered', 'ALREADY_ORDERED');
@@ -720,7 +798,12 @@ function toQuoteDTO(q) {
     source: q.source,
     createdAt: q.createdAt,
     items: (q.items || []).map(i => ({
+      // The line as it should be read: product first, size second. The two
+      // halves follow so a client can lay them out itself; a line with no
+      // variant sends variantName null, not an empty string.
       name: i.name,
+      productName: i.productName ?? null,
+      variantName: i.variantName || null,
       packLabel: i.packLabel,
       quantity: i.quantity,
       unit: i.unit,
@@ -761,5 +844,6 @@ module.exports = {
   publishQuote,
   expireLapsedQuotes,
   hydratePhotos,
+  hydrateItemNames,
   toQuoteDTO,
 };
