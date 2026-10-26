@@ -20,4 +20,10 @@ async function saveCart(userId, cart, traceContext = null) {
   }, traceContext);
 }
 
-module.exports = { getCart, saveCart };
+async function deleteCart(userId, traceContext = null) {
+  return dbOp('deleteCart', async () => {
+    await db.collection('carts').doc(userId).delete();
+  }, traceContext, { 'enduser.id': userId });
+}
+
+module.exports = { getCart, saveCart, deleteCart };

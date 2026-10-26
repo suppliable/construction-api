@@ -1,6 +1,6 @@
 const { getCustomer, saveCustomer, getCustomerByPhone } = require('../services/firestoreService');
 const { toCustomerDTO } = require('../models/customerDTO');
-const { updateCustomerGST, clearCustomerGST } = require('../services/customerService');
+const { updateCustomerGST, clearCustomerGST, deleteCustomerAccount } = require('../services/customerService');
 
 async function getCustomerHandler(req, res) {
   const customer = await getCustomer(req.params.userId, req.traceContext);
@@ -88,4 +88,22 @@ async function removeGSTDetails(req, res) {
   }
 }
 
-module.exports = { getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, updateGSTDetails, removeGSTDetails, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };
+async function deleteAccount(req, res) {
+  if (req.user?.uid !== req.params.userId) {
+    return res.status(403).json({ success: false, error: 'FORBIDDEN', message: 'Access denied' });
+  }
+  try {
+    const result = await deleteCustomerAccount(req.params.userId, req.traceContext);
+    return res.json({ success: true, message: 'Account deleted', data: result });
+  } catch (err) {
+    if (err.code === 'USER_NOT_FOUND') {
+      return res.status(404).json({ success: false, error: 'USER_NOT_FOUND', message: 'Customer not found' });
+    }
+    if (err.code === 'ACTIVE_ORDERS') {
+      return res.status(409).json({ success: false, error: 'ACTIVE_ORDERS', message: 'Complete or cancel your orders in progress before deleting your account', data: { orderIds: err.orderIds } });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { deleteAccount, getCustomer: getCustomerHandler, updateDeliveryAddress, updateRegisteredAddress, updateGSTDetails, removeGSTDetails, listCustomers, getCustomerByPhone: getCustomerByPhoneHandler };

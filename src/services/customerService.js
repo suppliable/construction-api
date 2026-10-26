@@ -1,4 +1,11 @@
 const { getCustomer, saveCustomer, getCustomerByPhone } = require('./firestoreService');
+const { deleteCustomer } = require('../repositories/customerRepository');
+const { getOrdersByUser } = require('../repositories/orderRepository');
+const { deleteAllAddresses } = require('../repositories/addressRepository');
+const { deleteCart } = require('../repositories/cartRepository');
+const { deleteUserTokens } = require('./fcmService');
+const admin = require('../utils/firebaseAdmin');
+const { NON_TERMINAL_ORDER_STATUSES } = require('../constants');
 const { createZohoContact, updateZohoContact } = require('./zohoService');
 const logger = require('../utils/logger');
 const { normalizePhone } = require('../utils/phone');
@@ -164,4 +171,53 @@ async function clearCustomerGST(userId, traceContext = null, { throwOnZohoError 
   return saved;
 }
 
-module.exports = { syncCustomer, updateCustomerGST, clearCustomerGST };
+// Account deletion (Apple 5.1.1(v)). Invoices and orders are statutory records,
+// so they are retained: the customer's own data is erased and the Zoho contact
+// is anonymised. A GSTIN customer's Zoho contact is left intact because GST
+// invoices must keep the recipient's name and GSTIN.
+async function deleteCustomerAccount(userId, traceContext = null) {
+  const customer = await getCustomer(userId, traceContext);
+  if (!customer) throw Object.assign(new Error('Customer not found'), { code: 'USER_NOT_FOUND' });
+
+  const orders = await getOrdersByUser(userId, 0, traceContext);
+  const inFlight = orders.filter(o => NON_TERMINAL_ORDER_STATUSES.includes(o.status));
+  if (inFlight.length) {
+    throw Object.assign(new Error('Account has orders in progress'), {
+      code: 'ACTIVE_ORDERS',
+      orderIds: inFlight.map(o => o.orderId),
+    });
+  }
+
+  let zohoAnonymised = false;
+  if (customer.zoho_contact_id && !customer.gstin) {
+    try {
+      await updateZohoContact(customer.zoho_contact_id, {
+        name: `Deleted Customer ${userId}`,
+        phone: '',
+      }, traceContext);
+      zohoAnonymised = true;
+    } catch (err) {
+      logger.warn({ err: err.message, userId }, 'Zoho contact anonymise failed — continuing account deletion');
+    }
+  }
+
+  await Promise.all([
+    deleteAllAddresses(userId, traceContext),
+    deleteCart(userId, traceContext),
+    deleteUserTokens(userId).catch(err => logger.warn({ err: err.message, userId }, 'fcm token delete failed')),
+  ]);
+  await deleteCustomer(userId, traceContext);
+
+  try {
+    await admin.auth().deleteUser(userId);
+  } catch (err) {
+    if (err.code !== 'auth/user-not-found') {
+      logger.warn({ err: err.message, userId }, 'firebase auth user delete failed');
+    }
+  }
+
+  logger.info({ userId, zohoAnonymised, retainedOrders: orders.length }, 'customer account deleted');
+  return { zohoAnonymised, retainedOrders: orders.length };
+}
+
+module.exports = { syncCustomer, updateCustomerGST, clearCustomerGST, deleteCustomerAccount };

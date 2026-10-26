@@ -101,4 +101,13 @@ async function getAddressById(addressId, traceContext = null) {
   }, traceContext, { 'app.address.id': addressId });
 }
 
-module.exports = { getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, getAddressById };
+async function deleteAllAddresses(userId, traceContext = null) {
+  return dbOp('deleteAllAddresses', async (span) => {
+    const snapshot = await db.collection('addresses').where('userId', '==', userId).get();
+    span.setAttribute('db.response.rows_returned', snapshot.docs.length);
+    await Promise.all(snapshot.docs.map(doc => doc.ref.delete()));
+    return snapshot.docs.length;
+  }, traceContext, { 'enduser.id': userId });
+}
+
+module.exports = { deleteAllAddresses, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, getAddressById };

@@ -101,6 +101,11 @@ async function sendNotification(userId, { title, body, data = {} }) {
   return { hadTokens: true, delivered, failed };
 }
 
+// Drops every device token for a user (account deletion).
+async function deleteUserTokens(userId) {
+  await admin.firestore().collection('fcmTokens').doc(userId).delete();
+}
+
 // Returns userIds that have at least one registered FCM token.
 async function getAllTokenUserIds() {
   const snap = await admin.firestore().collection('fcmTokens').get();
@@ -206,6 +211,7 @@ module.exports = {
   sendNotification,
   sendCampaign,
   getAllTokenUserIds,
+  deleteUserTokens,
   getAllGuestTokens,
   registerUserToken,
   registerGuestToken,
