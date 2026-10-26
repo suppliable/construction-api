@@ -36,4 +36,10 @@ async function getCustomerByPhone(phone, traceContext = null) {
   }, traceContext);
 }
 
-module.exports = { getCustomer, saveCustomer, getCustomerByPhone };
+async function deleteCustomer(userId, traceContext = null) {
+  return dbOp('deleteCustomer', async () => {
+    await db.collection('customers').doc(userId).delete();
+  }, traceContext, { 'enduser.id': userId });
+}
+
+module.exports = { getCustomer, saveCustomer, getCustomerByPhone, deleteCustomer };
