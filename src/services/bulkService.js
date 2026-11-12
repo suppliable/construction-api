@@ -608,6 +608,29 @@ async function declineQuote(userId, quoteId, reason, traceContext = null) {
 }
 
 // ---- ops: pricing a quote ----
+/**
+ * Split a GST-INCLUSIVE unit price into the per-line fields an order needs.
+ *
+ * Emits the same shape instant checkout produces (orderService._buildCartData),
+ * because an approved quote's items become the order's line items verbatim.
+ * Without totalWithoutGST / gstAmount / grandTotal the driver app showed ₹0 a
+ * line and the admin picking list showed undefined.
+ */
+function priceParts(inclusiveUnitPrice, gstRate, quantity) {
+  const unitPrice = Math.round(inclusiveUnitPrice * 100) / 100;
+  const rate = Number(gstRate) || 0;
+  const basePrice = unitPrice / (1 + rate / 100);
+  const totalWithoutGST = Math.round(basePrice * quantity * 100) / 100;
+  const grandTotal = Math.round(unitPrice * quantity * 100) / 100;
+  return {
+    unitPrice,
+    gstRate: rate,
+    totalWithoutGST,
+    gstAmount: Math.round((grandTotal - totalWithoutGST) * 100) / 100,
+    grandTotal,
+  };
+}
+
 
 /**
  * Publishes a priced quote: requested/edit_requested → quoted.
@@ -652,8 +675,12 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
       packLabel: String(r.packLabel || '').trim(),
       quantity,
       unit: String(r.unit || '').trim() || 'unit',
-      unitPrice: Math.round(unitPrice * 100) / 100,
-      gstRate: Number(r.gstRate ?? 0),
+      // GST-INCLUSIVE, matching the rest of the system: the catalogue, the cart
+      // and the order all carry an inclusive unitPrice, and the Zoho sales
+      // order divides it down (zohoOrderService: baseRate = unitPrice / 1+gst).
+      // This used to be exclusive, so an approved quote raised a Zoho invoice
+      // ~15% below what the customer actually paid.
+      ...priceParts(unitPrice, Number(r.gstRate ?? 0), quantity),
     };
   });
 
@@ -663,8 +690,10 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
   const named = (await hydrateItemNames({ items: lineItems }, traceContext)).items;
 
   const round2 = n => Math.round(n * 100) / 100;
-  const subtotal = round2(lineItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
-  const gstAmount = round2(lineItems.reduce((s, i) => s + (i.unitPrice * i.quantity * (i.gstRate || 0)) / 100, 0));
+  // Summed from the per-line split rather than recomputed, so the totals can
+  // never disagree with the lines the customer sees.
+  const subtotal = round2(lineItems.reduce((s, i) => s + i.totalWithoutGST, 0));
+  const gstAmount = round2(lineItems.reduce((s, i) => s + i.gstAmount, 0));
   const freight = Math.max(0, Number(deliveryCharge) || 0);
   const grandTotal = round2(subtotal + gstAmount + freight);
 
@@ -684,6 +713,10 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
     deliveryDate: deliveryDate || null,
     teamNote: String(teamNote || '').trim() || null,
     quotedAt: new Date().toISOString(),
+    // Marks the new convention. Quotes priced before this carry an EXCLUSIVE
+    // unitPrice and no per-line totals; approveQuote normalises those rather
+    // than rewriting history.
+    priceIncludesGst: true,
     updatedAt: new Date().toISOString(),
   }, traceContext);
 
@@ -696,6 +729,28 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
 }
 
 // ---- approve & pay ----
+/**
+ * Order line items for an approved quote.
+ *
+ * A quote priced before unitPrice became GST-inclusive stores an EXCLUSIVE
+ * rate and no per-line totals. Those items are passed verbatim into the order
+ * and then into the Zoho sales order, which divides unitPrice down by the GST
+ * rate — so a legacy quote would raise an invoice well below what was
+ * collected. Convert on the way out instead of rewriting stored quotes: the
+ * quote is the record of what was agreed, and its grandTotal is already right.
+ */
+function orderLineItemsFromQuote(quote) {
+  const inclusive = quote.priceIncludesGst === true;
+  return (quote.items || []).map((i) => {
+    const gstRate = Number(i.gstRate) || 0;
+    const quantity = Number(i.quantity) || 0;
+    const unitPrice = inclusive
+      ? Number(i.unitPrice) || 0
+      : (Number(i.unitPrice) || 0) * (1 + gstRate / 100);
+    return { ...i, ...priceParts(unitPrice, gstRate, quantity) };
+  });
+}
+
 
 /**
  * Approving mints a payment session and nothing else.
@@ -763,7 +818,7 @@ async function approveQuote(userId, quoteId, { customerName, customerPhone, cust
     // Shaped exactly like an instant checkout's cartData so the order can be
     // materialised by the existing transaction.
     cartData: {
-      lineItems: quote.items || [],
+      lineItems: orderLineItemsFromQuote(quote),
       subtotal: quote.subtotal ?? 0,
       gst_total: quote.gstAmount ?? 0,
       deliveryCharge: quote.deliveryCharge ?? 0,
@@ -840,7 +895,11 @@ function toQuoteDTO(q) {
   };
 }
 
+// Exposed for tests: the money math is the part that fails silently.
+const _test = { priceParts, orderLineItemsFromQuote };
+
 module.exports = {
+  _test,
   categorySlug,
   getAvailability,
   getBulkProducts,

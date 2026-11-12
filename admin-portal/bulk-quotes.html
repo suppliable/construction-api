@@ -192,7 +192,7 @@
               <th style="width:34%">Description</th>
               <th style="width:12%">Qty</th>
               <th style="width:12%">Unit</th>
-              <th style="width:16%">Rate (₹)</th>
+              <th style="width:16%">Rate incl. GST (₹)</th>
               <th style="width:12%">GST %</th>
               <th style="width:14%" class="num">Amount</th>
               <th></th>
@@ -385,11 +385,15 @@ function renderLines() {
 }
 
 function recalc() {
+  // Rate is GST-INCLUSIVE, so the line amount is what the customer pays and the
+  // GST is extracted from it — not added on top. Mirrors priceParts() on the
+  // server, which is what actually gets stored.
   let sub = 0, gst = 0;
   lines.forEach((l, i) => {
     const amt = (Number(l.quantity)||0) * (Number(l.unitPrice)||0);
-    sub += amt;
-    gst += amt * (Number(l.gstRate)||0) / 100;
+    const base = amt / (1 + (Number(l.gstRate)||0) / 100);
+    sub += base;
+    gst += amt - base;
     const cell = document.getElementById('amt'+i);
     if (cell) cell.textContent = rupee(amt);
   });
