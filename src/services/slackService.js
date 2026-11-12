@@ -177,6 +177,74 @@ async function updateOrderPaymentStatus(order, ts, state) {
   await updateMessage(ts, blocks, `🛒 Order ${order.orderId} — ${verb}`);
 }
 
+// ── Bulk quote card ────────────────────────────────────────────────────────
+// Same shape and lifecycle as the order card: posted once when the request
+// lands, then edited in place as it is priced or closed, so the channel shows
+// current state instead of a growing pile of follow-ups.
+//
+// Deliberately does NOT take a daily number — that counter
+// (`counters/orders-<date>`) is the warehouse's order sequence, and spending
+// numbers on quotes would make "#7 today" stop matching the orders list.
+
+const QUOTE_SOURCE_LABELS = { cart: 'Catalogue', freeform: 'Free-form' };
+
+function quoteStatusLine(quote, state) {
+  if (state === 'quoted') return `💰 *Status:* ✅ Quoted — ₹${quote.grandTotal}`;
+  if (state === 'declined') return '💰 *Status:* 🚫 Declined';
+  if (state === 'expired') return '💰 *Status:* ⌛ Expired';
+  if (state === 'ordered') return '💰 *Status:* 🎉 Ordered';
+  return '💰 *Status:* ⏳ Awaiting pricing';
+}
+
+function quoteCardBlocks({ quote, name, phone, state }) {
+  const lines = [
+    `📝 *Bulk Quote Request* · \`${quote.id}\``,
+    `👤 *Customer:* ${name}`,
+    `📞 *Phone:* ${phone}`,
+    `🧾 *Source:* ${QUOTE_SOURCE_LABELS[quote.source] || quote.source || 'N/A'}`,
+    quoteStatusLine(quote, state),
+  ];
+  const site = [quote.deliveryAddress, quote.deliveryPincode].filter(Boolean).join(' · ');
+  if (site) lines.push(`📍 *Site:* ${site}`);
+  // A free-form request carries its whole ask in the note, so it has to be on
+  // the card itself rather than in the threaded item list (there isn't one).
+  if (quote.note) lines.push(`💬 *Note:* ${quote.note}`);
+  if (quote.photos?.length) lines.push(`🖼️ *Photos:* ${quote.photos.length} attached`);
+  return [{ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } }];
+}
+
+/**
+ * Post the quote-request card. Returns `{ ts }` so the caller can persist it
+ * and edit the same message later. Best-effort, like every Slack path here:
+ * a quote request must never fail because Slack is down.
+ */
+async function postNewQuoteRequest(quote) {
+  if (!slackEnabled()) return { ts: null };
+  // resolveCustomer falls back to getCustomer(userId); a quote carries no
+  // customerName/customerPhone of its own.
+  const { name, phone } = await resolveCustomer(quote);
+  const blocks = quoteCardBlocks({ quote, name, phone, state: undefined });
+  const ts = await postMessage(blocks, `📝 New Bulk Quote Request ${quote.id}`);
+
+  // Item list as a threaded reply, exactly as order cards do. A free-form
+  // request has no items, so itemsBlocks returns null and the reply is skipped.
+  const items = itemsBlocks(quote);
+  if (ts && items) await postMessage(items, '📦 Items', ts);
+
+  return { ts };
+}
+
+/**
+ * Edit an already-posted quote card. `state` ∈ 'quoted' | 'declined' |
+ * 'expired' | 'ordered'. No-op without a ts.
+ */
+async function updateQuoteStatus(quote, ts, state) {
+  if (!slackEnabled() || !ts) return;
+  const { name, phone } = await resolveCustomer(quote);
+  const blocks = quoteCardBlocks({ quote, name, phone, state });
+  await updateMessage(ts, blocks, `📝 Quote ${quote.id} — ${state}`);
+}
+
 // ── Payment-failure alert (separate message per attempt) ───────────────────
 const FAILURE_LABELS = {
   USER_DROPPED: 'Customer abandoned checkout',
@@ -339,6 +407,8 @@ async function notifyPendingOrders(orders) {
 
 module.exports = {
   postNewOrder,
+  postNewQuoteRequest,
+  updateQuoteStatus,
   updateOrderPaymentStatus,
   notifyPaymentFailed,
   cardStateFromRaw,

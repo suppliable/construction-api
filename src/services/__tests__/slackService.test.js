@@ -17,7 +17,8 @@ jest.mock('../../repositories/customerRepository', () => ({
   getCustomer: jest.fn(),
 }));
 
-const { notifyPendingOrders } = require('../slackService');
+const { notifyPendingOrders, postNewQuoteRequest, updateQuoteStatus } = require('../slackService');
+const { getCustomer } = require('../../repositories/customerRepository');
 
 function makeOrder(overrides = {}) {
   return {
@@ -70,9 +71,11 @@ describe('notifyPendingOrders', () => {
     expect(body.blocks).toHaveLength(1);
     const text = body.blocks[0].text.text;
     expect(text).toContain('⏳ *2 orders awaiting acceptance*');
-    expect(text).toContain('1. `ORD1` — John Doe · 9876543210 · ₹1250 · 2:15 PM IST');
+    // pendingOrderLine also carries the payment mode and the IST date; this
+    // expectation predated both and had been failing on develop.
+    expect(text).toContain('1. `ORD1` — John Doe · 9876543210 · ₹1250 · COD · 16 Aug 2:15 PM IST');
     // empty customerName/customerPhone fall back to N/A
-    expect(text).toContain('2. `ORD2` — N/A · N/A · ₹1250 · 2:15 PM IST');
+    expect(text).toContain('2. `ORD2` — N/A · N/A · ₹1250 · COD · 16 Aug 2:15 PM IST');
   });
 
   test('singular wording for exactly one pending order', async () => {
@@ -117,6 +120,140 @@ describe('notifyPendingOrders', () => {
     const result = await notifyWithSlackOff([makeOrder()]);
 
     expect(result).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── Bulk quote card ────────────────────────────────────────────────────────
+
+function makeQuote(overrides = {}) {
+  return {
+    id: 'QT-MABCD123-7F2A',
+    userId: 'user-1',
+    source: 'cart',
+    status: 'requested',
+    grandTotal: 0,
+    items: [{ name: 'UltraTech Cement 50kg', quantity: 100, unit: 'bags' }],
+    photos: [],
+    note: null,
+    deliveryAddress: '12 Kamaraj Salai, Semmancheri',
+    deliveryPincode: '600119',
+    ...overrides,
+  };
+}
+
+describe('postNewQuoteRequest', () => {
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn().mockResolvedValue({
+      json: async () => ({ ok: true, ts: '1699999999.000100' }),
+    });
+    global.fetch = fetchMock;
+    getCustomer.mockResolvedValue({ name: 'Ravi Kumar', phone: '9884857261' });
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+    jest.clearAllMocks();
+  });
+
+  function cardText(call) {
+    return JSON.parse(call[1].body).blocks[0].text.text;
+  }
+
+  test('posts a card and returns the ts so the caller can persist it', async () => {
+    const result = await postNewQuoteRequest(makeQuote());
+    expect(result).toEqual({ ts: '1699999999.000100' });
+
+    const text = cardText(fetchMock.mock.calls[0]);
+    expect(text).toContain('📝 *Bulk Quote Request* · `QT-MABCD123-7F2A`');
+    expect(text).toContain('👤 *Customer:* Ravi Kumar');
+    expect(text).toContain('📞 *Phone:* 9884857261');
+    expect(text).toContain('🧾 *Source:* Catalogue');
+    expect(text).toContain('⏳ Awaiting pricing');
+    expect(text).toContain('📍 *Site:* 12 Kamaraj Salai, Semmancheri · 600119');
+  });
+
+  test('resolves the customer from userId — a quote carries no name/phone', async () => {
+    await postNewQuoteRequest(makeQuote());
+    expect(getCustomer).toHaveBeenCalledWith('user-1');
+  });
+
+  test('posts the item list as a threaded reply under the card', async () => {
+    await postNewQuoteRequest(makeQuote());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const reply = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(reply.thread_ts).toBe('1699999999.000100');
+    expect(reply.blocks[0].text.text).toContain('UltraTech Cement 50kg × 100 bags');
+  });
+
+  test('a free-form request has no items, so no threaded reply — the note carries it', async () => {
+    const quote = makeQuote({
+      source: 'freeform',
+      items: [],
+      note: 'Need 2 truckloads of M-sand by Friday',
+      photos: [{ id: 'p1' }, { id: 'p2' }],
+    });
+    await postNewQuoteRequest(quote);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const text = cardText(fetchMock.mock.calls[0]);
+    expect(text).toContain('🧾 *Source:* Free-form');
+    expect(text).toContain('💬 *Note:* Need 2 truckloads of M-sand by Friday');
+    expect(text).toContain('🖼️ *Photos:* 2 attached');
+  });
+
+  test('omits the site line when no address was attached', async () => {
+    const text = cardText(
+      (await postNewQuoteRequest(makeQuote({ deliveryAddress: null, deliveryPincode: null })),
+        fetchMock.mock.calls[0])
+    );
+    expect(text).not.toContain('📍');
+  });
+
+  test('never throws when Slack fails — a quote must still be recorded', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('slack down'));
+    await expect(postNewQuoteRequest(makeQuote())).resolves.toEqual({ ts: null });
+  });
+});
+
+describe('updateQuoteStatus', () => {
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn().mockResolvedValue({ json: async () => ({ ok: true }) });
+    global.fetch = fetchMock;
+    getCustomer.mockResolvedValue({ name: 'Ravi Kumar', phone: '9884857261' });
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+    jest.clearAllMocks();
+  });
+
+  test('edits the same message to show the quoted total', async () => {
+    await updateQuoteStatus(makeQuote({ grandTotal: 48500 }), '1699999999.000100', 'quoted');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://slack.com/api/chat.update');
+    const body = JSON.parse(opts.body);
+    expect(body.ts).toBe('1699999999.000100');
+    expect(body.blocks[0].text.text).toContain('✅ Quoted — ₹48500');
+  });
+
+  test.each([
+    ['declined', '🚫 Declined'],
+    ['expired', '⌛ Expired'],
+    ['ordered', '🎉 Ordered'],
+  ])('renders the %s state', async (state, expected) => {
+    await updateQuoteStatus(makeQuote(), '1699999999.000100', state);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).blocks[0].text.text).toContain(expected);
+  });
+
+  test('no-op without a ts — quotes raised before this existed have none', async () => {
+    await updateQuoteStatus(makeQuote(), null, 'quoted');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

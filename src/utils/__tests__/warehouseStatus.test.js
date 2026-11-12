@@ -1,5 +1,15 @@
 'use strict';
 
+// firebaseAdmin calls credential.cert() at require-time, which rejects the fake
+// key from test/setupEnv.js. Nothing here touches Firestore, so mock the app
+// away rather than ship a real-looking private key in the repo. Same approach
+// as slackService.test.js and configController.test.js.
+jest.mock('../firebaseAdmin', () => ({
+  firestore: jest.fn(),
+  auth: jest.fn(),
+  database: jest.fn(),
+}));
+
 const { computeWarehouseStatus, resolveClosedUntil, resolveForceOpenUntil } = require('../warehouseStatus');
 const { parseSchedule, FALLBACK_SCHEDULE } = require('../storeSchedule');
 
