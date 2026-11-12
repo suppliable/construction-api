@@ -16,6 +16,7 @@ const remoteConfig = require('./remoteConfigService');
 const { getAllProducts, getProductById } = require('./productService');
 const { getSignedUploadUrl, getSignedReadUrl } = require('./storageService');
 const { ValidationError, NotFoundError, ConflictError } = require('../utils/errors');
+const { postNewQuoteRequest, updateQuoteStatus } = require('./slackService');
 const {
   BULK_QUOTE_VALIDITY_DAYS,
   BULK_MAX_QUOTE_PHOTOS,
@@ -510,6 +511,14 @@ async function createQuoteRequest({ userId, source, items, note, addressId, phot
   };
 
   await bulkRepo.saveQuote(quote, traceContext);
+
+  // Fire-and-forget, mirroring postNewOrder: the card is an ops convenience,
+  // never part of the guarantee that the request was recorded. The ts is
+  // persisted so pricing can edit this same message instead of posting again.
+  postNewQuoteRequest(quote)
+    .then(({ ts }) => (ts ? bulkRepo.updateQuote(quote.id, { slackTs: ts }, traceContext) : null))
+    .catch(() => {});
+
   return toQuoteDTO(await hydratePhotos(quote));
 }
 
@@ -677,6 +686,11 @@ async function publishQuote(quoteId, { items, deliveryCharge, validityDays, deli
     quotedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }, traceContext);
+
+  // Flip the card from "Awaiting pricing" to the quoted total. slackTs is
+  // absent for quotes raised before this existed, and updateQuoteStatus
+  // no-ops without one.
+  updateQuoteStatus(updated, quote.slackTs, 'quoted').catch(() => {});
 
   return updated;
 }

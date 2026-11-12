@@ -8,6 +8,16 @@
 // Zoho, so both are mocked here rather than loaded, same as the other service
 // tests.
 
+// firebaseAdmin calls credential.cert() at require-time, which rejects the fake
+// key from test/setupEnv.js. Nothing here touches Firestore, so mock the app
+// away rather than ship a real-looking private key in the repo. Same approach
+// as slackService.test.js and configController.test.js.
+jest.mock('../../utils/firebaseAdmin', () => ({
+  firestore: jest.fn(),
+  auth: jest.fn(),
+  database: jest.fn(),
+}));
+
 jest.mock('../../repositories/bulkRepository', () => ({
   listCategoryOverlays: jest.fn(),
   saveQuote: jest.fn(async q => q),
