@@ -193,6 +193,21 @@ const bulkQuoteExpiryTick = async (req, res) => {
   }
 };
 
+// POST /api/v1/config/purchase-history-tick
+// Pulls new/changed Zoho bills into itemPurchaseHistory, which backs the admin
+// margin report. Scheduler-authed like the other ticks so the cron reuses the
+// existing SCHEDULER_TOKEN rather than needing an admin credential of its own.
+const purchaseHistoryTick = async (req, res) => {
+  try {
+    const { syncFromBills } = require('../services/purchaseHistoryService');
+    const result = await syncFromBills({}, req.traceContext);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    req.log?.error?.({ err: err.response?.data || err.message }, 'purchaseHistoryTick failed');
+    res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
+  }
+};
+
 module.exports = {
   bulkQuoteExpiryTick,
   getCodThreshold,
@@ -200,5 +215,6 @@ module.exports = {
   getWarehouseStatus,
   updateWarehouseStatus,
   pendingOrdersTick,
+  purchaseHistoryTick,
   warehouseScheduleTick,
 };

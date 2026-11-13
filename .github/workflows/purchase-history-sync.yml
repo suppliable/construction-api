@@ -1,0 +1,45 @@
+name: Purchase history sync
+
+# Pulls new/changed Zoho bills into itemPurchaseHistory, which backs the admin
+# margin report (last purchase price vs selling price).
+#
+# Hourly rather than on page load: the bill list is cheap but each CHANGED bill
+# costs a detail call, and Zoho rate-limits. An hour stale is fine — the report
+# is for spotting drift, not for real-time decisions.
+#
+# Uses the same SCHEDULER_TOKEN-authenticated pattern as the other ticks, so the
+# existing WAREHOUSE_TICK_URL / WAREHOUSE_TICK_TOKEN secrets authorize it and no
+# new secrets are needed.
+on:
+  schedule:
+    - cron: '20 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call margins/sync
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" -X POST \
+            "${TICK_URL}/api/v1/config/purchase-history-tick" \
+            -H "Authorization: Bearer ${TICK_TOKEN}")
+          echo "HTTP status: $status"
+          cat /tmp/response.json
+          echo
+          if [ "$status" -ge 400 ]; then
+            echo "::error::purchase-history-sync failed with HTTP $status"
+            exit 1
+          fi
+        env:
+          TICK_URL: ${{ secrets.WAREHOUSE_TICK_URL }}
+          TICK_TOKEN: ${{ secrets.WAREHOUSE_TICK_TOKEN }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        run: |
+          curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"🚨 purchase-history-sync failed — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_TICK_ALERT_WEBHOOK_URL }}

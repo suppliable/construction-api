@@ -90,6 +90,11 @@ router.use((req, res, next) => {
 // above and needs no auth of its own.
 router.use('/purchases', require('./purchases'));
 
+// ── Margins (last purchase vs selling price) ─────────────────────────────────
+const marginAdmin = require('../controllers/marginController');
+router.get('/margins', marginAdmin.listMargins);
+router.post('/margins/sync', marginAdmin.syncMargins);
+
 // Invalidate order detail cache only after a successful mutation response.
 // Doing this pre-handler can allow a race where stale data is re-cached
 // before the write commits.
