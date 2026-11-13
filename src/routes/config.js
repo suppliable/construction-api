@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick, pendingOrdersTick, bulkQuoteExpiryTick } = require('../controllers/configController');
+const { getCodThreshold, updateCodThreshold, getWarehouseStatus, updateWarehouseStatus, warehouseScheduleTick, pendingOrdersTick, bulkQuoteExpiryTick, purchaseHistoryTick } = require('../controllers/configController');
 const { requireScheduler } = require('../middleware/schedulerAuth');
 const { cacheFor } = require('../cache/middleware');
 const { invalidateConfig } = require('../cache/invalidate');
@@ -36,5 +36,9 @@ router.post('/pending-orders-tick', requireScheduler, pendingOrdersTick);
 
 // Expires bulk quotes past their validUntil. Same scheduler auth as above.
 router.post('/bulk-quote-expiry-tick', requireScheduler, bulkQuoteExpiryTick);
+
+// Refreshes last-purchase prices from Zoho bills for the margin report. Same
+// scheduler auth, so the cron needs no new secret.
+router.post('/purchase-history-tick', requireScheduler, purchaseHistoryTick);
 
 module.exports = router;
