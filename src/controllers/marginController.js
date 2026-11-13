@@ -7,6 +7,8 @@
 const repo = require('../repositories/purchaseHistoryRepository');
 const { marginFor, syncFromBills } = require('../services/purchaseHistoryService');
 const { getAllProducts } = require('../services/productService');
+const { updateZohoItemRate } = require('../services/zohoService');
+const { invalidateProducts } = require('../cache/invalidate');
 
 function badRequest(res, message) {
   return res.status(400).json({ success: false, error: 'VALIDATION_ERROR', message });
@@ -109,4 +111,52 @@ const syncMargins = async (req, res) => {
   }
 };
 
-module.exports = { listMargins, syncMargins };
+// PUT /api/v1/admin/margins/:itemId/selling-price   body: { rate }
+//
+// The point of the report is that an underwater item needs its selling price
+// raised; this makes that one click rather than a trip to Zoho. The new rate is
+// GST-INCLUSIVE, like every other selling price in the system.
+//
+// Guarded, because this is the customer-facing price: a mistyped rate here is a
+// live pricing error, not a report that looks odd.
+const setSellingPrice = async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const rate = Number(req.body?.rate);
+
+    if (!itemId) return badRequest(res, 'itemId is required');
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return badRequest(res, 'rate must be a number greater than zero');
+    }
+
+    // A selling price below what the item last cost is almost certainly a typo
+    // — it is the exact situation this page exists to flag, so do not let the
+    // fix re-create it silently.
+    const history = await repo.getOne(itemId, req.traceContext);
+    if (history && Number(history.rateIncl) > 0 && rate <= Number(history.rateIncl)) {
+      return res.status(422).json({
+        success: false,
+        error: 'BELOW_LAST_PURCHASE',
+        message: `₹${rate} is not above the last purchase price of ₹${history.rateIncl} `
+          + `(incl. GST, bill ${history.lastBillNumber || '—'}). Enter a higher price.`,
+      });
+    }
+
+    const item = await updateZohoItemRate(itemId, rate, req.traceContext);
+    await invalidateProducts().catch(() => {});
+
+    res.json({
+      success: true,
+      data: { itemId, rate: Number(item?.rate ?? rate), name: item?.name || null },
+    });
+  } catch (err) {
+    req.log?.error?.({ err: err.response?.data || err.message, itemId: req.params.itemId }, 'setSellingPrice failed');
+    res.status(500).json({
+      success: false,
+      error: 'SERVER_ERROR',
+      message: err.response?.data?.message || err.message,
+    });
+  }
+};
+
+module.exports = { listMargins, syncMargins, setSellingPrice };

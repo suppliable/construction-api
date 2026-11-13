@@ -331,6 +331,27 @@ async function updateZohoItemFeatured(itemId, featured, traceContext = null) {
   }
 }
 
+/**
+ * Set an item's selling rate.
+ *
+ * `rate` is the GST-INCLUSIVE price in this org — it is what the customer pays
+ * and what the app divides down for the tax split. Raising it changes the
+ * customer-facing price immediately, so the caller must invalidate the
+ * catalogue cache (zohoPut already fires invalidateAfterZohoMutation, which
+ * covers the Redis copy; the per-instance L1 cache still expires on its TTL).
+ */
+async function updateZohoItemRate(itemId, rate, traceContext = null) {
+  const span = createSpan(traceContext, 'zoho.api.updateItemRate', { 'peer.service': 'zoho', itemId, endpoint: '/inventory/v1/items/:id' });
+  try {
+    const response = await zohoPut(`${process.env.ZOHO_API_DOMAIN}/inventory/v1/items/${itemId}`, { rate });
+    span.end({ success: true, item_id: response.data.item?.item_id, rate });
+    return response.data.item;
+  } catch (error) {
+    span.end({ success: false, error: error.message });
+    throw error;
+  }
+}
+
 async function updateZohoContact(zohoContactId, contactData, traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.updateContact', {
     'peer.service': 'zoho',
@@ -504,6 +525,7 @@ module.exports = {
   updateZohoContact,
   updateZohoItemImage,
   updateZohoItemFeatured,
+  updateZohoItemRate,
   searchZohoContactByPhone,
   searchZohoContactByName,
   getZohoContactById,
