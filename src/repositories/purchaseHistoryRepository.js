@@ -51,7 +51,7 @@ async function upsertMany(entries, traceContext = null) {
       for (const e of entries.slice(i, i + CHUNK)) {
         batch.set(db.collection(COLLECTION).doc(String(e.itemId)), e, { merge: true });
       }
-      // eslint-disable-next-line no-await-in-loop -- batches must commit in sequence
+      // Sequential: each batch must commit before the next is built.
       await batch.commit();
       written += Math.min(CHUNK, entries.length - i);
     }

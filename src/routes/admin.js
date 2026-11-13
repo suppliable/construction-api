@@ -94,6 +94,7 @@ router.use('/purchases', require('./purchases'));
 const marginAdmin = require('../controllers/marginController');
 router.get('/margins', marginAdmin.listMargins);
 router.post('/margins/sync', marginAdmin.syncMargins);
+router.put('/margins/:itemId/selling-price', marginAdmin.setSellingPrice);
 
 // Invalidate order detail cache only after a successful mutation response.
 // Doing this pre-handler can allow a race where stale data is re-cached

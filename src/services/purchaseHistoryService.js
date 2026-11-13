@@ -94,11 +94,11 @@ function reduceToLatest(entries) {
   return [...byItem.values()];
 }
 
-async function listAllBills(traceContext) {
+async function listAllBills() {
   const all = [];
   let page = 1;
   for (;;) {
-    // eslint-disable-next-line no-await-in-loop -- paging is inherently sequential
+    // Sequential: paging is inherently so.
     const res = await zohoGet(BILLS_URL, {
       params: { per_page: 200, page },
       label: 'zoho.api.listBills',
@@ -120,7 +120,7 @@ async function listAllBills(traceContext) {
  */
 async function syncFromBills({ full = false } = {}, traceContext = null) {
   const watermark = full ? null : await repo.getWatermark(traceContext);
-  const bills = await listAllBills(traceContext);
+  const bills = await listAllBills();
 
   const changed = watermark
     ? bills.filter(b => String(b.last_modified_time || '') > String(watermark))
@@ -132,7 +132,7 @@ async function syncFromBills({ full = false } = {}, traceContext = null) {
 
   const entries = [];
   for (const row of changed) {
-    // eslint-disable-next-line no-await-in-loop -- deliberately serial; Zoho rate-limits
+    // Serial on purpose: Zoho rate-limits, and a full walk is ~241 calls.
     const res = await zohoGet(`${BILLS_URL}/${row.bill_id}`, { label: 'zoho.api.getBill' });
     entries.push(...entriesFromBill(res.data.bill || {}));
   }
