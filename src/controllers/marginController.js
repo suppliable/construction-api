@@ -60,6 +60,9 @@ const listMargins = async (req, res) => {
           lastPurchaseDate: h?.lastDate || null,
           lastPurchaseExcl: h?.rateExcl ?? null,
           lastPurchaseIncl: m.buyIncl,
+          // So a discounted cost is explicable rather than looking mistyped.
+          grossPurchaseIncl: h?.grossRateIncl ?? null,
+          discountPct: h?.discountPct ?? 0,
           gstRate: h?.gstRate ?? p.gst_percentage ?? null,
           sellingIncl: m.sellIncl,
           marginValue: m.marginValue,

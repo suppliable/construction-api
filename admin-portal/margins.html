@@ -149,6 +149,7 @@
         Bills are recorded <strong>excluding</strong> GST and selling prices <strong>include</strong> it,
         so the two are not directly comparable. Everything below is shown <strong>including</strong> GST.
         Non-stock lines (freight, loading) are excluded — they hold no stock and have no margin.
+        Purchase prices are <strong>net of bill discounts</strong>.
       </p>
 
       <div class="stats" id="stats"></div>
@@ -294,11 +295,15 @@ function rowHtml(r) {
     : '';
   const bill = r.lastBillNumber
     ? `<div class="tiny">${esc(r.lastBillNumber)} · ${esc(r.lastPurchaseDate || '')}</div>` : '';
+  // A discounted line costs less than the rate printed on the bill; say so, or
+  // it reads as a typo.
+  const disc = r.discountPct
+    ? `<div class="tiny">${r.discountPct}% off ${rupee(r.grossPurchaseIncl)}</div>` : '';
   return `<tr class="${r.status === 'underwater' ? 'underwater' : ''}">
     <td>${esc(r.name)}<div class="tiny">${esc(r.unit || '')}</div></td>
     <td class="tiny">${esc(r.category || '—')}</td>
     <td class="tiny">${esc(r.vendorName || '—')}</td>
-    <td class="right mono">${rupee(r.lastPurchaseIncl)}${bill}</td>
+    <td class="right mono">${rupee(r.lastPurchaseIncl)}${disc}${bill}</td>
     <td class="right mono">${rupee(r.sellingIncl)}</td>
     <td class="right mono">${margin}</td>
     <td><span class="chip chip-${esc(r.status)}">${esc(STATUS_LABEL[r.status] || r.status)}</span></td>
@@ -332,10 +337,11 @@ async function syncNow() {
 
 function exportCsv() {
   const rows = visible();
-  const head = ['Item','Category','Vendor','Last purchase incl GST','Last bill','Bill date','Selling incl GST','Margin %','Status'];
+  const head = ['Item','Category','Vendor','Last purchase incl GST','Discount %','Gross rate incl GST','Last bill','Bill date','Selling incl GST','Margin %','Status'];
   const body = rows.map(r => [
     r.name, r.category, r.vendorName,
-    r.lastPurchaseIncl ?? '', r.lastBillNumber ?? '', r.lastPurchaseDate ?? '',
+    r.lastPurchaseIncl ?? '', r.discountPct ?? 0, r.grossPurchaseIncl ?? '',
+    r.lastBillNumber ?? '', r.lastPurchaseDate ?? '',
     r.sellingIncl ?? '', r.marginPct ?? '', r.status,
   ]);
   const csv = [head, ...body]
