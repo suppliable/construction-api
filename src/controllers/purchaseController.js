@@ -102,6 +102,17 @@ async function readVendorSchedules() {
 
 // ── LOW STOCK ─────────────────────────────────────────────
 
+// GST percentage for an item, preferring the intra-state preference the way
+// productService does — the two must agree or a bill and a sale would price the
+// same item differently.
+function itemGstRate(item) {
+  const prefs = item?.item_tax_preferences || [];
+  const intra = prefs.find(t => t.tax_specification === 'intra');
+  if (intra) return toNumber(intra.tax_percentage);
+  if (prefs.length) return toNumber(prefs[0].tax_percentage);
+  return toNumber(item?.tax_percentage);
+}
+
 // Normalised key for matching an item's vendor_name to a Zoho contact.
 function vendorKey(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -189,6 +200,12 @@ async function buildLowStock(traceContext) {
       reorderLevel: toNumber(i.reorder_level),
       rackNumber: i.cf_rack_number || '',
       vendorName: i.vendor_name || '',
+      // For the bill form's margin column: the selling price to compare a
+      // purchase rate against, and the GST needed to put both on one basis.
+      // Free here — the full item is already in hand.
+      sellingRate: toNumber(i.rate),
+      gstRate: itemGstRate(i),
+      trackInventory: i.track_inventory !== false,
     }));
   await redis.set(CATALOGUE_CACHE_KEY, JSON.stringify(catalogue), { ex: LOW_STOCK_CACHE_TTL_S }).catch(() => {});
 

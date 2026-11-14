@@ -90,6 +90,14 @@ router.use((req, res, next) => {
 // above and needs no auth of its own.
 router.use('/purchases', require('./purchases'));
 
+// ── Vendor bills ─────────────────────────────────────────────────────────────
+// Static paths first so they are not captured by any later parameterised route.
+const billAdmin = require('../controllers/billController');
+router.get('/bills/vendors', billAdmin.listVendors);
+router.get('/bills/sync-state', billAdmin.syncState);
+router.post('/bills/preview', billAdmin.previewBill);
+router.post('/bills', billAdmin.createBill);
+
 // ── Margins (last purchase vs selling price) ─────────────────────────────────
 const marginAdmin = require('../controllers/marginController');
 router.get('/margins', marginAdmin.listMargins);
