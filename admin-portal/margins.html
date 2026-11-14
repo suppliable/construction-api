@@ -289,10 +289,12 @@ function rowHtml(r) {
   const margin = r.marginPct === null
     ? '<span class="tiny">—</span>'
     : `<span class="${r.marginPct < 0 ? 'neg' : 'pos'}">${r.marginPct.toFixed(1)}%</span>`;
-  // Only an underwater line has an action: raise the price above what it cost.
-  const action = r.status === 'underwater'
-    ? `<button class="btn btn-sm btn-primary" onclick="setPrice('${esc(r.itemId)}', ${r.lastPurchaseIncl}, ${r.sellingIncl})">Set price</button>`
-    : '';
+  // Available on every row, not just underwater ones: a healthy margin can
+  // still be the wrong price, and an item with no purchase history or no price
+  // set is exactly the one someone needs to fix.
+  const action = `<button class="btn btn-sm ${r.status === 'underwater' ? 'btn-primary' : ''}"
+      style="${r.status === 'underwater' ? '' : 'background:#f3f4f6;color:var(--navy);'}"
+      onclick="setPrice('${esc(r.itemId)}', ${r.lastPurchaseIncl === null ? 'null' : r.lastPurchaseIncl}, ${r.sellingIncl || 0})">Set price</button>`;
   const bill = r.lastBillNumber
     ? `<div class="tiny">${esc(r.lastBillNumber)} · ${esc(r.lastPurchaseDate || '')}</div>` : '';
   // A discounted line costs less than the rate printed on the bill; say so, or
@@ -312,10 +314,21 @@ function rowHtml(r) {
 }
 
 async function setPrice(itemId, lastPurchase, current) {
-  const suggested = Math.ceil(lastPurchase * 1.1);
-  const input = prompt(
-    `Last purchased at ₹${lastPurchase} incl GST, currently selling at ₹${current}.\n\n` +
-    `New selling price (incl GST) — must be above ₹${lastPurchase}:`, suggested);
+  // An item that has never been billed has no floor to quote and nothing to
+  // base a suggestion on, so say that rather than printing "₹null".
+  const known = lastPurchase !== null && lastPurchase > 0;
+  const suggested = known ? Math.ceil(lastPurchase * 1.1) : (current || '');
+  const lines = [
+    known
+      ? `Last purchased at ₹${lastPurchase} incl GST.`
+      : 'No purchase on record for this item.',
+    current ? `Currently selling at ₹${current}.` : 'No selling price is set.',
+    '',
+    known
+      ? `New selling price (incl GST) — must be above ₹${lastPurchase}:`
+      : 'New selling price (incl GST):',
+  ];
+  const input = prompt(lines.join('\n'), suggested);
   if (input === null) return;
   const rate = Number(input);
   if (!Number.isFinite(rate) || rate <= 0) { toast('Enter a valid price', false); return; }

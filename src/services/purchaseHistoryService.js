@@ -19,6 +19,18 @@ const logger = require('../utils/logger');
 
 const BILLS_URL = 'https://www.zohoapis.in/books/v3/bills';
 
+// Bump whenever entriesFromBill changes what it stores or how it computes it.
+// The sync compares this against the version recorded with the watermark and
+// re-walks every bill when they differ — incremental sync otherwise never
+// revisits an old bill, so records written by superseded logic would stay wrong
+// indefinitely. That is exactly what happened when bill discounts started being
+// netted off: prod was corrected by a manual full backfill, dev silently kept
+// the old gross figures.
+//
+//   1  rate + GST only
+//   2  net of bill and line discounts
+const EXTRACTION_VERSION = 2;
+
 const round2 = n => Math.round(n * 100) / 100;
 
 /** Per-unit price including GST — the only figure comparable to a selling price. */
@@ -188,7 +200,16 @@ async function listAllBills() {
  * a page load can trigger.
  */
 async function syncFromBills({ full = false, dryRun = false } = {}, traceContext = null) {
-  const watermark = full ? null : await repo.getWatermark(traceContext);
+  const state = full ? {} : await repo.getSyncState(traceContext);
+  // A watermark written before versioning (or by older logic) is not trustworthy
+  // for skipping work, so it is discarded rather than honoured.
+  const stale = state.logicVersion !== EXTRACTION_VERSION;
+  const watermark = full || stale ? null : state.lastModifiedTime;
+  if (!full && stale) {
+    logger.info({ storedVersion: state.logicVersion ?? null, currentVersion: EXTRACTION_VERSION },
+      'purchase_history.full_rewalk_forced');
+  }
+
   const bills = await listAllBills();
 
   const changed = watermark
@@ -217,7 +238,8 @@ async function syncFromBills({ full = false, dryRun = false } = {}, traceContext
     watermark || ''
   );
   if (newWatermark && !dryRun) {
-    await repo.setWatermark(newWatermark, { billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written }, traceContext);
+    await repo.setSyncState(newWatermark, EXTRACTION_VERSION,
+      { billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written }, traceContext);
   }
 
   logger.info({ billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written, full, dryRun },
@@ -226,12 +248,14 @@ async function syncFromBills({ full = false, dryRun = false } = {}, traceContext
     billsScanned: bills.length,
     billsChanged: changed.length,
     itemsWritten: written,
+    fullRewalk: Boolean(full || stale),
     ...(dryRun ? { itemsWouldWrite: latest.length, dryRun: true } : {}),
   };
 }
 
 module.exports = {
   syncFromBills,
+  EXTRACTION_VERSION,
   billDiscountFactor,
   lineDiscountFactor,
   marginFor,
