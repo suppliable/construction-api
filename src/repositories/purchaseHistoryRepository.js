@@ -69,27 +69,32 @@ async function upsertMany(entries, traceContext = null) {
   }, traceContext);
 }
 
-// ── sync watermark ──────────────────────────────────────────────────────────
+// ── sync state ──────────────────────────────────────────────────────────────
 // Zoho's bill list ignores last_modified_time as a filter (verified: passing it
 // changes nothing), so the whole list is pulled — 200/page, ~2 calls — and
 // filtered here. Only bills modified since the watermark have their detail
 // fetched, which is the expensive call.
+//
+// logicVersion rides along with the watermark so a change to how a bill is read
+// can force a full re-walk. Without it, incremental sync never revisits an old
+// bill, and records written by superseded logic stay wrong forever.
 
-async function getWatermark(traceContext = null) {
-  return dbOp('getPurchaseSyncWatermark', async () => {
+async function getSyncState(traceContext = null) {
+  return dbOp('getPurchaseSyncState', async () => {
     const doc = await db.collection('config').doc(SYNC_DOC).get();
-    return doc.exists ? (doc.data().lastModifiedTime || null) : null;
+    return doc.exists ? doc.data() : {};
   }, traceContext);
 }
 
-async function setWatermark(lastModifiedTime, stats = {}, traceContext = null) {
-  return dbOp('setPurchaseSyncWatermark', async () => {
+async function setSyncState(lastModifiedTime, logicVersion, stats = {}, traceContext = null) {
+  return dbOp('setPurchaseSyncState', async () => {
     await db.collection('config').doc(SYNC_DOC).set({
       lastModifiedTime,
+      logicVersion,
       lastRunAt: new Date().toISOString(),
       ...stats,
     }, { merge: true });
   }, traceContext);
 }
 
-module.exports = { listAll, getOne, upsertMany, getWatermark, setWatermark, COLLECTION };
+module.exports = { listAll, getOne, upsertMany, getSyncState, setSyncState, COLLECTION };

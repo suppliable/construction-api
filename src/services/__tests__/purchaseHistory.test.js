@@ -15,8 +15,8 @@ jest.mock('../../repositories/purchaseHistoryRepository', () => ({
   listAll: jest.fn(),
   getOne: jest.fn(),
   upsertMany: jest.fn(async e => e.length),
-  getWatermark: jest.fn(),
-  setWatermark: jest.fn(),
+  getSyncState: jest.fn(async () => ({})),
+  setSyncState: jest.fn(),
 }));
 jest.mock('../zohoHttp', () => ({ zohoGet: jest.fn() }));
 
@@ -214,5 +214,79 @@ describe('entriesFromBill with a discount', () => {
     const [e] = entriesFromBill({ ...postTax, discount: 0, discount_applied_on_amount: 0 });
     expect(e.rateIncl).toBe(e.grossRateIncl);
     expect(e.discountPct).toBe(0);
+  });
+});
+
+// ── Extraction version gate ─────────────────────────────────────────────────
+// Incremental sync never revisits an old bill, so records written by superseded
+// logic stay wrong indefinitely. That is not hypothetical: when discounts began
+// being netted off, prod was corrected by a manual full backfill while dev kept
+// serving the old gross figures, because its watermark said there was nothing
+// to do.
+
+const repo = require('../../repositories/purchaseHistoryRepository');
+const { zohoGet } = require('../zohoHttp');
+const { syncFromBills, EXTRACTION_VERSION } = require('../purchaseHistoryService');
+
+function mockBills(rows) {
+  zohoGet.mockImplementation(async (url) => {
+    if (url.endsWith('/bills')) {
+      return { data: { bills: rows, page_context: { has_more_page: false } } };
+    }
+    const id = url.split('/').pop();
+    return { data: { bill: { bill_id: id, bill_number: id, date: '2026-11-01', line_items: [] } } };
+  });
+}
+
+describe('sync re-walks when the extraction version moves', () => {
+  const bills = [
+    { bill_id: 'B1', last_modified_time: '2026-10-01T00:00:00+0530' },
+    { bill_id: 'B2', last_modified_time: '2026-11-01T00:00:00+0530' },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    repo.upsertMany.mockResolvedValue(0);
+    mockBills(bills);
+  });
+
+  test('a watermark from an OLDER version is ignored — every bill is re-read', async () => {
+    repo.getSyncState.mockResolvedValue({
+      lastModifiedTime: '2026-11-30T00:00:00+0530', logicVersion: EXTRACTION_VERSION - 1,
+    });
+    const res = await syncFromBills({});
+    expect(res.billsChanged).toBe(2);
+    expect(res.fullRewalk).toBe(true);
+  });
+
+  test('a pre-versioning watermark counts as stale, so dev self-heals', async () => {
+    // What dev actually has: a watermark written before logicVersion existed.
+    repo.getSyncState.mockResolvedValue({ lastModifiedTime: '2026-11-30T00:00:00+0530' });
+    const res = await syncFromBills({});
+    expect(res.billsChanged).toBe(2);
+    expect(res.fullRewalk).toBe(true);
+  });
+
+  test('a current-version watermark is honoured — only newer bills are fetched', async () => {
+    repo.getSyncState.mockResolvedValue({
+      lastModifiedTime: '2026-10-15T00:00:00+0530', logicVersion: EXTRACTION_VERSION,
+    });
+    const res = await syncFromBills({});
+    expect(res.billsChanged).toBe(1); // B2 only
+    expect(res.fullRewalk).toBe(false);
+  });
+
+  test('the version is recorded with the watermark, so the next run can compare', async () => {
+    repo.getSyncState.mockResolvedValue({});
+    await syncFromBills({});
+    expect(repo.setSyncState).toHaveBeenCalledWith(
+      '2026-11-01T00:00:00+0530', EXTRACTION_VERSION, expect.any(Object), null
+    );
+  });
+
+  test('a dry run never advances the watermark', async () => {
+    repo.getSyncState.mockResolvedValue({});
+    await syncFromBills({ dryRun: true });
+    expect(repo.setSyncState).not.toHaveBeenCalled();
   });
 });
