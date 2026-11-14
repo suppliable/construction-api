@@ -13,6 +13,7 @@
 // said, `rateIncl` is what was really paid per unit and is the only figure
 // comparable with a selling price.
 
+const admin = require('../utils/firebaseAdmin');
 const { dbOp } = require('../utils/dbOp');
 const { getTrackedDb } = require('../middleware/firestoreTracker');
 
@@ -37,23 +38,32 @@ async function getOne(itemId, traceContext = null) {
 /**
  * Write the latest purchase for each item.
  *
- * Batched: a full backfill touches ~1k documents and Firestore caps a batch at
+ * Batched: a full backfill touches ~440 documents and Firestore caps a batch at
  * 500 writes. Entries are expected to be pre-reduced to one per item by the
  * caller, which already knows which bill is newest.
+ *
+ * RAW refs, not tracked ones. TrackedDb.batch() passes the underlying Firestore
+ * batch straight through, but TrackedDb.collection().doc() returns a TrackedDoc
+ * wrapper — and a real batch rejects it with "not a valid DocumentReference".
+ * The two cannot be mixed. The cost is that these writes are not counted by
+ * firestoreTracker; that is acceptable here because the batch path is driven by
+ * the backfill script and the cron, neither of which is request-scoped.
  */
 async function upsertMany(entries, traceContext = null) {
   if (!entries.length) return 0;
   return dbOp('upsertPurchaseHistory', async () => {
+    const raw = admin.firestore();
     const CHUNK = 400;
     let written = 0;
     for (let i = 0; i < entries.length; i += CHUNK) {
-      const batch = db.batch();
-      for (const e of entries.slice(i, i + CHUNK)) {
-        batch.set(db.collection(COLLECTION).doc(String(e.itemId)), e, { merge: true });
+      const chunk = entries.slice(i, i + CHUNK);
+      const batch = raw.batch();
+      for (const e of chunk) {
+        batch.set(raw.collection(COLLECTION).doc(String(e.itemId)), e, { merge: true });
       }
       // Sequential: each batch must commit before the next is built.
       await batch.commit();
-      written += Math.min(CHUNK, entries.length - i);
+      written += chunk.length;
     }
     return written;
   }, traceContext);
