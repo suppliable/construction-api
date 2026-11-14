@@ -20,7 +20,7 @@ jest.mock('../../repositories/purchaseHistoryRepository', () => ({
 }));
 jest.mock('../zohoHttp', () => ({ zohoGet: jest.fn() }));
 
-const { marginFor, entriesFromBill, reduceToLatest, toInclusive } = require('../purchaseHistoryService');
+const { marginFor, entriesFromBill, reduceToLatest, toInclusive, billDiscountFactor, lineDiscountFactor } = require('../purchaseHistoryService');
 
 describe('toInclusive', () => {
   test('adds GST to an exclusive bill rate', () => {
@@ -127,5 +127,92 @@ describe('reduceToLatest', () => {
       { itemId: 'I1', lastDate: '2026-10-01', rateIncl: 50 },
     ]);
     expect(out[0].rateIncl).toBe(75);
+  });
+});
+
+// ── Discounts ───────────────────────────────────────────────────────────────
+// Both shapes are taken from real Asian Paints bills in the org.
+
+describe('billDiscountFactor', () => {
+  test('percentage AFTER tax (bill TN2601842025: 8% off 53,299.42 inclusive)', () => {
+    expect(billDiscountFactor({
+      discount: '8.00%', discount_type: 'entity_level',
+      is_discount_before_tax: false, discount_applied_on_amount: 53299.42,
+    })).toBeCloseTo(0.92, 6);
+  });
+
+  test('percentage BEFORE tax (bill TN2601761297: 5% off 9,320 taxable)', () => {
+    expect(billDiscountFactor({
+      discount: '5.00%', discount_type: 'entity_level',
+      is_discount_before_tax: true, discount_applied_on_amount: 9320,
+    })).toBeCloseTo(0.95, 6);
+  });
+
+  test('a FLAT discount uses Zoho\'s own base, so pre/post need no special case', () => {
+    // 466 off a 9,320 taxable base is the same 5%.
+    expect(billDiscountFactor({ discount: 466, discount_applied_on_amount: 9320 })).toBeCloseTo(0.95, 6);
+    // The same 466 off an inclusive base is a different, smaller percentage.
+    expect(billDiscountFactor({ discount: 466, discount_applied_on_amount: 10998 })).toBeCloseTo(0.9576, 3);
+  });
+
+  test('no discount, zero, empty or an unusable base all mean "pay in full"', () => {
+    expect(billDiscountFactor({})).toBe(1);
+    expect(billDiscountFactor({ discount: 0 })).toBe(1);
+    expect(billDiscountFactor({ discount: '' })).toBe(1);
+    expect(billDiscountFactor({ discount: '0.00%' })).toBe(1);
+    expect(billDiscountFactor({ discount: 500, discount_applied_on_amount: 0 })).toBe(1);
+  });
+});
+
+describe('lineDiscountFactor', () => {
+  test('an itemised discount amount is taken against the line gross', () => {
+    expect(lineDiscountFactor({ rate: 100, quantity: 10, discount_amount: 50 })).toBeCloseTo(0.95, 6);
+  });
+  test('a line percentage works too', () => {
+    expect(lineDiscountFactor({ rate: 100, quantity: 10, discount: '5%' })).toBeCloseTo(0.95, 6);
+  });
+  test('no line discount is the common case today', () => {
+    expect(lineDiscountFactor({ rate: 100, quantity: 10 })).toBe(1);
+  });
+});
+
+describe('entriesFromBill with a discount', () => {
+  const postTax = {
+    bill_id: 'B1', bill_number: 'TN2601842025', date: '2026-11-04',
+    vendor_name: 'ASIAN PAINTS LIMITED', is_inclusive_tax: false,
+    discount: '8.00%', discount_type: 'entity_level',
+    is_discount_before_tax: false, discount_applied_on_amount: 53299.42,
+    line_items: [{ item_id: 'I1', name: 'Apcolite 1L', rate: 285, quantity: 6, tax_percentage: 18 }],
+  };
+  const preTax = {
+    ...postTax, bill_number: 'TN2601761297', date: '2026-10-14',
+    discount: '5.00%', is_discount_before_tax: true, discount_applied_on_amount: 9320,
+    line_items: [{ item_id: 'I2', name: 'Apex 1L', rate: 312, quantity: 6, tax_percentage: 18 }],
+  };
+
+  test('post-tax discount nets down the recorded cost', () => {
+    const [e] = entriesFromBill(postTax);
+    expect(e.grossRateIncl).toBe(336.3);   // 285 + 18%
+    expect(e.rateIncl).toBe(309.4);        // less 8%
+    expect(e.discountPct).toBe(8);
+  });
+
+  test('pre-tax discount nets down the same way', () => {
+    const [e] = entriesFromBill(preTax);
+    expect(e.grossRateIncl).toBe(368.16);  // 312 + 18%
+    expect(e.rateIncl).toBe(349.75);       // less 5%
+    expect(e.discountPct).toBe(5);
+  });
+
+  test('ordering does not matter — the per-unit cost is identical either way', () => {
+    const asPost = entriesFromBill(postTax)[0].rateIncl;
+    const asPre = entriesFromBill({ ...postTax, is_discount_before_tax: true, discount_applied_on_amount: 45169 })[0].rateIncl;
+    expect(asPre).toBe(asPost);
+  });
+
+  test('an undiscounted bill records the gross rate unchanged', () => {
+    const [e] = entriesFromBill({ ...postTax, discount: 0, discount_applied_on_amount: 0 });
+    expect(e.rateIncl).toBe(e.grossRateIncl);
+    expect(e.discountPct).toBe(0);
   });
 });

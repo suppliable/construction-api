@@ -56,15 +56,78 @@ function marginFor(item, history) {
   };
 }
 
+/**
+ * How much of a bill's face value is actually payable, as a multiplier.
+ *
+ * Bills here carry a bill-level ("entity_level") discount, sometimes applied
+ * BEFORE tax and sometimes AFTER — e.g. 5% off 9,320 taxable, versus 8% off
+ * 53,299.42 tax-inclusive. That distinction looks like it should need two code
+ * paths, and it does not:
+ *
+ *     pre:   rate x (1 - d) x (1 + gst)
+ *     post:  rate x (1 + gst) x (1 - d)
+ *
+ * Multiplication commutes, so the per-unit INCLUSIVE cost is identical either
+ * way. Where before/after genuinely matters is the GST amount, and so the input
+ * tax credit — not what the stock cost. This function therefore returns a
+ * single factor for both.
+ *
+ * Zoho reports `discount_applied_on_amount`, the base it actually computed
+ * against, which keeps the same formula correct for a FLAT discount too: a
+ * fixed ₹500 off a taxable base is a different percentage from ₹500 off an
+ * inclusive base, and dividing by Zoho's own base handles that without us
+ * having to decide which it was.
+ *
+ * `adjustment` (the rounding line, -22.47 on a 49,013 bill) is deliberately
+ * ignored: it is 0.05%, and it belongs to the bill rather than to any line, so
+ * there is no honest way to attribute it per item.
+ */
+function billDiscountFactor(bill) {
+  const raw = bill?.discount;
+  if (raw === undefined || raw === null || raw === '' || raw === 0) return 1;
+
+  // Zoho sends a percentage as a string ("8.00%") and a flat discount as a number.
+  const asString = String(raw).trim();
+  if (asString.endsWith('%')) {
+    const pct = parseFloat(asString);
+    if (!Number.isFinite(pct) || pct <= 0) return 1;
+    return 1 - pct / 100;
+  }
+
+  const amount = Number(raw);
+  const base = Number(bill.discount_applied_on_amount) || 0;
+  if (!Number.isFinite(amount) || amount <= 0 || base <= 0) return 1;
+  return 1 - amount / base;
+}
+
+/** A line's own discount, if the vendor itemised it rather than discounting the bill. */
+function lineDiscountFactor(li) {
+  const amount = Number(li?.discount_amount) || 0;
+  const gross = (Number(li?.rate) || 0) * (Number(li?.quantity) || 0);
+  if (amount > 0 && gross > 0) return 1 - amount / gross;
+
+  const raw = li?.discount;
+  if (raw === undefined || raw === null || raw === '' || raw === 0) return 1;
+  const pct = parseFloat(String(raw));
+  if (!Number.isFinite(pct) || pct <= 0) return 1;
+  return 1 - pct / 100;
+}
+
 /** Flatten one Zoho bill into one history entry per item line. */
 function entriesFromBill(bill) {
   const inclusive = bill.is_inclusive_tax === true;
+  const billFactor = billDiscountFactor(bill);
   const out = [];
   for (const li of bill.line_items || []) {
     // Freight, loading and discount lines carry no item_id; there is nothing to
     // compare them against, so they are not purchase history.
     if (!li.item_id) continue;
     const gstRate = Number(li.tax_percentage) || 0;
+    const factor = billFactor * lineDiscountFactor(li);
+    const grossIncl = toInclusive(li.rate, gstRate, inclusive);
+    const grossExcl = inclusive
+      ? round2((Number(li.rate) || 0) / (1 + gstRate / 100))
+      : round2(Number(li.rate) || 0);
     out.push({
       itemId: String(li.item_id),
       name: li.name || '',
@@ -73,8 +136,14 @@ function entriesFromBill(bill) {
       lastDate: bill.date || '',
       quantity: Number(li.quantity) || 0,
       gstRate,
-      rateExcl: inclusive ? round2((Number(li.rate) || 0) / (1 + gstRate / 100)) : round2(Number(li.rate) || 0),
-      rateIncl: toInclusive(li.rate, gstRate, inclusive),
+      // Net of discount — what the stock actually cost, and the only figure
+      // worth comparing with a selling price.
+      rateExcl: round2(grossExcl * factor),
+      rateIncl: round2(grossIncl * factor),
+      // Kept so the report can show WHY a cost differs from the printed rate;
+      // without it a discounted line looks like a data error.
+      grossRateIncl: grossIncl,
+      discountPct: factor === 1 ? 0 : round2((1 - factor) * 100),
       vendorId: bill.vendor_id || null,
       vendorName: bill.vendor_name || '',
       updatedAt: new Date().toISOString(),
@@ -163,6 +232,8 @@ async function syncFromBills({ full = false, dryRun = false } = {}, traceContext
 
 module.exports = {
   syncFromBills,
+  billDiscountFactor,
+  lineDiscountFactor,
   marginFor,
   entriesFromBill,
   reduceToLatest,
