@@ -207,6 +207,10 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
       hasVariants: true,
       appVisible: isAppVisible(firstVariantItem),
       bulkVisible: isBulkItem(firstVariantItem),
+      // Non-stock lines (freight, loading, service charges) are Zoho items too.
+      // They can be bought and sold but hold no stock and have no meaningful
+      // margin, so consumers that compare cost against price must skip them.
+      trackInventory: firstVariantItem ? firstVariantItem.track_inventory !== false : true,
       priceRange,
       variants,
       gst_percentage: firstVariantItem ? extractGST(firstVariantItem) : 0,
@@ -237,6 +241,7 @@ async function getAllProducts(category = null, traceContext = null, opts = {}) {
         hasVariants: false,
         appVisible: isAppVisible(item),
         bulkVisible: isBulkItem(item),
+        trackInventory: item.track_inventory !== false,
         price: item.rate,
         stock: item.stock_on_hand || 0,
         available_stock: item.available_stock || 0,

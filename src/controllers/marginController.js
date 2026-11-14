@@ -38,6 +38,11 @@ const listMargins = async (req, res) => {
     // variant — that is what a bill line refers to.
     const rows = [];
     for (const p of products) {
+      // Freight, loading and other charge lines are Zoho items but hold no
+      // stock. Comparing a freight charge against a ₹1 placeholder "price"
+      // produced a -1,257,212% row that buried the real findings.
+      if (p.trackInventory === false) continue;
+
       const targets = p.hasVariants && Array.isArray(p.variants) && p.variants.length
         ? p.variants.map(v => ({ id: v.id, name: `${p.name} ${v.name || ''}`.trim(), rate: v.price }))
         : [{ id: p.id, name: p.name, rate: p.price }];
