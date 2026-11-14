@@ -118,7 +118,7 @@ async function listAllBills() {
  * walks every bill, which is why the backfill is a script rather than something
  * a page load can trigger.
  */
-async function syncFromBills({ full = false } = {}, traceContext = null) {
+async function syncFromBills({ full = false, dryRun = false } = {}, traceContext = null) {
   const watermark = full ? null : await repo.getWatermark(traceContext);
   const bills = await listAllBills();
 
@@ -138,19 +138,27 @@ async function syncFromBills({ full = false } = {}, traceContext = null) {
   }
 
   const latest = reduceToLatest(entries);
-  const written = await repo.upsertMany(latest, traceContext);
+  // A dry run proves the Zoho side end-to-end — paging, detail fetches, the
+  // inclusive conversion — without touching Firestore, so the target project
+  // can be confirmed before anything is persisted.
+  const written = dryRun ? 0 : await repo.upsertMany(latest, traceContext);
 
   const newWatermark = bills.reduce(
     (max, b) => (String(b.last_modified_time || '') > String(max) ? b.last_modified_time : max),
     watermark || ''
   );
-  if (newWatermark) {
+  if (newWatermark && !dryRun) {
     await repo.setWatermark(newWatermark, { billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written }, traceContext);
   }
 
-  logger.info({ billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written, full },
+  logger.info({ billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written, full, dryRun },
     'purchase_history.synced');
-  return { billsScanned: bills.length, billsChanged: changed.length, itemsWritten: written };
+  return {
+    billsScanned: bills.length,
+    billsChanged: changed.length,
+    itemsWritten: written,
+    ...(dryRun ? { itemsWouldWrite: latest.length, dryRun: true } : {}),
+  };
 }
 
 module.exports = {
