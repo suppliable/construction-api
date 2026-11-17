@@ -188,7 +188,10 @@ function toZohoPayload(bill) {
       // so the bill total matches the vendor's document to the paisa.
       rate: l.rate,
       quantity: l.quantity,
-      ...(l.unit ? { unit: l.unit } : {}),
+      // `unit` is deliberately NOT sent. Zoho takes it from the item, and a
+      // value that does not match a unit configured in the org is rejected —
+      // the catalogue's unit string is free text ("box", "Pcs"), so sending it
+      // can only ever fail, never help.
     })),
   };
   if (bill.dueDate) payload.due_date = bill.dueDate;
@@ -210,7 +213,17 @@ function toZohoPayload(bill) {
  */
 async function createBill(body, traceContext = null) {
   const bill = assembleBill(body);
-  const res = await zohoPost(BILLS_URL, toZohoPayload(bill));
+  const payload = toZohoPayload(bill);
+
+  let res;
+  try {
+    res = await zohoPost(BILLS_URL, payload);
+  } catch (err) {
+    // Carry the payload on the error so the handler can log exactly what Zoho
+    // refused. Without it the log says "invalid value" and names no field.
+    err.zohoPayload = payload;
+    throw err;
+  }
   const created = res.data?.bill;
   if (!created) throw new ValidationError('Zoho did not return a bill', 'ZOHO_NO_BILL');
 

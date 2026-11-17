@@ -10,14 +10,26 @@ function sendError(res, err, log, label) {
   if (err && err.statusCode) {
     return res.status(err.statusCode).json({ success: false, error: err.code, message: err.message });
   }
-  if (log) log.error({ err: err.response?.data || err.message }, label);
-  // Zoho's own message is the useful one here ("bill number already exists"),
-  // and this route is admin-only, so it is passed through rather than hidden.
-  return res.status(500).json({
-    success: false,
-    error: 'SERVER_ERROR',
-    message: err.response?.data?.message || err.message,
-  });
+
+  // A Zoho rejection is a problem with what we sent, not a server fault, and
+  // its message is the only thing that says what to change ("bill number
+  // already exists", "invalid value for unit"). Returning 5xx hid it: the
+  // sanitizeServerErrors middleware replaces every 5xx message with generic
+  // copy, so the admin saw "Something went wrong" and the real reason stayed
+  // in the logs. 422 keeps Zoho's own words on screen.
+  const zoho = err?.response?.data;
+  if (zoho && (zoho.code !== undefined || zoho.message)) {
+    if (log) log.warn({ zohoCode: zoho.code, zohoMessage: zoho.message, payload: err.zohoPayload }, label);
+    return res.status(422).json({
+      success: false,
+      error: 'ZOHO_REJECTED',
+      message: zoho.message || 'Zoho rejected the bill',
+      zohoCode: zoho.code ?? null,
+    });
+  }
+
+  if (log) log.error({ err: err.message }, label);
+  return res.status(500).json({ success: false, error: 'SERVER_ERROR', message: err.message });
 }
 
 // GET /api/v1/admin/bills/vendors
