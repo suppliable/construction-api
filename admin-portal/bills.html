@@ -7,16 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Deliberately the POS vocabulary — same variables, same cart-layout grid,
-     same product-card and qty-stepper — so entering a bill feels like running
-     the till rather than filling in a form. */
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   :root {
     --navy:#1e2235; --navy-light:#2a3050;
-    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --red:#e53935; --bg:#f0f2f7; --card:#ffffff;
     --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
-    --blue2:#3b82f6; --purple:#8b5cf6; --green:#10b981; --red2:#ef4444;
-    --amber:#f59e0b;
+    --blue2:#3b82f6; --green:#10b981; --red2:#ef4444; --amber:#f59e0b;
   }
   body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
   .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; flex-shrink:0; position:fixed; }
@@ -24,93 +20,88 @@
   .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
   .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
   .sidebar-nav { flex:1; padding:12px 0; overflow-y:auto; }
-  .nav-item { display:block; padding:10px 16px; color:rgba(255,255,255,0.65); text-decoration:none; font-size:14px; font-weight:500; border-left:3px solid transparent; transition:all 0.15s; }
+  .nav-item { display:block; padding:10px 16px; color:rgba(255,255,255,0.65); text-decoration:none; font-size:14px; font-weight:500; border-left:3px solid transparent; transition:all .15s; }
   .nav-item:hover { background:var(--navy-light); color:#fff; }
   .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
   .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
   .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
-  .topbar { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:30; }
+  .topbar { background:var(--navy); color:#fff; padding:14px 22px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:30; }
   .topbar h1 { font-size:19px; font-weight:700; }
-  .content { padding:20px; flex:1; }
-  .btn { padding:8px 15px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; font-family:inherit; transition:all 0.15s; }
-  .btn-primary { background:var(--blue2); color:#fff; }
-  .btn-primary:hover { background:#2563eb; }
+  .content { padding:22px; flex:1; }
+  .btn { padding:9px 16px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; font-family:inherit; }
   .btn-ghost { background:#fff; color:var(--navy); }
-  .btn-sm { padding:5px 11px; font-size:12px; }
-  .btn:disabled { opacity:0.45; cursor:not-allowed; }
+  .btn-sm { padding:6px 12px; font-size:12px; }
 
-  /* ── two-pane POS layout ───────────────────────────────────────────────── */
-  .cart-layout { display:grid; grid-template-columns:1fr 400px; gap:20px; align-items:start; }
-  .panel { border:1.5px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; }
-  .panel-header { padding:11px 15px; background:#f8f9fc; border-bottom:1px solid var(--border); font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:space-between; }
-  .panel-body { padding:14px 15px; }
+  .card { background:#fff; border:1.5px solid var(--border); border-radius:10px; margin-bottom:18px; }
+  .card-header { padding:12px 18px; background:#f8f9fc; border-bottom:1px solid var(--border); font-size:14px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
+  .card-body { padding:18px; }
 
-  .search-big { width:100%; padding:13px 15px; border:2px solid var(--border); border-radius:9px; font-size:15px; font-family:inherit; outline:none; }
-  .search-big:focus { border-color:var(--blue2); }
-
-  .product-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:11px; margin-top:14px; }
-  .product-card { border:1.5px solid var(--border); border-radius:10px; background:#fff; display:flex; flex-direction:column; cursor:pointer; transition:box-shadow .15s,border-color .15s; }
-  .product-card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.08); border-color:var(--blue2); }
-  .product-card-body { padding:11px 12px; flex:1; display:flex; flex-direction:column; gap:3px; }
-  .product-card-name { font-size:13px; font-weight:600; line-height:1.35; }
-  .product-card-cat { font-size:11px; color:var(--muted); }
-  .product-card-price { font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--blue2); }
-  .product-card.added { border-color:var(--green); background:#f0fdf4; }
-
-  /* ── bill panel ────────────────────────────────────────────────────────── */
-  .bill-panel { position:sticky; top:72px; display:flex; flex-direction:column; max-height:calc(100vh - 92px); }
-  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
-  .field-group { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+  .field-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; }
+  .field-group { display:flex; flex-direction:column; gap:4px; }
   .field-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.3px; }
-  .field-input { padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; font-family:inherit; outline:none; background:#fff; }
+  .field-input { padding:10px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:14px; font-family:inherit; outline:none; background:#fff; width:100%; }
   .field-input:focus { border-color:var(--blue2); }
-
-  .seg { display:inline-flex; border:1.5px solid var(--border); border-radius:7px; overflow:hidden; width:100%; }
-  .seg button { flex:1; padding:7px 10px; border:none; background:#fff; font-family:inherit; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .seg { display:inline-flex; border:1.5px solid var(--border); border-radius:7px; overflow:hidden; }
+  .seg button { padding:9px 16px; border:none; background:#fff; font-family:inherit; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
   .seg button.on { background:var(--navy); color:#fff; }
 
-  .cart-items-list { overflow-y:auto; flex:1; min-height:90px; border-top:1px solid var(--border); }
-  .cart-empty { padding:36px 20px; text-align:center; color:var(--muted); font-size:13px; }
-  .cart-item { padding:10px 14px; border-bottom:1px solid var(--border); }
-  .cart-item:last-child { border-bottom:none; }
-  .cart-item.underwater { background:#fff5f5; }
-  .cart-item-top { display:flex; align-items:flex-start; gap:8px; }
-  .cart-item-name { font-size:13px; font-weight:600; line-height:1.3; flex:1; min-width:0; }
-  .btn-remove-cart { background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; padding:0 2px; }
-  .btn-remove-cart:hover { color:var(--red2); }
-  .cart-row2 { display:flex; align-items:center; gap:7px; margin-top:7px; flex-wrap:wrap; }
-  .qty-stepper { display:flex; align-items:center; flex-shrink:0; }
-  .qty-btn { width:25px; height:26px; border:1px solid var(--border); background:#fff; font-size:14px; font-weight:700; cursor:pointer; }
-  .qty-btn:first-child { border-radius:6px 0 0 6px; }
-  .qty-btn:last-child { border-radius:0 6px 6px 0; }
-  .qty-btn:hover { background:var(--bg); }
-  .qty-input { width:46px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 2px; font-family:'JetBrains Mono',monospace; -moz-appearance:textfield; }
-  .qty-input::-webkit-outer-spin-button,.qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
-  .rate-input { width:86px; padding:4px 7px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; outline:none; text-align:right; }
-  .rate-input:focus { border-color:var(--blue2); }
-  .gst-input { width:52px; padding:4px 6px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; text-align:right; }
-  .mini { font-size:11px; color:var(--muted); }
+  /* ── Zoho-style item table ─────────────────────────────────────────────── */
+  .item-table { width:100%; border-collapse:collapse; }
+  .item-table thead th { text-align:left; padding:11px 12px; background:#f8f9fc; border-bottom:1.5px solid var(--border);
+    font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; }
+  .item-table thead th.num { text-align:right; }
+  .item-table tbody td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .item-table tbody tr:last-child td { border-bottom:none; }
+  .item-table tbody tr.underwater { background:#fff6f6; }
+  .cell-num { text-align:right; font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; white-space:nowrap; }
+  .item-name { font-size:14px; font-weight:600; line-height:1.35; }
+  .item-sub { font-size:11.5px; color:var(--muted); margin-top:2px; }
 
-  .margin-line { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:6px; font-size:11.5px; }
-  .margin-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; font-family:'JetBrains Mono',monospace; }
-  .mb-ok { background:#e7f6ec; color:#137333; }
-  .mb-bad { background:#fde8e8; color:#c5221f; }
-  .mb-none { background:#f1f5f9; color:var(--muted); }
-  .hint-pack { color:var(--amber); font-weight:600; font-size:11px; margin-top:4px; }
-  .btn-fixprice { background:#eff6ff; border:1.5px solid var(--blue2); color:var(--blue2); border-radius:6px; padding:2px 8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
+  /* Generous targets: these are typed into all day. */
+  .tin { width:100%; padding:9px 10px; border:1.5px solid var(--border); border-radius:7px;
+    font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; text-align:right; outline:none; background:#fff; }
+  .tin:focus { border-color:var(--blue2); box-shadow:0 0 0 3px rgba(59,130,246,.12); }
+  .tin::-webkit-outer-spin-button,.tin::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .tin { -moz-appearance:textfield; }
+  .w-qty { width:92px; } .w-rate { width:118px; } .w-gst { width:78px; }
 
-  .cart-totals { padding:11px 14px; border-top:1px solid var(--border); background:#f8f9fc; }
-  .totals-row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:3px 0; color:var(--muted); }
-  .totals-row .amt { font-family:'JetBrains Mono',monospace; }
-  .totals-row.grand { font-size:16px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:8px; margin-top:5px; }
-  .cart-foot { padding:12px 14px; border-top:1px solid var(--border); }
-  .btn-save { width:100%; padding:13px; border-radius:9px; border:none; background:var(--green); color:#fff; font-family:inherit; font-size:15px; font-weight:700; cursor:pointer; }
+  .btn-row-del { background:none; border:1.5px solid transparent; border-radius:7px; color:var(--muted);
+    cursor:pointer; font-size:17px; line-height:1; padding:7px 10px; }
+  .btn-row-del:hover { color:var(--red2); border-color:#fecaca; background:#fef2f2; }
+
+  .badge { display:inline-flex; align-items:center; padding:3px 10px; border-radius:11px; font-size:12px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .b-ok { background:#e7f6ec; color:#137333; }
+  .b-bad { background:#fde8e8; color:#c5221f; }
+  .b-none { background:#f1f5f9; color:var(--muted); }
+  .btn-fixprice { background:#eff6ff; border:1.5px solid var(--blue2); color:var(--blue2); border-radius:7px;
+    padding:5px 11px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; white-space:nowrap; }
+  .hint-pack { color:#b45309; font-weight:600; font-size:11.5px; margin-top:3px; }
+
+  .add-bar { padding:14px 18px; border-top:1px solid var(--border); background:#fbfcfe; position:relative; }
+  .search-big { width:100%; padding:12px 14px; border:2px dashed var(--border); border-radius:9px; font-size:14px; font-family:inherit; outline:none; background:#fff; }
+  .search-big:focus { border-style:solid; border-color:var(--blue2); }
+  .sresults { position:absolute; z-index:50; left:18px; right:18px; background:#fff; border:1.5px solid var(--border);
+    border-radius:9px; max-height:320px; overflow-y:auto; box-shadow:0 10px 30px rgba(15,18,32,.14); margin-top:4px; }
+  .sitem { padding:11px 14px; cursor:pointer; border-bottom:1px solid var(--border); }
+  .sitem:last-child { border-bottom:none; }
+  .sitem:hover, .sitem.hi { background:#eff6ff; }
+  .sitem-name { font-size:13.5px; font-weight:600; }
+  .sitem-meta { font-size:11.5px; color:var(--muted); margin-top:2px; }
+
+  .foot-grid { display:grid; grid-template-columns:1fr 400px; gap:20px; align-items:start; }
+  .totals-box { background:#f8f9fc; border:1.5px solid var(--border); border-radius:10px; padding:16px 18px; }
+  .trow { display:flex; justify-content:space-between; align-items:center; font-size:14px; padding:5px 0; color:var(--muted); }
+  .trow .amt { font-family:'JetBrains Mono',monospace; font-weight:600; color:var(--text); }
+  .trow.grand { font-size:18px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:11px; margin-top:7px; }
+  .btn-save { width:100%; margin-top:14px; padding:14px; border-radius:9px; border:none; background:var(--green);
+    color:#fff; font-family:inherit; font-size:15px; font-weight:700; cursor:pointer; }
   .btn-save:hover { background:#059669; }
   .btn-save:disabled { background:#9ca3af; cursor:not-allowed; }
 
-  .toast { position:fixed; bottom:22px; right:22px; background:var(--navy); color:#fff; padding:13px 20px; border-radius:10px; font-size:14px; font-weight:500; z-index:9999; display:none; max-width:460px; }
+  .toast { position:fixed; bottom:22px; right:22px; background:var(--navy); color:#fff; padding:13px 20px;
+    border-radius:10px; font-size:14px; font-weight:500; z-index:9999; display:none; max-width:480px; }
   .toast.show { display:block; }
-  .empty { text-align:center; padding:34px; color:var(--muted); font-size:14px; }
+  .empty-row td { text-align:center; padding:34px; color:var(--muted); font-size:14px; }
 </style>
 </head>
 <body>
@@ -151,98 +142,96 @@
       <a class="btn btn-sm btn-ghost" style="text-decoration:none;" href="margins.html">📈 Margins</a>
     </div>
   </div>
+<div class="main">
+  <div class="topbar">
+    <h1>🧾 Enter Vendor Bill</h1>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span id="hdrTotal" style="font-size:14px; color:rgba(255,255,255,.7); font-family:'JetBrains Mono',monospace;"></span>
+      <a class="btn btn-sm btn-ghost" style="text-decoration:none;" href="margins.html">📈 Margins</a>
+    </div>
+  </div>
 
   <div class="content">
-    <div class="cart-layout">
 
-      <!-- LEFT: find and add items -->
-      <div>
-        <div class="panel">
-          <div class="panel-header">Find items</div>
-          <div class="panel-body">
-            <input id="itemSearch" class="search-big" autocomplete="off"
-                   placeholder="Search the Zoho catalogue — type at least 2 characters…" oninput="onSearch()">
-            <div id="results" class="product-grid"></div>
-            <div id="resultsEmpty" class="empty">Search above, then tap an item to add it to the bill.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- RIGHT: the bill -->
-      <div class="panel bill-panel">
-        <div class="panel-header">
-          <span>This bill</span>
-          <span id="lineCount" class="mini">0 items</span>
-        </div>
-
-        <div class="panel-body" style="border-bottom:1px solid var(--border);">
-          <div class="field-group">
-            <span class="field-label">Vendor *</span>
-            <select id="vendor" class="field-input"><option value="">Loading…</option></select>
-          </div>
-          <div class="field-group">
-            <span class="field-label">Bill number *</span>
-            <input id="billNumber" class="field-input" placeholder="TN2601842025">
-          </div>
-          <div class="field-row">
-            <div class="field-group">
-              <span class="field-label">Bill date *</span>
-              <input type="date" id="billDate" class="field-input">
-            </div>
-            <div class="field-group">
-              <span class="field-label">Due date</span>
-              <input type="date" id="dueDate" class="field-input">
-            </div>
-          </div>
-          <div class="field-group" style="margin-bottom:0;">
-            <span class="field-label">Rates are</span>
+    <div class="card">
+      <div class="card-header">Bill details</div>
+      <div class="card-body">
+        <div class="field-grid">
+          <div class="field-group"><span class="field-label">Vendor *</span>
+            <select id="vendor" class="field-input"><option value="">Loading…</option></select></div>
+          <div class="field-group"><span class="field-label">Bill number *</span>
+            <input id="billNumber" class="field-input" placeholder="TN2601842025"></div>
+          <div class="field-group"><span class="field-label">Bill date *</span>
+            <input type="date" id="billDate" class="field-input"></div>
+          <div class="field-group"><span class="field-label">Due date</span>
+            <input type="date" id="dueDate" class="field-input"></div>
+          <div class="field-group"><span class="field-label">Rates are</span>
             <div class="seg">
               <button id="mExcl" class="on" onclick="setMode('excl')">Excl. GST</button>
               <button id="mIncl" onclick="setMode('incl')">Incl. GST</button>
-            </div>
+            </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span>Item table</span>
+        <span id="lineCount" style="font-size:12px; font-weight:500; color:var(--muted);">0 items</span>
+      </div>
+
+      <table class="item-table">
+        <thead>
+          <tr>
+            <th style="width:30%">Item details</th>
+            <th class="num" style="width:104px">Quantity</th>
+            <th class="num" style="width:130px">Rate <span id="rateBasis">(excl GST)</span></th>
+            <th class="num" style="width:90px">GST %</th>
+            <th class="num" style="width:120px">Cost incl</th>
+            <th class="num" style="width:118px">Selling</th>
+            <th class="num" style="width:150px">Margin</th>
+            <th style="width:52px"></th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr class="empty-row"><td colspan="8">No items yet — search below to add one.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="add-bar">
+        <input id="itemSearch" class="search-big" autocomplete="off"
+               placeholder="➕  Add a row — type at least 2 characters to search the catalogue"
+               oninput="onSearch()" onkeydown="searchKey(event)" onblur="setTimeout(hideResults,180)">
+        <div id="sresults" class="sresults" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="foot-grid">
+      <div class="card" style="margin:0;">
+        <div class="card-header">Discount</div>
+        <div class="card-body">
+          <div class="field-grid">
+            <div class="field-group"><span class="field-label">Discount</span>
+              <input type="number" id="discount" class="field-input" min="0" step="0.01" value="0" oninput="recalc()"></div>
+            <div class="field-group"><span class="field-label">Type</span>
+              <div class="seg"><button id="dPct" class="on" onclick="setDiscPct(true)">%</button>
+                <button id="dAmt" onclick="setDiscPct(false)">₹</button></div></div>
+            <div class="field-group"><span class="field-label">Applied</span>
+              <div class="seg"><button id="dBefore" class="on" onclick="setDiscBefore(true)">Before GST</button>
+                <button id="dAfter" onclick="setDiscBefore(false)">After GST</button></div></div>
           </div>
-        </div>
-
-        <div id="lineBody" class="cart-items-list">
-          <div class="cart-empty">No items yet.<br>Search on the left to add one.</div>
-        </div>
-
-        <div class="panel-body" style="border-top:1px solid var(--border); padding-bottom:4px;">
-          <div class="field-row">
-            <div class="field-group">
-              <span class="field-label">Discount</span>
-              <input type="number" id="discount" class="field-input" min="0" step="0.01" value="0" oninput="render()">
-            </div>
-            <div class="field-group">
-              <span class="field-label">Type</span>
-              <div class="seg">
-                <button id="dPct" class="on" onclick="setDiscPct(true)">%</button>
-                <button id="dAmt" onclick="setDiscPct(false)">₹</button>
-              </div>
-            </div>
-          </div>
-          <div class="field-group">
-            <span class="field-label">Discount applied</span>
-            <div class="seg">
-              <button id="dBefore" class="on" onclick="setDiscBefore(true)">Before GST</button>
-              <button id="dAfter" onclick="setDiscBefore(false)">After GST</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="cart-totals">
-          <div class="totals-row"><span>Taxable</span><span class="amt" id="tTaxable">₹0</span></div>
-          <div class="totals-row"><span>GST</span><span class="amt" id="tTax">₹0</span></div>
-          <div class="totals-row"><span>Discount</span><span class="amt" id="tDisc">₹0</span></div>
-          <div class="totals-row grand"><span>Payable</span><span class="amt" id="tTotal">₹0</span></div>
-        </div>
-
-        <div class="cart-foot">
-          <button id="saveBtn" class="btn-save" onclick="submitBill()">Save to Zoho</button>
         </div>
       </div>
 
+      <div class="totals-box">
+        <div class="trow"><span>Sub total (taxable)</span><span class="amt" id="tTaxable">₹0</span></div>
+        <div class="trow"><span>GST</span><span class="amt" id="tTax">₹0</span></div>
+        <div class="trow"><span>Discount</span><span class="amt" id="tDisc">₹0</span></div>
+        <div class="trow grand"><span>Total</span><span class="amt" id="tTotal">₹0</span></div>
+        <button id="saveBtn" class="btn-save" onclick="submitBill()" disabled>Save to Zoho</button>
+      </div>
     </div>
+
   </div>
 </div>
 
@@ -270,59 +259,67 @@ function toast(msg, ok = true) {
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 function rupee(n) { return (n === null || n === undefined) ? '—' : '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 function r2(n) { return Math.round(n * 100) / 100; }
+// Inputs hold raw strings so a field can be cleared and retyped. Number('')
+// is 0, so coercing on every keystroke made a box impossible to empty.
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function logout() { sessionStorage.removeItem('adminToken'); window.location.href = 'login.html'; }
 
-let lines = [], results = [], mode = 'excl', discPct = true, discBefore = true;
+let lines = [], results = [], hi = -1, mode = 'excl', discPct = true, discBefore = true;
 document.getElementById('billDate').value = new Date().toISOString().slice(0, 10);
 
 function setMode(m) {
   mode = m;
   document.getElementById('mExcl').classList.toggle('on', m === 'excl');
   document.getElementById('mIncl').classList.toggle('on', m === 'incl');
-  render();
+  document.getElementById('rateBasis').textContent = m === 'excl' ? '(excl GST)' : '(incl GST)';
+  recalc();
 }
 function setDiscPct(v) {
   discPct = v;
   document.getElementById('dPct').classList.toggle('on', v);
   document.getElementById('dAmt').classList.toggle('on', !v);
-  render();
+  recalc();
 }
 function setDiscBefore(v) {
   discBefore = v;
   document.getElementById('dBefore').classList.toggle('on', v);
   document.getElementById('dAfter').classList.toggle('on', !v);
-  render();
+  recalc();
 }
 
 // ── search ───────────────────────────────────────────────────────────────────
 let searchTimer = null;
+function hideResults() { document.getElementById('sresults').style.display = 'none'; hi = -1; }
+
 function onSearch() {
   clearTimeout(searchTimer);
   const q = document.getElementById('itemSearch').value.trim();
-  if (q.length < 2) { results = []; return renderResults('Search above, then tap an item to add it to the bill.'); }
-  // Debounced: the catalogue search would otherwise run on every keystroke.
+  if (q.length < 2) return hideResults();
   searchTimer = setTimeout(async () => {
     const res = await api('GET', `/admin/purchases/items/search?q=${encodeURIComponent(q)}`);
-    results = res?.data?.items || [];
-    renderResults('Nothing matches that.');
-  }, 220);
+    results = res?.data?.items || []; hi = results.length ? 0 : -1;
+    drawResults();
+  }, 200);
 }
-
-function renderResults(emptyMsg) {
-  const box = document.getElementById('results');
-  const empty = document.getElementById('resultsEmpty');
-  box.innerHTML = results.map((i, n) => {
+function drawResults() {
+  const box = document.getElementById('sresults');
+  box.innerHTML = results.length ? results.map((i, n) => {
     const on = lines.some(l => l.itemId === i.itemId);
-    return `<div class="product-card ${on ? 'added' : ''}" onclick="addLine(${n})">
-      <div class="product-card-body">
-        <div class="product-card-name">${esc(i.name)}</div>
-        <div class="product-card-cat">${esc(i.unit || '')} · GST ${i.gstRate ?? 0}%</div>
-        <div class="product-card-price">${i.sellingRate ? rupee(i.sellingRate) + ' sell' : 'no price'}</div>
-        ${on ? '<div class="mini" style="color:#137333;font-weight:700;">✓ on this bill</div>' : ''}
-      </div></div>`;
-  }).join('');
-  empty.style.display = results.length ? 'none' : 'block';
-  empty.textContent = emptyMsg;
+    return `<div class="sitem ${n === hi ? 'hi' : ''}" onmousedown="addLine(${n})">
+      <div class="sitem-name">${esc(i.name)}${on ? ' <span style="color:#137333">✓ added</span>' : ''}</div>
+      <div class="sitem-meta">${esc(i.unit || '')} · GST ${i.gstRate ?? 0}% · ${i.sellingRate ? 'sells ' + rupee(i.sellingRate) : 'no selling price'}</div>
+    </div>`;
+  }).join('') : '<div class="sitem sitem-meta">Nothing matches that.</div>';
+  box.style.display = 'block';
+}
+// Keyboard-first: this is typed into repeatedly, so arrows + Enter beat reaching
+// for the mouse on every line.
+function searchKey(e) {
+  if (!results.length || document.getElementById('sresults').style.display === 'none') return;
+  if (e.key === 'ArrowDown') { hi = Math.min(hi + 1, results.length - 1); drawResults(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { hi = Math.max(hi - 1, 0); drawResults(); e.preventDefault(); }
+  else if (e.key === 'Enter' && hi >= 0) { addLine(hi); e.preventDefault(); }
+  else if (e.key === 'Escape') hideResults();
 }
 
 function addLine(n) {
@@ -331,23 +328,31 @@ function addLine(n) {
   if (lines.some(l => l.itemId === i.itemId)) { toast('Already on this bill', false); return; }
   lines.push({
     itemId: i.itemId, name: i.name, unit: i.unit || '',
-    gstRate: Number(i.gstRate) || 0, sellingRate: Number(i.sellingRate) || 0,
-    quantity: 1, rate: 0,
+    sellingRate: num(i.sellingRate),
+    quantity: '1', rate: '', gstRate: String(i.gstRate ?? 0),
   });
-  render(); renderResults('Nothing matches that.');
+  document.getElementById('itemSearch').value = '';
+  hideResults();
+  drawRows();
+  // Land the caret in the new row's rate box — it is the only thing still to type.
+  const el = document.getElementById('rate' + (lines.length - 1));
+  if (el) { el.focus(); el.select(); }
 }
-function setLine(i, f, v) { lines[i][f] = Number(v); render(); }
-function bumpQty(i, d) { lines[i].quantity = Math.max(0, r2((lines[i].quantity || 0) + d)); render(); }
-function removeLine(i) { lines.splice(i, 1); render(); renderResults('Nothing matches that.'); }
+function removeLine(i) { lines.splice(i, 1); drawRows(); }
+
+// Typing must never rebuild the row, or the focused input is destroyed and the
+// caret is lost after every character. drawRows() runs on add/remove only;
+// keystrokes go through recalc(), which touches the derived cells alone.
+function onEdit(i, field, el) { lines[i][field] = el.value; recalc(); }
 
 // ── maths (mirrors billService exactly) ──────────────────────────────────────
-function rateExcl(l) { return r2(mode === 'incl' ? (l.rate || 0) / (1 + (l.gstRate || 0) / 100) : (l.rate || 0)); }
-function rateIncl(l) { return mode === 'incl' ? (l.rate || 0) : (l.rate || 0) * (1 + (l.gstRate || 0) / 100); }
+function rateExcl(l) { return r2(mode === 'incl' ? num(l.rate) / (1 + num(l.gstRate) / 100) : num(l.rate)); }
+function rateIncl(l) { return mode === 'incl' ? num(l.rate) : num(l.rate) * (1 + num(l.gstRate) / 100); }
 
 function totals() {
-  const taxable = r2(lines.reduce((s, l) => s + rateExcl(l) * (l.quantity || 0), 0));
-  const grossIncl = r2(lines.reduce((s, l) => s + rateIncl(l) * (l.quantity || 0), 0));
-  const v = Number(document.getElementById('discount').value) || 0;
+  const taxable = r2(lines.reduce((s, l) => s + rateExcl(l) * num(l.quantity), 0));
+  const grossIncl = r2(lines.reduce((s, l) => s + rateIncl(l) * num(l.quantity), 0));
+  const v = num(document.getElementById('discount').value);
   const base = discBefore ? taxable : grossIncl;
   const discount = v <= 0 ? 0 : r2(discPct ? (base * v) / 100 : v);
   const total = discBefore
@@ -356,13 +361,66 @@ function totals() {
   return { taxable, tax: r2(grossIncl - taxable), grossIncl, discount, total, base };
 }
 
-function render() {
+function drawRows() {
+  document.getElementById('rows').innerHTML = lines.length
+    ? lines.map(rowHtml).join('')
+    : '<tr class="empty-row"><td colspan="8">No items yet — search below to add one.</td></tr>';
+  recalc();
+}
+
+function rowHtml(l, i) {
+  return `<tr id="row${i}">
+    <td>
+      <div class="item-name">${esc(l.name)}</div>
+      <div class="item-sub">${esc(l.unit)}</div>
+      <div id="hint${i}"></div>
+    </td>
+    <td><input id="qty${i}" class="tin w-qty" type="number" min="0" step="any" value="${esc(l.quantity)}"
+          oninput="onEdit(${i},'quantity',this)"></td>
+    <td><input id="rate${i}" class="tin w-rate" type="number" min="0" step="0.01" value="${esc(l.rate)}"
+          placeholder="0.00" oninput="onEdit(${i},'rate',this)"></td>
+    <td><input id="gst${i}" class="tin w-gst" type="number" min="0" step="0.01" value="${esc(l.gstRate)}"
+          oninput="onEdit(${i},'gstRate',this)"></td>
+    <td class="cell-num" id="cost${i}">—</td>
+    <td class="cell-num" id="sell${i}">—</td>
+    <td class="num" style="text-align:right;" id="margin${i}"></td>
+    <td style="text-align:center;"><button class="btn-row-del" title="Remove row" onclick="removeLine(${i})">✕</button></td>
+  </tr>`;
+}
+
+// Updates only derived cells and totals — never the inputs, so focus and the
+// caret survive.
+function recalc() {
   const t = totals();
   const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
 
-  document.getElementById('lineBody').innerHTML = lines.length
-    ? lines.map((l, i) => lineHtml(l, i, factor)).join('')
-    : '<div class="cart-empty">No items yet.<br>Search on the left to add one.</div>';
+  lines.forEach((l, i) => {
+    const cost = r2(rateIncl(l) * factor);
+    const sell = l.sellingRate || 0;
+    const has = cost > 0 && sell > 0;
+    const pct = has ? r2(((sell - cost) / sell) * 100) : null;
+    const under = has && cost >= sell;
+
+    const row = document.getElementById('row' + i);
+    if (row) row.classList.toggle('underwater', under);
+    const c = document.getElementById('cost' + i); if (c) c.textContent = cost ? rupee(cost) : '—';
+    const s = document.getElementById('sell' + i); if (s) s.textContent = sell ? rupee(sell) : '—';
+
+    const m = document.getElementById('margin' + i);
+    if (m) {
+      let badge = '<span class="badge b-none">no selling price</span>';
+      if (sell && !cost) badge = '<span class="badge b-none">enter rate</span>';
+      else if (has) badge = `<span class="badge ${pct < 0 ? 'b-bad' : 'b-ok'}">${pct.toFixed(1)}%</span>`;
+      const fix = (under || !sell)
+        ? ` <button class="btn-fixprice" onclick="fixPrice(${i},${cost})">Set price</button>` : '';
+      m.innerHTML = badge + fix;
+    }
+    const h = document.getElementById('hint' + i);
+    // A steep negative is nearly always the wrong pack — a 20L bought against a
+    // price set for a smaller tin — not overpaying.
+    if (h) h.innerHTML = (under && pct !== null && pct < -50)
+      ? '<div class="hint-pack">⚠ Check pack size — wrong variant?</div>' : '';
+  });
 
   document.getElementById('tTaxable').textContent = rupee(t.taxable);
   document.getElementById('tTax').textContent = rupee(t.tax);
@@ -370,63 +428,17 @@ function render() {
   document.getElementById('tTotal').textContent = rupee(t.total);
   const n = lines.length;
   document.getElementById('lineCount').textContent = `${n} item${n === 1 ? '' : 's'}`;
-  document.getElementById('hdrCount').textContent = n ? `${n} item${n === 1 ? '' : 's'} · ${rupee(t.total)}` : '';
+  document.getElementById('hdrTotal').textContent = n ? rupee(t.total) : '';
   document.getElementById('saveBtn').disabled = !n;
-}
-
-function lineHtml(l, i, factor) {
-  const cost = r2(rateIncl(l) * factor);
-  const sell = l.sellingRate || 0;
-  const has = cost > 0 && sell > 0;
-  const pct = has ? r2(((sell - cost) / sell) * 100) : null;
-  const under = has && cost >= sell;
-
-  let badge = '<span class="margin-badge mb-none">no price</span>';
-  if (sell && !cost) badge = '<span class="margin-badge mb-none">enter rate</span>';
-  else if (has) badge = `<span class="margin-badge ${pct < 0 ? 'mb-bad' : 'mb-ok'}">${pct.toFixed(1)}%</span>`;
-
-  // A steep negative is nearly always the wrong pack — a 20L bought against a
-  // price set for a smaller tin — not overpaying. Raising the price would be
-  // the wrong fix, so say which to check.
-  const hint = under && pct !== null && pct < -50
-    ? '<div class="hint-pack">⚠ Check pack size — wrong variant?</div>' : '';
-
-  const fix = (under || !sell)
-    ? `<button class="btn-fixprice" onclick="fixPrice(${i}, ${cost})">Set price</button>` : '';
-
-  return `<div class="cart-item ${under ? 'underwater' : ''}">
-    <div class="cart-item-top">
-      <div class="cart-item-name">${esc(l.name)}<div class="mini">${esc(l.unit)}</div></div>
-      <button class="btn-remove-cart" onclick="removeLine(${i})" title="Remove">✕</button>
-    </div>
-    <div class="cart-row2">
-      <div class="qty-stepper">
-        <button class="qty-btn" onclick="bumpQty(${i},-1)">−</button>
-        <input class="qty-input" type="number" min="0" step="any" value="${l.quantity}" oninput="setLine(${i},'quantity',this.value)">
-        <button class="qty-btn" onclick="bumpQty(${i},1)">+</button>
-      </div>
-      <input class="rate-input" type="number" min="0" step="0.01" value="${l.rate}"
-             placeholder="rate" oninput="setLine(${i},'rate',this.value)">
-      <input class="gst-input" type="number" min="0" step="0.01" value="${l.gstRate}"
-             title="GST %" oninput="setLine(${i},'gstRate',this.value)">
-      <span class="mini">${mode === 'incl' ? 'incl' : 'excl'} · GST%</span>
-    </div>
-    <div class="margin-line">
-      <span class="mini">cost <strong>${rupee(cost)}</strong> · sells ${sell ? rupee(sell) : '—'}</span>
-      <span style="display:flex;gap:6px;align-items:center;">${badge}${fix}</span>
-    </div>
-    ${hint}
-  </div>`;
 }
 
 async function fixPrice(i, cost) {
   const l = lines[i];
-  const suggested = cost > 0 ? Math.ceil(cost * 1.1) : '';
   const input = prompt(
     `${l.name}\n\n` +
     (cost > 0 ? `This bill costs ₹${cost} incl GST.\n` : '') +
     (l.sellingRate ? `Currently selling at ₹${l.sellingRate}.\n\n` : 'No selling price is set.\n\n') +
-    'New selling price (incl GST):', suggested);
+    'New selling price (incl GST):', cost > 0 ? Math.ceil(cost * 1.1) : '');
   if (input === null) return;
   const rate = Number(input);
   if (!Number.isFinite(rate) || rate <= 0) { toast('Enter a valid price', false); return; }
@@ -434,7 +446,7 @@ async function fixPrice(i, cost) {
   if (!res.success) { toast(res.message || 'Could not update price', false); return; }
   l.sellingRate = Number(res.data.rate);
   toast(`Selling price set to ₹${res.data.rate}`);
-  render();
+  recalc();
 }
 
 // ── submit ───────────────────────────────────────────────────────────────────
@@ -445,8 +457,7 @@ async function submitBill() {
   const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
 
   // Not a block — the agreed behaviour is to show the margin, not refuse the
-  // bill. But saving without noticing is the failure this page exists to
-  // prevent, so an underwater line is acknowledged once.
+  // bill. But saving without noticing is the failure this page prevents.
   const bad = lines.filter(l => l.sellingRate > 0 && r2(rateIncl(l) * factor) >= l.sellingRate);
   if (bad.length) {
     const list = bad.map(l => `• ${l.name}: costs ₹${r2(rateIncl(l) * factor)}, sells at ₹${l.sellingRate}`).join('\n');
@@ -462,12 +473,12 @@ async function submitBill() {
     date: document.getElementById('billDate').value,
     dueDate: document.getElementById('dueDate').value || undefined,
     rateMode: mode,
-    discount: Number(document.getElementById('discount').value) || 0,
+    discount: num(document.getElementById('discount').value),
     discountIsPercent: discPct,
     discountBeforeTax: discBefore,
     lines: lines.map(l => ({
       itemId: l.itemId, name: l.name, unit: l.unit,
-      quantity: l.quantity, rate: l.rate, gstRate: l.gstRate,
+      quantity: num(l.quantity), rate: num(l.rate), gstRate: num(l.gstRate),
     })),
   });
   saving = false;
@@ -478,20 +489,17 @@ async function submitBill() {
   lines = [];
   document.getElementById('billNumber').value = '';
   document.getElementById('discount').value = 0;
-  document.getElementById('itemSearch').value = '';
-  results = [];
-  render(); renderResults('Search above, then tap an item to add it to the bill.');
+  drawRows();
 }
 
 async function loadVendors() {
   const res = await api('GET', '/admin/bills/vendors');
-  const sel = document.getElementById('vendor');
-  sel.innerHTML = '<option value="">Select a vendor…</option>' +
+  document.getElementById('vendor').innerHTML = '<option value="">Select a vendor…</option>' +
     (res?.data?.vendors || []).map(v => `<option value="${esc(v.vendorId)}">${esc(v.name)}</option>`).join('');
 }
 
 loadVendors();
-render();
+drawRows();
 </script>
 </body>
 </html>
