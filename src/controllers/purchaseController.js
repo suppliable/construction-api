@@ -255,6 +255,39 @@ async function lowStockCountsByVendor(traceContext) {
 // GET /api/v1/admin/purchases/items/search?q=
 // Searches the whole catalogue, not just low-stock items — a manager topping up
 // an order needs items that are above reorder level too.
+/**
+ * Rank catalogue items for a search box.
+ *
+ * Matches on TOKENS, not on the raw string. "finolex pipe" as one substring
+ * appears in none of the 1049 items, while 16 contain both words — so a
+ * literal match made a perfectly reasonable search look like an empty
+ * catalogue. Every token must appear somewhere in the name; word order does
+ * not matter.
+ *
+ * Ranked so the most specific match leads:
+ *   0  the name starts with the whole query
+ *   1  the name starts with the first token, and the rest appear
+ *   2  all tokens appear somewhere
+ * Ties break on the shorter name, which is almost always the more precise one
+ * ("Finolex Pvc Pipe 1 inch" before "Finolex Pvc Pipe 1 inch With Socket End").
+ */
+function rankCatalogue(all, query, limit) {
+  const tokens = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
+  const full = tokens.join(' ');
+
+  const scored = [];
+  for (const it of all) {
+    const name = String(it.name || '').toLowerCase();
+    if (!tokens.every(t => name.includes(t))) continue;
+    const tier = name.startsWith(full) ? 0 : name.startsWith(tokens[0]) ? 1 : 2;
+    scored.push({ it, tier, len: name.length, name });
+  }
+
+  scored.sort((a, b) => a.tier - b.tier || a.len - b.len || a.name.localeCompare(b.name));
+  return scored.slice(0, limit).map(s => s.it);
+}
+
 const searchItems = async (req, res) => {
   try {
     const q = String(req.query.q || '').trim().toLowerCase();
@@ -272,17 +305,7 @@ const searchItems = async (req, res) => {
     }
 
     const all = catalogue || [];
-    // Prefix matches first — typing "ram" should surface "Ramco…" above an item
-    // that merely contains "ram" mid-word.
-    const starts = [];
-    const contains = [];
-    for (const it of all) {
-      const name = String(it.name || '').toLowerCase();
-      if (name.startsWith(q)) starts.push(it);
-      else if (name.includes(q)) contains.push(it);
-      if (starts.length >= ITEM_SEARCH_LIMIT) break;
-    }
-    const items = [...starts, ...contains].slice(0, ITEM_SEARCH_LIMIT).map(i => ({
+    const items = rankCatalogue(all, q, ITEM_SEARCH_LIMIT).map(i => ({
       ...i,
       belowReorder: i.reorderLevel > 0 && i.stockOnHand <= i.reorderLevel,
       suggestedOrderQty: Math.max(0, i.reorderLevel - i.stockOnHand),
@@ -715,4 +738,5 @@ module.exports = {
   getChecklist,
   checkVendor,
   getChecklistHistory,
+  rankCatalogue,
 };
