@@ -128,6 +128,7 @@
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
   <div class="sidebar-bottom">
@@ -254,7 +255,12 @@ function r2(n) { return Math.round(n * 100) / 100; }
 // Inputs hold raw strings so a field can be cleared and retyped. Number('')
 // is 0, so coercing on every keystroke made a box impossible to empty.
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
-function logout() { sessionStorage.removeItem('adminToken'); window.location.href = 'login.html'; }
+function logout() {
+  // Ends the session server-side too, so the token cannot be replayed.
+  api('POST', '/admin/logout').catch(() => {});
+  sessionStorage.removeItem('adminToken'); sessionStorage.removeItem('adminUser');
+  window.location.href = 'login.html';
+}
 
 let lines = [], results = [], hi = -1, mode = 'excl', discPct = true, discBefore = true;
 document.getElementById('billDate').value = new Date().toISOString().slice(0, 10);

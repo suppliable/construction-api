@@ -167,6 +167,7 @@
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
   <div class="sidebar-bottom">
@@ -362,7 +363,13 @@ async function apiFetch(url, opts = {}) {
   if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Unauthorized'); }
   return res;
 }
-function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function logout() {
+  // End the session server-side too, so the token cannot be replayed.
+  fetch('/api/v1/admin/logout', { method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + (sessionStorage.getItem('adminToken') || '') } }).catch(() => {});
+  sessionStorage.clear();
+  window.location.href = 'login.html';
+}
 
 let allOrders = [];
 let activeOrderId = null;

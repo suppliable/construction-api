@@ -150,6 +150,7 @@
     <a class="nav-item" href="bulk-quotes.html">📝 Bulk Quotes</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
   <div class="sidebar-bottom">
@@ -202,7 +203,13 @@ const token = sessionStorage.getItem('adminToken');
 if (!token) window.location.href = 'login.html';
 
 function authHeaders(extra) { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...extra }; }
-function logout() { sessionStorage.clear(); window.location.href = 'login.html'; }
+function logout() {
+  // End the session server-side too, so the token cannot be replayed.
+  fetch('/api/v1/admin/logout', { method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + (sessionStorage.getItem('adminToken') || '') } }).catch(() => {});
+  sessionStorage.clear();
+  window.location.href = 'login.html';
+}
 
 const PLACEHOLDER = 'https://placehold.co/400x300?text=No+Image';
 function hasImage(url) { return url && !url.includes('placehold.co') && url.trim() !== ''; }
