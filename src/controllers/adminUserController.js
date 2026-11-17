@@ -6,6 +6,7 @@
 // manage_users capability.
 
 const authService = require('../services/adminAuthService');
+const audit = require('../services/auditService');
 
 function sendError(res, err, log, label) {
   if (err && err.statusCode) {
@@ -76,6 +77,8 @@ const listUsers = async (req, res) => {
 const createUser = async (req, res) => {
   try {
     const user = await authService.createUser(req.body || {}, req.adminUser?.userId, req.traceContext);
+    await audit.record(req, audit.ACTIONS.ADMIN_USER_CREATED,
+      { type: 'admin_user', id: user.userId, name: user.name }, null, { role: user.role });
     res.status(201).json({ success: true, data: user });
   } catch (err) {
     sendError(res, err, req.log, 'createAdminUser failed');
@@ -96,6 +99,9 @@ const setActive = async (req, res) => {
     const user = await authService.setActive(
       req.params.userId, isActive !== false, req.adminUser?.userId, req.traceContext
     );
+    await audit.record(req, audit.ACTIONS.ADMIN_USER_ACTIVE_CHANGED,
+      { type: 'admin_user', id: user.userId, name: user.name },
+      { before: !user.isActive, after: user.isActive });
     res.json({ success: true, data: user });
   } catch (err) {
     sendError(res, err, req.log, 'setAdminUserActive failed');
@@ -108,10 +114,24 @@ const setPassword = async (req, res) => {
     const user = await authService.setPassword(
       req.params.userId, req.body?.password, req.adminUser?.userId, req.traceContext
     );
+    await audit.record(req, audit.ACTIONS.ADMIN_USER_PASSWORD_RESET,
+      { type: 'admin_user', id: user.userId, name: user.name });
     res.json({ success: true, data: user });
   } catch (err) {
     sendError(res, err, req.log, 'setAdminUserPassword failed');
   }
 };
 
-module.exports = { login, logout, me, listUsers, createUser, setActive, setPassword };
+// GET /api/v1/admin/activity?actorId=&action=&from=&to=&limit=
+const activity = async (req, res) => {
+  try {
+    const { actorId, action, from, to } = req.query;
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    const rows = await audit.list({ actorId, action, from, to, limit }, req.traceContext);
+    res.json({ success: true, data: { rows, labels: audit.LABELS } });
+  } catch (err) {
+    sendError(res, err, req.log, 'activity failed');
+  }
+};
+
+module.exports = { login, logout, me, listUsers, createUser, setActive, setPassword, activity };

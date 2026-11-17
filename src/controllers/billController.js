@@ -5,6 +5,7 @@
 const billService = require('../services/billService');
 const { zohoGet } = require('../services/zohoHttp');
 const { getSyncState } = require('../repositories/purchaseHistoryRepository');
+const audit = require('../services/auditService');
 
 function sendError(res, err, log, label) {
   if (err && err.statusCode) {
@@ -83,6 +84,9 @@ const previewBill = async (req, res) => {
 const createBill = async (req, res) => {
   try {
     const bill = await billService.createBill(req.body || {}, req.traceContext);
+    await audit.record(req, audit.ACTIONS.BILL_CREATED,
+      { type: 'bill', id: bill.billId, name: bill.billNumber },
+      null, { total: bill.total, vendor: bill.vendorName });
     res.status(201).json({ success: true, data: bill });
   } catch (err) {
     sendError(res, err, req.log, 'createBill failed');

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const bcrypt = require('bcrypt');
+const audit = require('../services/auditService');
 const crypto = require('crypto');
 const { withRetry, DEFAULT_TIMEOUT_MS } = require('../utils/httpClient');
 const {
@@ -306,8 +307,14 @@ const acceptOrder = async (req, res) => {
       zoho_invoice_id: zohoInvoice?.invoice_id || null,
       zoho_invoice_number: zohoInvoice?.invoice_number || null,
       deliveryOtp,
-      acceptedAt: new Date().toISOString()
+      acceptedAt: new Date().toISOString(),
+      // Stamped on the order itself: logs age out, the order does not.
+      acceptedBy: req.adminUser?.userId || null,
     }, req.traceContext);
+
+    await audit.record(req, audit.ACTIONS.ORDER_ACCEPTED,
+      { type: 'order', id: orderId, name: order.customerName || null },
+      null, { amount: order.grand_total ?? null, zohoSalesOrder: zohoSO.salesorder_number });
 
     if (order.userId) {
       fcm.notifyOrderAccepted(order.userId, orderId)
@@ -342,8 +349,13 @@ const declineOrder = async (req, res) => {
 
     const updated = await updateOrder(orderId, {
       status: 'declined',
-      declinedAt: new Date().toISOString()
+      declinedAt: new Date().toISOString(),
+      declinedBy: req.adminUser?.userId || null,
     }, req.traceContext);
+
+    await audit.record(req, audit.ACTIONS.ORDER_DECLINED,
+      { type: 'order', id: orderId, name: order.customerName || null },
+      null, { amount: order.grand_total ?? null });
 
     res.json({ success: true, data: { order: formatTimestamps(updated) } });
   } catch (err) {
@@ -371,8 +383,13 @@ const markPaymentReceived = async (req, res) => {
       status: 'paid',
       rawProviderStatus: 'admin_manual',
       source: 'admin_manual',
-      actor: req.user?.uid || null,
+      // Was req.user?.uid, which is never set on admin routes — so the one
+      // place the code already tried to name an approver always recorded null.
+      actor: req.adminUser?.userId || null,
     }, req.traceContext);
+    await audit.record(req, audit.ACTIONS.PAYMENT_MARKED_RECEIVED,
+      { type: 'order', id: orderId, name: order.customerName || null },
+      null, { amount: order.grand_total ?? null, paymentType: order.paymentType });
     res.json({ success: true, data: { order: formatTimestamps(result) } });
   } catch (err) {
     req.log.error({ err: err.message, orderId: req.params.orderId }, 'markPaymentReceived failed');
@@ -1122,11 +1139,17 @@ const cancelOrder = async (req, res) => {
     await updateOrder(orderId, {
       status: 'cancelled',
       cancelledAt: new Date().toISOString(),
-      cancelledBy: 'admin',
+      // Was the literal string 'admin' — true of everyone, useful about no one.
+      cancelledBy: req.adminUser?.userId || 'admin',
       cancellationReason: reason,
       cancellationNote: note || null,
       zohoVoidRequired: true
     }, req.traceContext);
+
+    await audit.record(req, audit.ACTIONS.ORDER_CANCELLED,
+      { type: 'order', id: orderId, name: order.customerName || null },
+      { before: order.status, after: 'cancelled' },
+      { amount: order.grand_total ?? null, reason, note: note || null });
 
     if (order.driverId) {
       const driver = await getDriverById(order.driverId, req.traceContext).catch(() => null);

@@ -81,6 +81,10 @@ router.post('/logout', adminUsers.logout);
 router.get('/me', adminUsers.me);
 
 // User management is admin-only: these create credentials and revoke access.
+// Who did what. Visible to any signed-in admin user: accountability works by
+// being seen, and hiding it from staff would defeat the point.
+router.get('/activity', adminUsers.activity);
+
 router.get('/users', requireCapability('manage_users'), adminUsers.listUsers);
 router.post('/users', requireCapability('manage_users'), adminUsers.createUser);
 router.post('/users/:userId/active', requireCapability('manage_users'), adminUsers.setActive);
