@@ -14,11 +14,20 @@ jest.mock('../../repositories/purchaseHistoryRepository', () => ({
   getSyncState: jest.fn(), setSyncState: jest.fn(), listAll: jest.fn(), getOne: jest.fn(),
 }));
 
-const { zohoPost } = require('../zohoHttp');
+const { zohoPost, zohoGet } = require('../zohoHttp');
 const repo = require('../../repositories/purchaseHistoryRepository');
 const {
   assembleBill, billTotals, lineMargins, toZohoPayload, createBill,
 } = require('../billService');
+
+const DISCOUNT_ACCOUNTS = {
+  data: {
+    chartofaccounts: [
+      { account_id: 'ACC-INCOME', account_name: 'Discount', account_type: 'income', is_active: true },
+      { account_id: 'ACC-PURCH', account_name: 'Purchase Discounts', account_type: 'expense', is_active: true },
+    ],
+  },
+};
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -166,6 +175,11 @@ describe('toZohoPayload', () => {
     expect(p.line_items[0]).not.toHaveProperty('unit');
   });
 
+  test('carries the discount account when one is given', () => {
+    const p = toZohoPayload(assembleBill(base({ discount: 5 })), { discountAccountId: 'ACC-PURCH' });
+    expect(p.discount_account_id).toBe('ACC-PURCH');
+  });
+
   test('a percentage discount goes as Zoho formats it', () => {
     const p = toZohoPayload(assembleBill(base({ discount: 5, discountBeforeTax: true })));
     expect(p.discount).toBe('5%');
@@ -224,5 +238,62 @@ describe('createBill', () => {
   test('a response with no bill is surfaced, not treated as success', async () => {
     zohoPost.mockResolvedValue({ data: {} });
     await expect(createBill(base())).rejects.toThrow(/did not return a bill/);
+  });
+});
+
+// ── Discount account ────────────────────────────────────────────────────────
+// Zoho refuses a discounted bill without one: "Associate an account for
+// discount." The org has two candidates and only one is correct.
+
+describe('purchase discount account', () => {
+  const svc = require('../billService');
+
+  beforeEach(() => {
+    delete process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID;
+    svc._resetDiscountAccountCache();
+  });
+
+  test('picks the EXPENSE "Purchase Discounts" account, not the income "Discount" one', async () => {
+    zohoGet.mockResolvedValue(DISCOUNT_ACCOUNTS);
+    await expect(svc.purchaseDiscountAccountId()).resolves.toBe('ACC-PURCH');
+  });
+
+  test('resolves once, then serves from cache — it never changes', async () => {
+    zohoGet.mockResolvedValue(DISCOUNT_ACCOUNTS);
+    await svc.purchaseDiscountAccountId();
+    await svc.purchaseDiscountAccountId();
+    expect(zohoGet).toHaveBeenCalledTimes(1);
+  });
+
+  test('says what to do when no discount account exists', async () => {
+    zohoGet.mockResolvedValue({ data: { chartofaccounts: [] } });
+    await expect(svc.purchaseDiscountAccountId())
+      .rejects.toThrow(/Purchase Discounts.*ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID/s);
+  });
+
+  test('an undiscounted bill never looks the account up', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B1', bill_number: 'X', line_items: [] } } });
+    zohoGet.mockClear();
+    await createBill(base());
+    expect(zohoGet).not.toHaveBeenCalled();
+  });
+
+  test('a discounted bill sends the account id', async () => {
+    zohoGet.mockResolvedValue(DISCOUNT_ACCOUNTS);
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B2', bill_number: 'Y', line_items: [] } } });
+    await createBill(base({ discount: 5 }));
+    const [, payload] = zohoPost.mock.calls[0];
+    expect(payload.discount_account_id).toBeTruthy();
+    expect(payload.discount).toBe('5%');
+  });
+
+  test('an explicit env id wins, so it can be pinned', async () => {
+    process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID = 'ACC-PINNED';
+    zohoGet.mockClear();
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B3', bill_number: 'Z', line_items: [] } } });
+    await createBill(base({ discount: 5 }));
+    expect(zohoPost.mock.calls[0][1].discount_account_id).toBe('ACC-PINNED');
+    expect(zohoGet).not.toHaveBeenCalled();
+    delete process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID;
   });
 });

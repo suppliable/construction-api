@@ -16,13 +16,14 @@
 // Zoho stays the system of record. This writes a bill and nothing more — no
 // local bill store to drift out of step.
 
-const { zohoPost } = require('./zohoHttp');
+const { zohoPost, zohoGet } = require('./zohoHttp');
 const { entriesFromBill, reduceToLatest, marginFor } = require('./purchaseHistoryService');
 const repo = require('../repositories/purchaseHistoryRepository');
 const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 const BILLS_URL = 'https://www.zohoapis.in/books/v3/bills';
+const ACCOUNTS_URL = 'https://www.zohoapis.in/books/v3/chartofaccounts';
 
 const round2 = n => Math.round(n * 100) / 100;
 const str = v => (typeof v === 'string' ? v.trim() : '');
@@ -175,8 +176,46 @@ function lineMargins(bill, itemsById = new Map()) {
   });
 }
 
+// Zoho refuses a discounted bill without an account to post the discount to:
+// "Associate an account for discount." It must be the PURCHASE discount
+// account (expense) — the similarly named "Discount" account is income, for
+// reductions given on sales, and posting a vendor discount there would land it
+// on the wrong side of the P&L.
+//
+// Resolved once and cached: it is one row in the chart of accounts and never
+// changes. ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID pins it explicitly; without that
+// it is looked up by name, so a discounted bill works with no configuration.
+let discountAccountId = null;
+
+async function purchaseDiscountAccountId() {
+  if (process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID) {
+    return process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID;
+  }
+  if (discountAccountId) return discountAccountId;
+
+  const res = await zohoGet(ACCOUNTS_URL, {
+    params: { search_text: 'discount', filter_by: 'AccountType.Expense' },
+    label: 'zoho.api.listDiscountAccounts',
+  });
+  const accounts = (res.data?.chartofaccounts || []).filter(a => a.is_active !== false);
+  const match = accounts.find(a => /purchase\s*discount/i.test(a.account_name || ''))
+    || accounts.find(a => /discount/i.test(a.account_name || ''));
+
+  if (!match) {
+    throw new ValidationError(
+      'No purchase discount account exists in Zoho. Create an expense account named '
+        + '"Purchase Discounts", or set ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID.',
+      'NO_DISCOUNT_ACCOUNT'
+    );
+  }
+  discountAccountId = match.account_id;
+  logger.info({ accountId: match.account_id, name: match.account_name },
+    'bill.discount_account.resolved');
+  return discountAccountId;
+}
+
 /** Payload for POST /books/v3/bills. */
-function toZohoPayload(bill) {
+function toZohoPayload(bill, { discountAccountId: accountId = null } = {}) {
   const payload = {
     vendor_id: bill.vendorId,
     bill_number: bill.billNumber,
@@ -200,6 +239,7 @@ function toZohoPayload(bill) {
     payload.discount = bill.discountIsPercent ? `${bill.discountValue}%` : bill.discountValue;
     payload.discount_type = 'entity_level';
     payload.is_discount_before_tax = bill.discountBeforeTax;
+    if (accountId) payload.discount_account_id = accountId;
   }
   return payload;
 }
@@ -213,7 +253,10 @@ function toZohoPayload(bill) {
  */
 async function createBill(body, traceContext = null) {
   const bill = assembleBill(body);
-  const payload = toZohoPayload(bill);
+  // Only looked up when there is a discount, so an undiscounted bill costs no
+  // extra Zoho call.
+  const accountId = bill.discountValue > 0 ? await purchaseDiscountAccountId() : null;
+  const payload = toZohoPayload(bill, { discountAccountId: accountId });
 
   let res;
   try {
@@ -250,6 +293,10 @@ async function createBill(body, traceContext = null) {
 
 module.exports = {
   assembleBill,
+  purchaseDiscountAccountId,
+  // The resolved account is cached for the process lifetime; tests need to
+  // clear it to prove the lookup itself picks the right one.
+  _resetDiscountAccountCache: () => { discountAccountId = null; },
   billTotals,
   lineMargins,
   toZohoPayload,
