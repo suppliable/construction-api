@@ -9,6 +9,7 @@ const { marginFor, syncFromBills } = require('../services/purchaseHistoryService
 const { getAllProducts } = require('../services/productService');
 const { updateZohoItemRate } = require('../services/zohoService');
 const { invalidateProducts } = require('../cache/invalidate');
+const audit = require('../services/auditService');
 
 function badRequest(res, message) {
   return res.status(400).json({ success: false, error: 'VALIDATION_ERROR', message });
@@ -150,8 +151,21 @@ const setSellingPrice = async (req, res) => {
       });
     }
 
+    // The previous price, read before the write — the audit row is the only
+    // place it survives. Items live in Zoho, not Firestore, so there is no
+    // document of ours to stamp.
+    const previous = (await getAllProducts(null, req.traceContext, { includeHidden: true })
+      .then(ps => ps.find(p => p.id === itemId)
+        || ps.flatMap(p => p.variants || []).find(v => v.id === itemId))
+      .catch(() => null)) || null;
+
     const item = await updateZohoItemRate(itemId, rate, req.traceContext);
     await invalidateProducts().catch(() => {});
+
+    await audit.record(req, audit.ACTIONS.SELLING_PRICE_CHANGED,
+      { type: 'item', id: itemId, name: item?.name || previous?.name || null },
+      { before: previous?.price ?? previous?.rate ?? null, after: rate },
+      { lastPurchaseIncl: history?.rateIncl ?? null });
 
     res.json({
       success: true,
