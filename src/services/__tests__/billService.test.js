@@ -18,7 +18,17 @@ const { zohoPost, zohoGet } = require('../zohoHttp');
 const repo = require('../../repositories/purchaseHistoryRepository');
 const {
   assembleBill, billTotals, lineMargins, toZohoPayload, createBill,
+  taxIdFor, vendorTaxSpecification,
 } = require('../billService');
+
+// The org's real tax set: intra-state GST groups, inter-state IGST taxes.
+const TAXES = { data: { taxes: [
+  { tax_id: 'GST18', tax_percentage: 18, tax_specification: 'intra', tax_type: 'tax_group' },
+  { tax_id: 'GST5',  tax_percentage: 5,  tax_specification: 'intra', tax_type: 'tax_group' },
+  { tax_id: 'GST0',  tax_percentage: 0,  tax_specification: 'intra', tax_type: 'tax_group' },
+  { tax_id: 'IGST18', tax_percentage: 18, tax_specification: 'inter', tax_type: 'tax' },
+] } };
+const vendorWith = gstin => ({ data: { contact: { gst_no: gstin } } });
 
 const DISCOUNT_ACCOUNTS = {
   data: {
@@ -29,7 +39,19 @@ const DISCOUNT_ACCOUNTS = {
   },
 };
 
-beforeEach(() => jest.clearAllMocks());
+// createBill resolves the vendor's tax family, the tax list and (when
+// discounted) the discount account, so every test that creates a bill needs all
+// three routed. Re-installed wherever a describe clears mocks.
+function routeZoho() {
+  zohoGet.mockImplementation(async (url) => {
+    if (url.includes('/contacts/')) return vendorWith('33AAACA3622K1Z2');
+    if (url.includes('/settings/taxes')) return TAXES;
+    if (url.includes('/chartofaccounts')) return DISCOUNT_ACCOUNTS;
+    return { data: {} };
+  });
+}
+
+beforeEach(() => { jest.clearAllMocks(); routeZoho(); });
 
 const base = (over = {}) => ({
   vendorId: 'V1',
@@ -251,6 +273,7 @@ describe('purchase discount account', () => {
   beforeEach(() => {
     delete process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID;
     svc._resetDiscountAccountCache();
+    routeZoho();
   });
 
   test('picks the EXPENSE "Purchase Discounts" account, not the income "Discount" one', async () => {
@@ -271,15 +294,17 @@ describe('purchase discount account', () => {
       .rejects.toThrow(/Purchase Discounts.*ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID/s);
   });
 
-  test('an undiscounted bill never looks the account up', async () => {
+  test('an undiscounted bill never looks the discount account up', async () => {
     zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B1', bill_number: 'X', line_items: [] } } });
-    zohoGet.mockClear();
     await createBill(base());
-    expect(zohoGet).not.toHaveBeenCalled();
+    const urls = zohoGet.mock.calls.map(c => c[0]);
+    expect(urls.some(u => u.includes('/chartofaccounts'))).toBe(false);
   });
 
   test('a discounted bill sends the account id', async () => {
-    zohoGet.mockResolvedValue(DISCOUNT_ACCOUNTS);
+    // Uses the shared router: createBill needs the vendor, the tax list AND
+    // the discount account, so a blanket mockResolvedValue would starve two of
+    // the three.
     zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B2', bill_number: 'Y', line_items: [] } } });
     await createBill(base({ discount: 5 }));
     const [, payload] = zohoPost.mock.calls[0];
@@ -289,11 +314,76 @@ describe('purchase discount account', () => {
 
   test('an explicit env id wins, so it can be pinned', async () => {
     process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID = 'ACC-PINNED';
-    zohoGet.mockClear();
     zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B3', bill_number: 'Z', line_items: [] } } });
     await createBill(base({ discount: 5 }));
     expect(zohoPost.mock.calls[0][1].discount_account_id).toBe('ACC-PINNED');
-    expect(zohoGet).not.toHaveBeenCalled();
+    const urls = zohoGet.mock.calls.map(c => c[0]);
+    expect(urls.some(u => u.includes('/chartofaccounts'))).toBe(false);
     delete process.env.ZOHO_PURCHASE_DISCOUNT_ACCOUNT_ID;
+  });
+});
+
+// ── Line tax ────────────────────────────────────────────────────────────────
+// Zoho rejects a bill line with no tax: "Specify either a Tax or Tax Exemption
+// or Reverse Charge." Which family applies is decided by where the vendor is,
+// not by preference.
+
+describe('line tax', () => {
+  const svc = require('../billService');
+  beforeEach(() => { svc._resetDiscountAccountCache(); jest.clearAllMocks(); routeZoho(); });
+
+  test('a Tamil Nadu vendor is intra-state — CGST+SGST', async () => {
+    zohoGet.mockImplementation(async () => vendorWith('33AAACA3622K1Z2'));
+    await expect(vendorTaxSpecification('V1')).resolves.toBe('intra');
+  });
+
+  test('an out-of-state vendor is inter-state — IGST', async () => {
+    zohoGet.mockImplementation(async () => vendorWith('27AAPFU0939F1ZV'));
+    await expect(vendorTaxSpecification('V1')).resolves.toBe('inter');
+  });
+
+  test('a vendor with no GSTIN is treated as local, never IGST', async () => {
+    zohoGet.mockImplementation(async () => vendorWith(''));
+    await expect(vendorTaxSpecification('V1')).resolves.toBe('intra');
+  });
+
+  test('resolves the tax id by percentage within the right family', async () => {
+    await expect(taxIdFor(18, 'intra')).resolves.toBe('GST18');
+    await expect(taxIdFor(18, 'inter')).resolves.toBe('IGST18');
+  });
+
+  test('zero GST resolves too — it is a real tax, not an absence', async () => {
+    await expect(taxIdFor(0, 'intra')).resolves.toBe('GST0');
+  });
+
+  test('an unavailable percentage says what to do', async () => {
+    await expect(taxIdFor(13, 'intra')).rejects.toThrow(/No GST tax of 13% exists/);
+  });
+
+  test('a created bill carries tax_id on every line', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B1', bill_number: 'X', line_items: [] } } });
+
+    await createBill(base({
+      lines: [
+        { itemId: 'I1', quantity: 1, rate: 100, gstRate: 18 },
+        { itemId: 'I2', quantity: 1, rate: 50, gstRate: 5 },
+      ],
+    }));
+    const [, payload] = zohoPost.mock.calls[0];
+    expect(payload.line_items.map(l => l.tax_id)).toEqual(['GST18', 'GST5']);
+  });
+
+  test('looks a rate up once, however many lines share it', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B2', bill_number: 'Y', line_items: [] } } });
+
+    await createBill(base({
+      lines: [
+        { itemId: 'I1', quantity: 1, rate: 100, gstRate: 18 },
+        { itemId: 'I2', quantity: 1, rate: 50, gstRate: 18 },
+        { itemId: 'I3', quantity: 1, rate: 20, gstRate: 18 },
+      ],
+    }));
+    // one vendor fetch + one tax list fetch, not one per line
+    expect(zohoGet).toHaveBeenCalledTimes(2);
   });
 });
