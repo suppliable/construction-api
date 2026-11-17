@@ -67,23 +67,24 @@ const {
 } = require('../controllers/adminController');
 
 // Auth — no middleware on this route
-router.post('/auth', (req, res) => {
-  const { password } = req.body;
-  if (!password || password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, error: 'INVALID_PASSWORD', message: 'Invalid password' });
-  }
-  res.json({ success: true, data: { token: process.env.ADMIN_TOKEN } });
-});
+const adminUsers = require('../controllers/adminUserController');
+const { adminAuth, requireCapability } = require('../middleware/adminAuth');
 
-// Middleware: all routes below require valid token
-router.use((req, res, next) => {
-  const auth = req.headers.authorization || '';
-  const token = auth.replace('Bearer ', '').trim();
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Unauthorized' });
-  }
-  next();
-});
+router.post('/auth', adminUsers.login);
+
+// Middleware: everything below identifies WHO is calling, not merely that the
+// caller holds the one shared secret. req.adminUser is set, and req.log carries
+// adminUserId from here on, so every log line in the request is attributable.
+router.use(adminAuth);
+
+router.post('/logout', adminUsers.logout);
+router.get('/me', adminUsers.me);
+
+// User management is admin-only: these create credentials and revoke access.
+router.get('/users', requireCapability('manage_users'), adminUsers.listUsers);
+router.post('/users', requireCapability('manage_users'), adminUsers.createUser);
+router.post('/users/:userId/active', requireCapability('manage_users'), adminUsers.setActive);
+router.post('/users/:userId/password', requireCapability('manage_users'), adminUsers.setPassword);
 
 // Purchase management (low stock, POs, checklist, vendor schedule). Mounted
 // here rather than in routes/v1/index.js so it sits below the admin-token gate
@@ -102,7 +103,7 @@ router.post('/bills', billAdmin.createBill);
 const marginAdmin = require('../controllers/marginController');
 router.get('/margins', marginAdmin.listMargins);
 router.post('/margins/sync', marginAdmin.syncMargins);
-router.put('/margins/:itemId/selling-price', marginAdmin.setSellingPrice);
+router.put('/margins/:itemId/selling-price', requireCapability('change_prices'), marginAdmin.setSellingPrice);
 
 // Invalidate order detail cache only after a successful mutation response.
 // Doing this pre-handler can allow a race where stale data is re-cached

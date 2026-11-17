@@ -112,6 +112,7 @@
     <a class="nav-item active" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
   <div class="sidebar-bottom">
@@ -557,7 +558,10 @@ async function savePricing() {
 }
 
 function logout() {
-  sessionStorage.removeItem('adminToken');
+  // End the session server-side too, so the token cannot be replayed.
+  fetch('/api/v1/admin/logout', { method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + (sessionStorage.getItem('adminToken') || '') } }).catch(() => {});
+  sessionStorage.clear();
   window.location.href = 'login.html';
 }
 

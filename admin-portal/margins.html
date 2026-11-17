@@ -125,6 +125,7 @@
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
+    <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
   <div class="sidebar-bottom">
@@ -231,7 +232,12 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 function rupee(n) { return n === null || n === undefined ? '—' : '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
-function logout() { sessionStorage.removeItem('adminToken'); window.location.href = 'login.html'; }
+function logout() {
+  // Ends the session server-side too, so the token cannot be replayed.
+  api('POST', '/admin/logout').catch(() => {});
+  sessionStorage.removeItem('adminToken'); sessionStorage.removeItem('adminUser');
+  window.location.href = 'login.html';
+}
 
 let all = [];
 

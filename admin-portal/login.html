@@ -63,11 +63,15 @@
     <p>Order Management Portal</p>
   </div>
   <div class="form-group">
-    <label for="password">Admin Password</label>
-    <input type="password" id="password" placeholder="Enter password" autofocus>
+    <label for="email">Email</label>
+    <input type="email" id="email" placeholder="you@suppliable.in" autocomplete="username" autofocus>
+  </div>
+  <div class="form-group">
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="Enter password" autocomplete="current-password">
   </div>
   <button class="btn-login" id="loginBtn" onclick="doLogin()">Login</button>
-  <div class="error-msg" id="errorMsg">Invalid password. Please try again.</div>
+  <div class="error-msg" id="errorMsg">Incorrect email or password.</div>
 </div>
 
 <script>
@@ -77,11 +81,11 @@ if (sessionStorage.getItem('adminToken')) {
   window.location.href = 'orders.html';
 }
 
-document.getElementById('password').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
-});
+['email', 'password'].forEach(id =>
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); }));
 
 async function doLogin() {
+  const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value.trim();
   if (!password) return;
   const btn = document.getElementById('loginBtn');
@@ -92,13 +96,18 @@ async function doLogin() {
     const res = await fetch(`${API_BASE}/api/v1/admin/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      // Email omitted falls back to the shared-password login, which the API
+      // still accepts while people are being moved onto their own accounts.
+      body: JSON.stringify(email ? { email, password } : { password })
     });
     const data = await res.json();
     if (res.ok && data.data?.token) {
       sessionStorage.setItem('adminToken', data.data.token);
+      // Cached so every page can show who is signed in without another call.
+      sessionStorage.setItem('adminUser', JSON.stringify(data.data.user || {}));
       window.location.href = 'orders.html';
     } else {
+      err.textContent = data.message || 'Incorrect email or password.';
       err.classList.add('show');
       btn.disabled = false; btn.textContent = 'Login';
     }
