@@ -24,6 +24,13 @@ const logger = require('../utils/logger');
 
 const BILLS_URL = 'https://www.zohoapis.in/books/v3/bills';
 const ACCOUNTS_URL = 'https://www.zohoapis.in/books/v3/chartofaccounts';
+const TAXES_URL = 'https://www.zohoapis.in/books/v3/settings/taxes';
+const CONTACT_URL = 'https://www.zohoapis.in/books/v3/contacts';
+
+// The org's own GST state. Tamil Nadu is 33; it decides whether a purchase is
+// intra-state (CGST+SGST) or inter-state (IGST), so it is configurable rather
+// than assumed.
+const ORG_STATE_CODE = () => process.env.ZOHO_ORG_STATE_CODE || '33';
 
 const round2 = n => Math.round(n * 100) / 100;
 const str = v => (typeof v === 'string' ? v.trim() : '');
@@ -214,8 +221,56 @@ async function purchaseDiscountAccountId() {
   return discountAccountId;
 }
 
+// Zoho will not accept a bill line without a tax: "Specify either a Tax or Tax
+// Exemption or Reverse Charge." It does not fall back to the item's own tax
+// preference, so the tax id has to be sent explicitly.
+//
+// The org has two families, and which one applies is not a free choice — it is
+// decided by where the vendor is. A Tamil Nadu vendor charges CGST+SGST (the
+// "intra" tax GROUPS, GST0..GST40); anyone else charges IGST (the "inter"
+// taxes). Sending the wrong family would post a bill whose tax split does not
+// match the vendor's document.
+let taxCache = null;
+
+async function loadTaxes() {
+  if (taxCache) return taxCache;
+  const res = await zohoGet(TAXES_URL, { label: 'zoho.api.listTaxes' });
+  taxCache = (res.data?.taxes || []).filter(t => !t.is_inactive);
+  return taxCache;
+}
+
+/** Tax id for a GST percentage, in the family the vendor's location requires. */
+async function taxIdFor(gstRate, specification) {
+  const taxes = await loadTaxes();
+  const pct = Number(gstRate) || 0;
+  const match = taxes.find(t =>
+    Number(t.tax_percentage) === pct && t.tax_specification === specification);
+
+  if (!match) {
+    throw new ValidationError(
+      `No ${specification === 'inter' ? 'IGST' : 'GST'} tax of ${pct}% exists in Zoho. `
+        + 'Create it there, or correct the GST % on the line.',
+      'NO_MATCHING_TAX'
+    );
+  }
+  return match.tax_id;
+}
+
+/**
+ * intra or inter, from the vendor's own GSTIN.
+ *
+ * A vendor with no GSTIN is treated as local: an unregistered supplier here is
+ * a neighbourhood one, and IGST on a local purchase would be plainly wrong.
+ */
+async function vendorTaxSpecification(vendorId) {
+  const res = await zohoGet(`${CONTACT_URL}/${vendorId}`, { label: 'zoho.api.getVendor' });
+  const gstin = String(res.data?.contact?.gst_no || '').trim();
+  if (gstin.length < 2) return 'intra';
+  return gstin.slice(0, 2) === ORG_STATE_CODE() ? 'intra' : 'inter';
+}
+
 /** Payload for POST /books/v3/bills. */
-function toZohoPayload(bill, { discountAccountId: accountId = null } = {}) {
+function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = null } = {}) {
   const payload = {
     vendor_id: bill.vendorId,
     bill_number: bill.billNumber,
@@ -223,6 +278,7 @@ function toZohoPayload(bill, { discountAccountId: accountId = null } = {}) {
     is_inclusive_tax: bill.isInclusive,
     line_items: bill.lines.map(l => ({
       item_id: l.itemId,
+      ...(taxIds?.get(String(l.gstRate)) ? { tax_id: taxIds.get(String(l.gstRate)) } : {}),
       // Rate as typed — Zoho reads it on the basis is_inclusive_tax declares,
       // so the bill total matches the vendor's document to the paisa.
       rate: l.rate,
@@ -256,7 +312,15 @@ async function createBill(body, traceContext = null) {
   // Only looked up when there is a discount, so an undiscounted bill costs no
   // extra Zoho call.
   const accountId = bill.discountValue > 0 ? await purchaseDiscountAccountId() : null;
-  const payload = toZohoPayload(bill, { discountAccountId: accountId });
+
+  // One lookup per distinct GST rate on the bill, not per line.
+  const specification = await vendorTaxSpecification(bill.vendorId);
+  const taxIds = new Map();
+  for (const rate of new Set(bill.lines.map(l => String(l.gstRate)))) {
+    taxIds.set(rate, await taxIdFor(rate, specification));
+  }
+
+  const payload = toZohoPayload(bill, { discountAccountId: accountId, taxIds });
 
   let res;
   try {
@@ -294,9 +358,11 @@ async function createBill(body, traceContext = null) {
 module.exports = {
   assembleBill,
   purchaseDiscountAccountId,
+  taxIdFor,
+  vendorTaxSpecification,
   // The resolved account is cached for the process lifetime; tests need to
   // clear it to prove the lookup itself picks the right one.
-  _resetDiscountAccountCache: () => { discountAccountId = null; },
+  _resetDiscountAccountCache: () => { discountAccountId = null; taxCache = null; },
   billTotals,
   lineMargins,
   toZohoPayload,
