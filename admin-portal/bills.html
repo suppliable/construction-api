@@ -5,114 +5,113 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Suppliable Admin — Vendor Bills</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Deliberately the POS vocabulary — same variables, same cart-layout grid,
+     same product-card and qty-stepper — so entering a bill feels like running
+     the till rather than filling in a form. */
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   :root {
-    --navy:#1e2235; --navy-light:#2a3050; --navy-hover:#323a5c;
-    --red:#e5534b; --green:#3fb950; --blue:#3b82f6; --amber:#f59e0b;
-    --bg:#f5f6fa; --card:#fff; --border:#e2e5ef;
-    --text:#1a1d2e; --muted:#6b7280;
+    --navy:#1e2235; --navy-light:#2a3050;
+    --red:#e53935; --blue:#1565c0; --bg:#f0f2f7; --card:#ffffff;
+    --text:#1a1f36; --muted:#6b7280; --border:#e5e7eb;
+    --blue2:#3b82f6; --purple:#8b5cf6; --green:#10b981; --red2:#ef4444;
+    --amber:#f59e0b;
   }
   body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
-  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; flex-shrink:0; }
+  .sidebar { width:220px; min-height:100vh; background:var(--navy); display:flex; flex-direction:column; flex-shrink:0; position:fixed; }
   .sidebar-brand { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
   .sidebar-brand .name { color:#fff; font-size:18px; font-weight:700; }
   .sidebar-brand .sub { color:rgba(255,255,255,0.4); font-size:11px; margin-top:2px; }
-  .sidebar-nav { flex:1; padding:12px 0; }
-  .nav-item {
-    display:block; padding:10px 16px; color:rgba(255,255,255,0.65);
-    text-decoration:none; font-size:14px; font-weight:500;
-    border-left:3px solid transparent; transition:all 0.15s;
-  }
+  .sidebar-nav { flex:1; padding:12px 0; overflow-y:auto; }
+  .nav-item { display:block; padding:10px 16px; color:rgba(255,255,255,0.65); text-decoration:none; font-size:14px; font-weight:500; border-left:3px solid transparent; transition:all 0.15s; }
   .nav-item:hover { background:var(--navy-light); color:#fff; }
   .nav-item.active { background:var(--navy-light); color:#fff; border-left-color:var(--red); }
   .sidebar-bottom { padding:16px; border-top:1px solid rgba(255,255,255,0.08); }
-  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  .topbar { background:var(--navy); color:#fff; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; }
-  .topbar h1 { font-size:20px; font-weight:700; }
-  .content { padding:24px; flex:1; }
-  .section { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; margin-bottom:24px; }
-  .section-title { font-size:17px; font-weight:700; margin-bottom:18px; display:flex; align-items:center; gap:8px; }
-  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
-  .badge-light { background:#dbeafe; color:#1d4ed8; }
-  .badge-mid   { background:#fef3c7; color:#92400e; }
-  .badge-dark  { background:#fee2e2; color:#991b1b; }
-  .badge-inactive { background:#f3f4f6; color:#6b7280; }
-  table { width:100%; border-collapse:collapse; font-size:14px; }
-  th { text-align:left; padding:10px 12px; border-bottom:2px solid var(--border); font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; }
-  td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
-  tr:last-child td { border-bottom:none; }
-  tr:hover td { background:#f9fafb; }
-  .btn { padding:7px 14px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition:all 0.15s; }
-  .btn-primary { background:var(--navy); color:#fff; }
-  .btn-primary:hover { background:var(--navy-light); }
-  .btn-danger { background:#fee2e2; color:var(--red); }
-  .btn-danger:hover { background:#fecaca; }
-  .btn-sm { padding:4px 10px; font-size:12px; }
-  .btn-success { background:#dcfce7; color:#166534; }
-  .btn-success:hover { background:#bbf7d0; }
-  .form-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:16px; }
-  .form-group { display:flex; flex-direction:column; gap:4px; }
-  .form-group label { font-size:12px; font-weight:600; color:var(--muted); }
-  input, select { padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; outline:none; }
-  input:focus, select:focus { border-color:var(--blue); }
-  .stats { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-  .stat { background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:10px 16px; font-size:13px; }
-  .stat strong { font-size:20px; font-weight:700; display:block; }
-  .product-search { margin-bottom:16px; }
-  .product-list { max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; margin-bottom:16px; }
-  .product-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); font-size:14px; }
-  .product-item:last-child { border-bottom:none; }
-  .product-item:hover { background:#f9fafb; }
-  .product-item.selected { background:#dbeafe; font-weight:600; }
-  .pricing-grid { width:100%; border-collapse:collapse; margin-bottom:16px; }
-  .pricing-grid th { text-align:center; padding:8px 12px; background:#f9fafb; border:1px solid var(--border); font-size:12px; color:var(--muted); text-transform:uppercase; }
-  .pricing-grid td { padding:6px 8px; border:1px solid var(--border); text-align:center; }
-  .pricing-grid td:first-child { font-weight:600; font-size:13px; width:60px; }
-  .pricing-grid input { width:90px; text-align:right; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:14px; }
-  .filter-tab { background:#f3f4f6; color:var(--muted); border:1px solid var(--border) !important; }
-  .filter-tab.active { background:var(--navy); color:#fff; border-color:var(--navy) !important; }
-  .swatch { width:24px; height:24px; border-radius:50%; border:1px solid rgba(0,0,0,0.12); display:inline-block; flex-shrink:0; }
-  .shade-scroll-wrap { max-height:500px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; }
-  .shade-scroll-wrap thead th { position:sticky; top:0; background:#f9fafb; z-index:1; }
-  .shade-count { font-size:13px; color:var(--muted); margin-bottom:10px; }
-  .shade-count strong { color:var(--text); }
-  .pagination { display:flex; align-items:center; gap:10px; margin-top:12px; font-size:13px; }
-  .pagination button { padding:5px 12px; border-radius:6px; border:1px solid var(--border); background:#fff; cursor:pointer; font-size:13px; }
-  .pagination button:disabled { opacity:0.4; cursor:default; }
-  .toast { position:fixed; bottom:24px; right:24px; background:var(--navy); color:#fff; padding:12px 20px; border-radius:10px; font-size:14px; font-weight:500; z-index:9999; display:none; }
-  .toast.show { display:block; animation:slidein 0.2s ease; }
-  @keyframes slidein { from { transform:translateY(10px); opacity:0; } to { transform:translateY(0); opacity:1; } }
-  .empty { text-align:center; padding:32px; color:var(--muted); font-size:14px; }
-  .loading { text-align:center; padding:24px; color:var(--muted); }
-  .chip { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:700; }
-  .chip-underwater { background:#fee2e2; color:#991b1b; }
-  .chip-ok         { background:#dcfce7; color:#166534; }
-  .chip-no_purchase{ background:#f3f4f6; color:#6b7280; }
-  .chip-no_price   { background:#fef3c7; color:#92400e; }
-  tr.underwater td { background:#fff5f5; }
-  .neg { color:var(--red); font-weight:700; }
-  .pos { color:#166534; font-weight:600; }
-  .right { text-align:right; }
-  .tiny { font-size:11px; color:var(--muted); }
-  .scroll-wrap { max-height:62vh; overflow-y:auto; border:1px solid var(--border); border-radius:8px; }
-  .scroll-wrap thead th { position:sticky; top:0; background:#f9fafb; z-index:1; }
-  .toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
-  .toggle button { padding:8px 14px; border:none; background:#fff; font-size:13px; font-weight:600; cursor:pointer; color:var(--muted); }
-  .toggle button.on { background:var(--navy); color:#fff; }
-  .srch { position:relative; }
-  .srch-results { position:absolute; z-index:40; left:0; right:0; background:#fff; border:1px solid var(--border);
-    border-radius:8px; max-height:280px; overflow-y:auto; box-shadow:0 8px 24px rgba(15,18,32,0.12); }
-  .srch-item { padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--border); font-size:13px; }
-  .srch-item:last-child { border-bottom:none; }
-  .srch-item:hover { background:#f3f4f6; }
-  td input { width:100%; }
-  td.num input { text-align:right; }
-  .warnbox { background:#fef3c7; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:13px; color:#92400e; margin-bottom:14px; }
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+  .topbar { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:30; }
+  .topbar h1 { font-size:19px; font-weight:700; }
+  .content { padding:20px; flex:1; }
+  .btn { padding:8px 15px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; font-family:inherit; transition:all 0.15s; }
+  .btn-primary { background:var(--blue2); color:#fff; }
+  .btn-primary:hover { background:#2563eb; }
+  .btn-ghost { background:#fff; color:var(--navy); }
+  .btn-sm { padding:5px 11px; font-size:12px; }
+  .btn:disabled { opacity:0.45; cursor:not-allowed; }
+
+  /* ── two-pane POS layout ───────────────────────────────────────────────── */
+  .cart-layout { display:grid; grid-template-columns:1fr 400px; gap:20px; align-items:start; }
+  .panel { border:1.5px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; }
+  .panel-header { padding:11px 15px; background:#f8f9fc; border-bottom:1px solid var(--border); font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:space-between; }
+  .panel-body { padding:14px 15px; }
+
+  .search-big { width:100%; padding:13px 15px; border:2px solid var(--border); border-radius:9px; font-size:15px; font-family:inherit; outline:none; }
+  .search-big:focus { border-color:var(--blue2); }
+
+  .product-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:11px; margin-top:14px; }
+  .product-card { border:1.5px solid var(--border); border-radius:10px; background:#fff; display:flex; flex-direction:column; cursor:pointer; transition:box-shadow .15s,border-color .15s; }
+  .product-card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.08); border-color:var(--blue2); }
+  .product-card-body { padding:11px 12px; flex:1; display:flex; flex-direction:column; gap:3px; }
+  .product-card-name { font-size:13px; font-weight:600; line-height:1.35; }
+  .product-card-cat { font-size:11px; color:var(--muted); }
+  .product-card-price { font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--blue2); }
+  .product-card.added { border-color:var(--green); background:#f0fdf4; }
+
+  /* ── bill panel ────────────────────────────────────────────────────────── */
+  .bill-panel { position:sticky; top:72px; display:flex; flex-direction:column; max-height:calc(100vh - 92px); }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .field-group { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+  .field-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.3px; }
+  .field-input { padding:8px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; font-family:inherit; outline:none; background:#fff; }
+  .field-input:focus { border-color:var(--blue2); }
+
+  .seg { display:inline-flex; border:1.5px solid var(--border); border-radius:7px; overflow:hidden; width:100%; }
+  .seg button { flex:1; padding:7px 10px; border:none; background:#fff; font-family:inherit; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .seg button.on { background:var(--navy); color:#fff; }
+
+  .cart-items-list { overflow-y:auto; flex:1; min-height:90px; border-top:1px solid var(--border); }
+  .cart-empty { padding:36px 20px; text-align:center; color:var(--muted); font-size:13px; }
+  .cart-item { padding:10px 14px; border-bottom:1px solid var(--border); }
+  .cart-item:last-child { border-bottom:none; }
+  .cart-item.underwater { background:#fff5f5; }
+  .cart-item-top { display:flex; align-items:flex-start; gap:8px; }
+  .cart-item-name { font-size:13px; font-weight:600; line-height:1.3; flex:1; min-width:0; }
+  .btn-remove-cart { background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; padding:0 2px; }
+  .btn-remove-cart:hover { color:var(--red2); }
+  .cart-row2 { display:flex; align-items:center; gap:7px; margin-top:7px; flex-wrap:wrap; }
+  .qty-stepper { display:flex; align-items:center; flex-shrink:0; }
+  .qty-btn { width:25px; height:26px; border:1px solid var(--border); background:#fff; font-size:14px; font-weight:700; cursor:pointer; }
+  .qty-btn:first-child { border-radius:6px 0 0 6px; }
+  .qty-btn:last-child { border-radius:0 6px 6px 0; }
+  .qty-btn:hover { background:var(--bg); }
+  .qty-input { width:46px; text-align:center; font-size:13px; font-weight:700; border:1px solid var(--border); border-left:none; border-right:none; padding:4px 2px; font-family:'JetBrains Mono',monospace; -moz-appearance:textfield; }
+  .qty-input::-webkit-outer-spin-button,.qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .rate-input { width:86px; padding:4px 7px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; outline:none; text-align:right; }
+  .rate-input:focus { border-color:var(--blue2); }
+  .gst-input { width:52px; padding:4px 6px; border:1.5px solid var(--border); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; text-align:right; }
+  .mini { font-size:11px; color:var(--muted); }
+
+  .margin-line { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:6px; font-size:11.5px; }
+  .margin-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .mb-ok { background:#e7f6ec; color:#137333; }
+  .mb-bad { background:#fde8e8; color:#c5221f; }
+  .mb-none { background:#f1f5f9; color:var(--muted); }
+  .hint-pack { color:var(--amber); font-weight:600; font-size:11px; margin-top:4px; }
+  .btn-fixprice { background:#eff6ff; border:1.5px solid var(--blue2); color:var(--blue2); border-radius:6px; padding:2px 8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
+
+  .cart-totals { padding:11px 14px; border-top:1px solid var(--border); background:#f8f9fc; }
+  .totals-row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:3px 0; color:var(--muted); }
+  .totals-row .amt { font-family:'JetBrains Mono',monospace; }
+  .totals-row.grand { font-size:16px; font-weight:700; color:var(--text); border-top:2px solid var(--border); padding-top:8px; margin-top:5px; }
+  .cart-foot { padding:12px 14px; border-top:1px solid var(--border); }
+  .btn-save { width:100%; padding:13px; border-radius:9px; border:none; background:var(--green); color:#fff; font-family:inherit; font-size:15px; font-weight:700; cursor:pointer; }
+  .btn-save:hover { background:#059669; }
+  .btn-save:disabled { background:#9ca3af; cursor:not-allowed; }
+
+  .toast { position:fixed; bottom:22px; right:22px; background:var(--navy); color:#fff; padding:13px 20px; border-radius:10px; font-size:14px; font-weight:500; z-index:9999; display:none; max-width:460px; }
+  .toast.show { display:block; }
+  .empty { text-align:center; padding:34px; color:var(--muted); font-size:14px; }
 </style>
-
-
 </head>
 <body>
 
@@ -144,100 +143,105 @@
     <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
   </div>
 </div>
-
 <div class="main">
   <div class="topbar">
     <h1>🧾 Enter Vendor Bill</h1>
-    <div style="display:flex; gap:10px;">
-      <a class="btn btn-sm" style="background:#fff; color:var(--navy); text-decoration:none;" href="margins.html">📈 Margins</a>
-      <button class="btn btn-sm btn-primary" onclick="submitBill()">Save to Zoho</button>
+    <div style="display:flex; gap:9px; align-items:center;">
+      <span id="hdrCount" style="font-size:13px; color:rgba(255,255,255,0.65);"></span>
+      <a class="btn btn-sm btn-ghost" style="text-decoration:none;" href="margins.html">📈 Margins</a>
     </div>
   </div>
 
   <div class="content">
-    <div class="section">
-      <div class="section-title">Bill details</div>
-      <div class="grid">
-        <div class="form-group"><label>Vendor *</label>
-          <select id="vendor"><option value="">Loading…</option></select></div>
-        <div class="form-group"><label>Bill number *</label>
-          <input id="billNumber" placeholder="TN2601842025"></div>
-        <div class="form-group"><label>Bill date *</label><input type="date" id="billDate"></div>
-        <div class="form-group"><label>Due date</label><input type="date" id="dueDate"></div>
-      </div>
+    <div class="cart-layout">
 
-      <div class="form-row" style="align-items:center; gap:18px;">
-        <div class="form-group">
-          <label>Rate entry</label>
-          <div class="toggle">
-            <button id="mExcl" class="on" onclick="setMode('excl')">Excl. GST</button>
-            <button id="mIncl" onclick="setMode('incl')">Incl. GST</button>
+      <!-- LEFT: find and add items -->
+      <div>
+        <div class="panel">
+          <div class="panel-header">Find items</div>
+          <div class="panel-body">
+            <input id="itemSearch" class="search-big" autocomplete="off"
+                   placeholder="Search the Zoho catalogue — type at least 2 characters…" oninput="onSearch()">
+            <div id="results" class="product-grid"></div>
+            <div id="resultsEmpty" class="empty">Search above, then tap an item to add it to the bill.</div>
           </div>
         </div>
-        <div class="tiny" style="max-width:420px;">
-          Enter rates exactly as the vendor printed them. Zoho is told which basis you used,
-          so the bill total matches the paper document.
+      </div>
+
+      <!-- RIGHT: the bill -->
+      <div class="panel bill-panel">
+        <div class="panel-header">
+          <span>This bill</span>
+          <span id="lineCount" class="mini">0 items</span>
+        </div>
+
+        <div class="panel-body" style="border-bottom:1px solid var(--border);">
+          <div class="field-group">
+            <span class="field-label">Vendor *</span>
+            <select id="vendor" class="field-input"><option value="">Loading…</option></select>
+          </div>
+          <div class="field-group">
+            <span class="field-label">Bill number *</span>
+            <input id="billNumber" class="field-input" placeholder="TN2601842025">
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <span class="field-label">Bill date *</span>
+              <input type="date" id="billDate" class="field-input">
+            </div>
+            <div class="field-group">
+              <span class="field-label">Due date</span>
+              <input type="date" id="dueDate" class="field-input">
+            </div>
+          </div>
+          <div class="field-group" style="margin-bottom:0;">
+            <span class="field-label">Rates are</span>
+            <div class="seg">
+              <button id="mExcl" class="on" onclick="setMode('excl')">Excl. GST</button>
+              <button id="mIncl" onclick="setMode('incl')">Incl. GST</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="lineBody" class="cart-items-list">
+          <div class="cart-empty">No items yet.<br>Search on the left to add one.</div>
+        </div>
+
+        <div class="panel-body" style="border-top:1px solid var(--border); padding-bottom:4px;">
+          <div class="field-row">
+            <div class="field-group">
+              <span class="field-label">Discount</span>
+              <input type="number" id="discount" class="field-input" min="0" step="0.01" value="0" oninput="render()">
+            </div>
+            <div class="field-group">
+              <span class="field-label">Type</span>
+              <div class="seg">
+                <button id="dPct" class="on" onclick="setDiscPct(true)">%</button>
+                <button id="dAmt" onclick="setDiscPct(false)">₹</button>
+              </div>
+            </div>
+          </div>
+          <div class="field-group">
+            <span class="field-label">Discount applied</span>
+            <div class="seg">
+              <button id="dBefore" class="on" onclick="setDiscBefore(true)">Before GST</button>
+              <button id="dAfter" onclick="setDiscBefore(false)">After GST</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cart-totals">
+          <div class="totals-row"><span>Taxable</span><span class="amt" id="tTaxable">₹0</span></div>
+          <div class="totals-row"><span>GST</span><span class="amt" id="tTax">₹0</span></div>
+          <div class="totals-row"><span>Discount</span><span class="amt" id="tDisc">₹0</span></div>
+          <div class="totals-row grand"><span>Payable</span><span class="amt" id="tTotal">₹0</span></div>
+        </div>
+
+        <div class="cart-foot">
+          <button id="saveBtn" class="btn-save" onclick="submitBill()">Save to Zoho</button>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <div class="section-title">Items</div>
-
-      <div class="form-group srch" style="margin-bottom:16px;">
-        <label>Add item (type at least 2 characters)</label>
-        <input id="itemSearch" placeholder="Search the Zoho catalogue…" autocomplete="off"
-               oninput="onSearch()" onblur="setTimeout(hideResults, 180)">
-        <div id="srchResults" class="srch-results" style="display:none;"></div>
-      </div>
-
-      <div class="scroll-wrap" style="max-height:none;">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:26%">Item</th>
-              <th class="right" style="width:8%">Qty</th>
-              <th class="right" style="width:11%">Rate <span id="rateBasis" class="tiny">excl</span></th>
-              <th class="right" style="width:7%">GST%</th>
-              <th class="right" style="width:11%">Cost <div class="tiny">incl GST</div></th>
-              <th class="right" style="width:11%">Selling <div class="tiny">incl GST</div></th>
-              <th class="right" style="width:10%">Margin</th>
-              <th style="width:12%"></th>
-              <th style="width:4%"></th>
-            </tr>
-          </thead>
-          <tbody id="lineBody">
-            <tr><td colspan="9" class="empty">No items yet — search above to add one.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Discount &amp; totals</div>
-      <div class="form-row" style="align-items:flex-end;">
-        <div class="form-group"><label>Discount</label>
-          <input type="number" id="discount" min="0" step="0.01" value="0" oninput="render()" style="width:130px;"></div>
-        <div class="form-group"><label>&nbsp;</label>
-          <div class="toggle">
-            <button id="dPct" class="on" onclick="setDiscPct(true)">%</button>
-            <button id="dAmt" onclick="setDiscPct(false)">₹</button>
-          </div></div>
-        <div class="form-group"><label>Applied</label>
-          <div class="toggle">
-            <button id="dBefore" class="on" onclick="setDiscBefore(true)">Before GST</button>
-            <button id="dAfter" onclick="setDiscBefore(false)">After GST</button>
-          </div></div>
-        <div class="form-group" style="flex:1; min-width:220px;">
-          <label>Notes</label><input id="notes" placeholder="Optional" style="width:100%;"></div>
-      </div>
-
-      <div class="totals" style="max-width:360px; margin-left:auto;">
-        <div class="row"><span>Taxable</span><span class="mono" id="tTaxable">₹0</span></div>
-        <div class="row"><span>GST</span><span class="mono" id="tTax">₹0</span></div>
-        <div class="row"><span>Discount</span><span class="mono" id="tDisc">₹0</span></div>
-        <div class="row grand"><span>Total payable</span><span class="mono" id="tTotal">₹0</span></div>
-      </div>
     </div>
   </div>
 </div>
@@ -260,26 +264,21 @@ async function api(method, path, body) {
 }
 function toast(msg, ok = true) {
   const el = document.getElementById('toast');
-  el.textContent = msg; el.style.background = ok ? '#1e2235' : '#e5534b';
-  el.classList.add('show'); setTimeout(() => el.classList.remove('show'), ok ? 3500 : 7000);
+  el.textContent = msg; el.style.background = ok ? '#1e2235' : '#ef4444';
+  el.classList.add('show'); setTimeout(() => el.classList.remove('show'), ok ? 3500 : 8000);
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 function rupee(n) { return (n === null || n === undefined) ? '—' : '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 function r2(n) { return Math.round(n * 100) / 100; }
 function logout() { sessionStorage.removeItem('adminToken'); window.location.href = 'login.html'; }
 
-let lines = [];
-let mode = 'excl';
-let discPct = true;
-let discBefore = true;
-
+let lines = [], results = [], mode = 'excl', discPct = true, discBefore = true;
 document.getElementById('billDate').value = new Date().toISOString().slice(0, 10);
 
 function setMode(m) {
   mode = m;
   document.getElementById('mExcl').classList.toggle('on', m === 'excl');
   document.getElementById('mIncl').classList.toggle('on', m === 'incl');
-  document.getElementById('rateBasis').textContent = m === 'excl' ? 'excl' : 'incl';
   render();
 }
 function setDiscPct(v) {
@@ -295,118 +294,129 @@ function setDiscBefore(v) {
   render();
 }
 
-// ── item search ──────────────────────────────────────────────────────────────
+// ── search ───────────────────────────────────────────────────────────────────
 let searchTimer = null;
-function hideResults() { document.getElementById('srchResults').style.display = 'none'; }
-
 function onSearch() {
   clearTimeout(searchTimer);
   const q = document.getElementById('itemSearch').value.trim();
-  if (q.length < 2) return hideResults();
-  // Debounced: the catalogue search runs per keystroke otherwise.
+  if (q.length < 2) { results = []; return renderResults('Search above, then tap an item to add it to the bill.'); }
+  // Debounced: the catalogue search would otherwise run on every keystroke.
   searchTimer = setTimeout(async () => {
     const res = await api('GET', `/admin/purchases/items/search?q=${encodeURIComponent(q)}`);
-    const items = res?.data?.items || [];
-    const box = document.getElementById('srchResults');
-    box.innerHTML = items.length
-      ? items.map((i, n) => `<div class="srch-item" onmousedown="addLine(${n})">
-           <strong>${esc(i.name)}</strong>
-           <div class="tiny">${esc(i.unit || '')} · selling ${rupee(i.sellingRate)} incl · GST ${i.gstRate ?? 0}%</div>
-         </div>`).join('')
-      : '<div class="srch-item tiny">No match</div>';
-    box.style.display = 'block';
-    window.__results = items;
+    results = res?.data?.items || [];
+    renderResults('Nothing matches that.');
   }, 220);
 }
 
+function renderResults(emptyMsg) {
+  const box = document.getElementById('results');
+  const empty = document.getElementById('resultsEmpty');
+  box.innerHTML = results.map((i, n) => {
+    const on = lines.some(l => l.itemId === i.itemId);
+    return `<div class="product-card ${on ? 'added' : ''}" onclick="addLine(${n})">
+      <div class="product-card-body">
+        <div class="product-card-name">${esc(i.name)}</div>
+        <div class="product-card-cat">${esc(i.unit || '')} · GST ${i.gstRate ?? 0}%</div>
+        <div class="product-card-price">${i.sellingRate ? rupee(i.sellingRate) + ' sell' : 'no price'}</div>
+        ${on ? '<div class="mini" style="color:#137333;font-weight:700;">✓ on this bill</div>' : ''}
+      </div></div>`;
+  }).join('');
+  empty.style.display = results.length ? 'none' : 'block';
+  empty.textContent = emptyMsg;
+}
+
 function addLine(n) {
-  const i = (window.__results || [])[n];
+  const i = results[n];
   if (!i) return;
-  if (lines.some(l => l.itemId === i.itemId)) { toast('That item is already on the bill', false); return; }
+  if (lines.some(l => l.itemId === i.itemId)) { toast('Already on this bill', false); return; }
   lines.push({
     itemId: i.itemId, name: i.name, unit: i.unit || '',
-    gstRate: Number(i.gstRate) || 0,
-    sellingRate: Number(i.sellingRate) || 0,
+    gstRate: Number(i.gstRate) || 0, sellingRate: Number(i.sellingRate) || 0,
     quantity: 1, rate: 0,
   });
-  document.getElementById('itemSearch').value = '';
-  hideResults();
-  render();
+  render(); renderResults('Nothing matches that.');
 }
+function setLine(i, f, v) { lines[i][f] = Number(v); render(); }
+function bumpQty(i, d) { lines[i].quantity = Math.max(0, r2((lines[i].quantity || 0) + d)); render(); }
+function removeLine(i) { lines.splice(i, 1); render(); renderResults('Nothing matches that.'); }
 
-function setLine(i, field, value) {
-  lines[i][field] = ['quantity', 'rate', 'gstRate'].includes(field) ? Number(value) : value;
-  render();
-}
-function removeLine(i) { lines.splice(i, 1); render(); }
+// ── maths (mirrors billService exactly) ──────────────────────────────────────
+function rateExcl(l) { return r2(mode === 'incl' ? (l.rate || 0) / (1 + (l.gstRate || 0) / 100) : (l.rate || 0)); }
+function rateIncl(l) { return mode === 'incl' ? (l.rate || 0) : (l.rate || 0) * (1 + (l.gstRate || 0) / 100); }
 
-// ── maths, mirroring billService on the server ───────────────────────────────
 function totals() {
   const taxable = r2(lines.reduce((s, l) => s + rateExcl(l) * (l.quantity || 0), 0));
   const grossIncl = r2(lines.reduce((s, l) => s + rateIncl(l) * (l.quantity || 0), 0));
-  const tax = r2(grossIncl - taxable);
   const v = Number(document.getElementById('discount').value) || 0;
   const base = discBefore ? taxable : grossIncl;
   const discount = v <= 0 ? 0 : r2(discPct ? (base * v) / 100 : v);
   const total = discBefore
     ? r2((taxable - discount) * (taxable > 0 ? grossIncl / taxable : 1))
     : r2(grossIncl - discount);
-  return { taxable, tax, grossIncl, discount, total, base };
+  return { taxable, tax: r2(grossIncl - taxable), grossIncl, discount, total, base };
 }
-// Rounded per line before summing, matching billService — otherwise an
-// inclusive-mode bill shows a taxable value a few paise off what the server
-// computes, and the preview disagrees with itself.
-function rateExcl(l) { return r2(mode === 'incl' ? (l.rate || 0) / (1 + (l.gstRate || 0) / 100) : (l.rate || 0)); }
-function rateIncl(l) { return mode === 'incl' ? (l.rate || 0) : (l.rate || 0) * (1 + (l.gstRate || 0) / 100); }
 
 function render() {
   const t = totals();
-  // The discount is spread pro-rata, so one factor applies to every line.
   const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
 
   document.getElementById('lineBody').innerHTML = lines.length
-    ? lines.map((l, i) => rowHtml(l, i, factor)).join('')
-    : '<tr><td colspan="9" class="empty">No items yet — search above to add one.</td></tr>';
+    ? lines.map((l, i) => lineHtml(l, i, factor)).join('')
+    : '<div class="cart-empty">No items yet.<br>Search on the left to add one.</div>';
 
   document.getElementById('tTaxable').textContent = rupee(t.taxable);
   document.getElementById('tTax').textContent = rupee(t.tax);
   document.getElementById('tDisc').textContent = t.discount ? '− ' + rupee(t.discount) : '₹0';
   document.getElementById('tTotal').textContent = rupee(t.total);
+  const n = lines.length;
+  document.getElementById('lineCount').textContent = `${n} item${n === 1 ? '' : 's'}`;
+  document.getElementById('hdrCount').textContent = n ? `${n} item${n === 1 ? '' : 's'} · ${rupee(t.total)}` : '';
+  document.getElementById('saveBtn').disabled = !n;
 }
 
-function rowHtml(l, i, factor) {
+function lineHtml(l, i, factor) {
   const cost = r2(rateIncl(l) * factor);
   const sell = l.sellingRate || 0;
   const has = cost > 0 && sell > 0;
   const pct = has ? r2(((sell - cost) / sell) * 100) : null;
   const under = has && cost >= sell;
 
-  let margin = '<span class="tiny">—</span>';
-  if (!sell) margin = '<span class="chip chip-no_price">No price</span>';
-  else if (has) margin = `<span class="${pct < 0 ? 'neg' : 'pos'}">${pct.toFixed(1)}%</span>`;
+  let badge = '<span class="margin-badge mb-none">no price</span>';
+  if (sell && !cost) badge = '<span class="margin-badge mb-none">enter rate</span>';
+  else if (has) badge = `<span class="margin-badge ${pct < 0 ? 'mb-bad' : 'mb-ok'}">${pct.toFixed(1)}%</span>`;
 
-  // A steep negative is almost always the wrong pack, not overpaying: buying a
-  // 20L against a price set for a smaller tin. Say so, rather than implying the
-  // fix is to raise the price.
+  // A steep negative is nearly always the wrong pack — a 20L bought against a
+  // price set for a smaller tin — not overpaying. Raising the price would be
+  // the wrong fix, so say which to check.
   const hint = under && pct !== null && pct < -50
-    ? '<div class="tiny" style="color:var(--amber);font-weight:600;">Check pack size — wrong variant?</div>'
-    : '';
+    ? '<div class="hint-pack">⚠ Check pack size — wrong variant?</div>' : '';
 
-  const action = (under || !sell)
-    ? `<button class="btn btn-sm btn-primary" onclick="fixPrice(${i}, ${cost})">Set price</button>`
-    : '';
+  const fix = (under || !sell)
+    ? `<button class="btn-fixprice" onclick="fixPrice(${i}, ${cost})">Set price</button>` : '';
 
-  return `<tr class="${under ? 'underwater' : ''}">
-    <td>${esc(l.name)}<div class="tiny">${esc(l.unit)}</div>${hint}</td>
-    <td class="num"><input type="number" min="0" step="any" value="${l.quantity}" oninput="setLine(${i},'quantity',this.value)"></td>
-    <td class="num"><input type="number" min="0" step="0.01" value="${l.rate}" oninput="setLine(${i},'rate',this.value)"></td>
-    <td class="num"><input type="number" min="0" step="0.01" value="${l.gstRate}" oninput="setLine(${i},'gstRate',this.value)"></td>
-    <td class="right mono">${rupee(cost)}</td>
-    <td class="right mono">${sell ? rupee(sell) : '—'}</td>
-    <td class="right mono">${margin}</td>
-    <td class="right">${action}</td>
-    <td class="right"><button class="link-btn danger" onclick="removeLine(${i})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:15px;">✕</button></td>
-  </tr>`;
+  return `<div class="cart-item ${under ? 'underwater' : ''}">
+    <div class="cart-item-top">
+      <div class="cart-item-name">${esc(l.name)}<div class="mini">${esc(l.unit)}</div></div>
+      <button class="btn-remove-cart" onclick="removeLine(${i})" title="Remove">✕</button>
+    </div>
+    <div class="cart-row2">
+      <div class="qty-stepper">
+        <button class="qty-btn" onclick="bumpQty(${i},-1)">−</button>
+        <input class="qty-input" type="number" min="0" step="any" value="${l.quantity}" oninput="setLine(${i},'quantity',this.value)">
+        <button class="qty-btn" onclick="bumpQty(${i},1)">+</button>
+      </div>
+      <input class="rate-input" type="number" min="0" step="0.01" value="${l.rate}"
+             placeholder="rate" oninput="setLine(${i},'rate',this.value)">
+      <input class="gst-input" type="number" min="0" step="0.01" value="${l.gstRate}"
+             title="GST %" oninput="setLine(${i},'gstRate',this.value)">
+      <span class="mini">${mode === 'incl' ? 'incl' : 'excl'} · GST%</span>
+    </div>
+    <div class="margin-line">
+      <span class="mini">cost <strong>${rupee(cost)}</strong> · sells ${sell ? rupee(sell) : '—'}</span>
+      <span style="display:flex;gap:6px;align-items:center;">${badge}${fix}</span>
+    </div>
+    ${hint}
+  </div>`;
 }
 
 async function fixPrice(i, cost) {
@@ -420,7 +430,6 @@ async function fixPrice(i, cost) {
   if (input === null) return;
   const rate = Number(input);
   if (!Number.isFinite(rate) || rate <= 0) { toast('Enter a valid price', false); return; }
-
   const res = await api('PUT', `/admin/margins/${encodeURIComponent(l.itemId)}/selling-price`, { rate });
   if (!res.success) { toast(res.message || 'Could not update price', false); return; }
   l.sellingRate = Number(res.data.rate);
@@ -429,8 +438,25 @@ async function fixPrice(i, cost) {
 }
 
 // ── submit ───────────────────────────────────────────────────────────────────
-function payload() {
-  return {
+let saving = false;
+async function submitBill() {
+  if (saving || !lines.length) return;
+  const t = totals();
+  const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
+
+  // Not a block — the agreed behaviour is to show the margin, not refuse the
+  // bill. But saving without noticing is the failure this page exists to
+  // prevent, so an underwater line is acknowledged once.
+  const bad = lines.filter(l => l.sellingRate > 0 && r2(rateIncl(l) * factor) >= l.sellingRate);
+  if (bad.length) {
+    const list = bad.map(l => `• ${l.name}: costs ₹${r2(rateIncl(l) * factor)}, sells at ₹${l.sellingRate}`).join('\n');
+    if (!confirm(`${bad.length} line(s) cost at or above the selling price:\n\n${list}\n\nSave anyway?`)) return;
+  }
+
+  saving = true;
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const res = await api('POST', '/admin/bills', {
     vendorId: document.getElementById('vendor').value,
     billNumber: document.getElementById('billNumber').value.trim(),
     date: document.getElementById('billDate').value,
@@ -439,50 +465,29 @@ function payload() {
     discount: Number(document.getElementById('discount').value) || 0,
     discountIsPercent: discPct,
     discountBeforeTax: discBefore,
-    notes: document.getElementById('notes').value.trim() || undefined,
     lines: lines.map(l => ({
       itemId: l.itemId, name: l.name, unit: l.unit,
       quantity: l.quantity, rate: l.rate, gstRate: l.gstRate,
     })),
-  };
-}
-
-let saving = false;
-async function submitBill() {
-  if (saving) return;
-  if (!lines.length) { toast('Add at least one item', false); return; }
-
-  // Not a block — the agreed behaviour is to show the margin, not refuse the
-  // bill. But saving without noticing is the failure this page exists to
-  // prevent, so an underwater line has to be acknowledged once.
-  const t = totals();
-  const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
-  const bad = lines.filter(l => l.sellingRate > 0 && r2(rateIncl(l) * factor) >= l.sellingRate);
-  if (bad.length) {
-    const list = bad.map(l => `• ${l.name}: costs ₹${r2(rateIncl(l) * factor)}, sells at ₹${l.sellingRate}`).join('\n');
-    if (!confirm(`${bad.length} line(s) cost at or above the selling price:\n\n${list}\n\nSave the bill anyway?`)) return;
-  }
-
-  saving = true;
-  toast('Saving to Zoho…');
-  const res = await api('POST', '/admin/bills', payload());
+  });
   saving = false;
-  if (!res.success) { toast(res.message || 'Could not save the bill', false); return; }
+  btn.textContent = 'Save to Zoho';
+  if (!res.success) { btn.disabled = false; toast(res.message || 'Could not save the bill', false); return; }
 
   toast(`Bill ${res.data.billNumber} saved — ${rupee(res.data.total)}`);
   lines = [];
   document.getElementById('billNumber').value = '';
   document.getElementById('discount').value = 0;
-  document.getElementById('notes').value = '';
-  render();
+  document.getElementById('itemSearch').value = '';
+  results = [];
+  render(); renderResults('Search above, then tap an item to add it to the bill.');
 }
 
 async function loadVendors() {
   const res = await api('GET', '/admin/bills/vendors');
   const sel = document.getElementById('vendor');
-  const vendors = res?.data?.vendors || [];
   sel.innerHTML = '<option value="">Select a vendor…</option>' +
-    vendors.map(v => `<option value="${esc(v.vendorId)}">${esc(v.name)}</option>`).join('');
+    (res?.data?.vendors || []).map(v => `<option value="${esc(v.vendorId)}">${esc(v.name)}</option>`).join('');
 }
 
 loadVendors();
