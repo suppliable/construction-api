@@ -158,6 +158,14 @@ describe('toZohoPayload', () => {
     expect(p.line_items[0]).toMatchObject({ item_id: 'I1', rate: 63.94, quantity: 10 });
   });
 
+  test('does NOT send unit — Zoho takes it from the item and rejects free text', () => {
+    // The catalogue's unit is whatever was typed in Zoho ("box", "Pcs"), which
+    // is not necessarily a unit the org has configured, so sending it can only
+    // fail.
+    const p = toZohoPayload(assembleBill(base()));
+    expect(p.line_items[0]).not.toHaveProperty('unit');
+  });
+
   test('a percentage discount goes as Zoho formats it', () => {
     const p = toZohoPayload(assembleBill(base({ discount: 5, discountBeforeTax: true })));
     expect(p.discount).toBe('5%');
@@ -202,6 +210,15 @@ describe('createBill', () => {
   test('validation runs before anything is sent to Zoho', async () => {
     await expect(createBill(base({ lines: [] }))).rejects.toThrow(/at least one line/);
     expect(zohoPost).not.toHaveBeenCalled();
+  });
+
+  test('a Zoho rejection carries the payload, so the log can name what was refused', async () => {
+    const err = new Error('Request failed');
+    err.response = { data: { code: 1001, message: 'Invalid value passed for unit' } };
+    zohoPost.mockRejectedValue(err);
+    await expect(createBill(base())).rejects.toMatchObject({
+      zohoPayload: expect.objectContaining({ bill_number: 'TN123' }),
+    });
   });
 
   test('a response with no bill is surfaced, not treated as success', async () => {
