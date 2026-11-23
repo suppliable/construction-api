@@ -7,6 +7,19 @@ const { zohoPost, zohoPut } = require('./zohoHttp');
 let accessToken = null;
 let tokenExpiry = null;
 
+/**
+ * Forget the cached access token so the next call mints a fresh one.
+ *
+ * Needed because a Zoho access token can stop working BEFORE its 55-minute
+ * window elapses: Zoho caps how many are live per refresh token and invalidates
+ * the oldest once that cap is passed, so anything else minting tokens against
+ * the same refresh token can silently kill this process's copy.
+ */
+function clearAccessToken() {
+  accessToken = null;
+  tokenExpiry = null;
+}
+
 async function getAccessToken() {
   if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
     return accessToken;
@@ -24,6 +37,40 @@ async function getAccessToken() {
   tokenExpiry = Date.now() + (55 * 60 * 1000);
   return accessToken;
 }
+
+// A rejected token used to take the whole catalogue down for up to 55 minutes:
+// the cache was trusted until it expired, so every Zoho call 401'd and there was
+// no path back. Products, categories, bulk, margins and low stock all failed at
+// once, and the only cure was waiting or a restart.
+//
+// One interceptor rather than a change at each of ~20 call sites: on a 401 from
+// a Zoho API host, drop the cached token, mint a fresh one and replay the
+// request exactly once. The refresh itself goes to accounts.zoho.in, which this
+// deliberately does not match, so it cannot recurse.
+let authRetryInstalled = false;
+
+function installZohoAuthRetry() {
+  if (authRetryInstalled) return;
+  authRetryInstalled = true;
+
+  axios.interceptors.response.use(undefined, async (error) => {
+    const config = error?.config;
+    const isZoho = String(config?.url || '').includes('zohoapis.in');
+    if (error?.response?.status !== 401 || !config || !isZoho || config.__zohoAuthRetried) {
+      throw error;
+    }
+
+    config.__zohoAuthRetried = true;   // once only — a genuine 401 must still surface
+    logger.warn({ url: config.url }, 'zoho.token.rejected_refreshing');
+    clearAccessToken();
+
+    const fresh = await getAccessToken();
+    config.headers = { ...(config.headers || {}), Authorization: `Zoho-oauthtoken ${fresh}` };
+    return axios(config);
+  });
+}
+
+installZohoAuthRetry();
 
 async function getZohoProducts(traceContext = null) {
   const span = createSpan(traceContext, 'zoho.api.getProducts', { 'peer.service': 'zoho', endpoint: '/inventory/v1/items' });
@@ -516,6 +563,7 @@ async function recordPaymentInZohoBooks({ invoiceId, customerId, amount, payment
 
 module.exports = {
   getAccessToken,
+  clearAccessToken,
   getZohoProducts,
   getZohoProductById,
   getZohoCategories,
