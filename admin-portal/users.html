@@ -127,6 +127,7 @@
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item active" href="users.html">🔑 Users</a>
     <a class="nav-item" href="activity.html">🕑 Activity</a>
+    <a class="nav-item" href="attendance.html">🕘 Attendance</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
   </nav>
@@ -198,8 +199,8 @@ async function load() {
   el.innerHTML = `
     ${me?.isLegacy ? '<div class="blockers" style="margin-bottom:16px;"><strong>You are signed in with the shared token.</strong> Create your own account below, sign in with it, then the shared password can be retired.</div>' : ''}
     <table><thead><tr>
-      <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th>
-    </tr></thead><tbody>${users.map(row).join('') || '<tr><td colspan="6" class="empty">No users yet.</td></tr>'}</tbody></table>`;
+      <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Attendance</th><th>Last sign-in</th><th></th>
+    </tr></thead><tbody>${users.map(row).join('') || '<tr><td colspan="7" class="empty">No users yet.</td></tr>'}</tbody></table>`;
 }
 
 function row(u) {
@@ -209,9 +210,11 @@ function row(u) {
     <td class="mono">${esc(u.email)}</td>
     <td>${u.role === 'admin' ? '<span class="chip chip-info">admin</span>' : '<span class="chip chip-no_purchase">staff</span>'}</td>
     <td>${u.isActive ? '<span class="chip chip-ok">active</span>' : '<span class="chip chip-underwater">deactivated</span>'}</td>
+    <td>${u.attendanceEnabled ? '<span class="chip chip-ok">on</span>' : '<span class="chip chip-no_purchase">off</span>'}</td>
     <td class="tiny">${u.lastLoginAt ? esc(u.lastLoginAt.slice(0, 16).replace('T', ' ')) : 'never'}</td>
     <td style="text-align:right; white-space:nowrap;">
       <button class="btn btn-sm" style="background:#f3f4f6;" onclick="resetPw('${esc(u.userId)}','${esc(u.name)}')">Reset password</button>
+      <button class="btn btn-sm" style="background:#f3f4f6;" onclick="toggleAttendance('${esc(u.userId)}', ${!u.attendanceEnabled})">${u.attendanceEnabled ? 'Attendance off' : 'Attendance on'}</button>
       ${isMe ? '' : `<button class="btn btn-sm ${u.isActive ? 'btn-danger' : 'btn-success'}"
           onclick="toggleActive('${esc(u.userId)}', ${!u.isActive})">${u.isActive ? 'Deactivate' : 'Reactivate'}</button>`}
     </td>
@@ -243,6 +246,15 @@ async function resetPw(userId, name) {
   load();
 }
 
+async function toggleAttendance(userId, enabled) {
+  const res = await api('POST', `/admin/users/${encodeURIComponent(userId)}/attendance`, { enabled });
+  if (!res.success) { toast(res.message || 'Could not update attendance', false); return; }
+  toast(enabled
+    ? 'Attendance on — they clock in at their next sign-in'
+    : 'Attendance off');
+  load();
+}
+
 async function toggleActive(userId, isActive) {
   if (!isActive && !confirm('Deactivate this user? They are signed out immediately.')) return;
   const res = await api('POST', `/admin/users/${encodeURIComponent(userId)}/active`, { isActive });
@@ -253,5 +265,6 @@ async function toggleActive(userId, isActive) {
 
 load();
 </script>
+<script src="attendance.js"></script>
 </body>
 </html>

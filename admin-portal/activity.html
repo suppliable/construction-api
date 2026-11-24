@@ -127,6 +127,7 @@
     <a class="nav-item" href="shades.html">🎨 Shades</a>
     <a class="nav-item" href="notifications.html">📣 Notifications</a>
     <a class="nav-item active" href="activity.html">🕑 Activity</a>
+    <a class="nav-item" href="attendance.html">🕘 Attendance</a>
     <a class="nav-item" href="users.html">🔑 Users</a>
     <a class="nav-item" href="settings.html">⚙️ Settings</a>
     <a class="nav-item" href="https://inventory.zoho.in" target="_blank">🔗 Open Zoho</a>
@@ -207,6 +208,25 @@ function when(iso) {
   const d = new Date(iso);
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
+// Rendered by TYPE. This used to push every value through money(), which turned
+// an order status into "₹NaN" and a true/false into "₹1" / "₹0" — wrong on every
+// row that was not a price.
+function fmtVal(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'boolean') return v ? 'on' : 'off';
+  if (typeof v === 'number') return money(v);
+  if (typeof v === 'object') {
+    // An attendance correction carries { inAt, outAt }.
+    if ('inAt' in v || 'outAt' in v) {
+      const t = iso => iso ? new Date(iso).toLocaleTimeString('en-IN',
+        { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }).toUpperCase() : '—';
+      return `in ${t(v.inAt)} · out ${t(v.outAt)}`;
+    }
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
 function money(n) {
   return (n === null || n === undefined || n === '') ? null
     : '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -262,7 +282,7 @@ function rowHtml(r) {
   // the useful detail is in meta, so show whichever the row actually has.
   let change = '<span class="tiny">—</span>';
   if (r.before !== null && r.before !== undefined) {
-    change = `<span class="mono">${esc(money(r.before) ?? r.before)}</span> → <strong class="mono">${esc(money(r.after) ?? r.after)}</strong>`;
+    change = `<span class="mono">${esc(fmtVal(r.before))}</span> → <strong class="mono">${esc(fmtVal(r.after))}</strong>`;
   } else if (r.meta) {
     change = '<span class="tiny">' + Object.entries(r.meta)
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
@@ -295,5 +315,6 @@ function exportCsv() {
 
 load();
 </script>
+<script src="attendance.js"></script>
 </body>
 </html>

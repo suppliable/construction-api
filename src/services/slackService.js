@@ -5,6 +5,8 @@ const admin = require('../utils/firebaseAdmin');
 const { getCustomer } = require('../repositories/customerRepository');
 const { istDateKey } = require('../utils/istDate');
 const { formatISTTime, formatISTDate } = require('../utils/storeSchedule');
+const logger = require('../utils/logger');
+const { formatDuration, describeVerdict } = require('../utils/attendanceRules');
 
 // Atomically increment and return today's order sequence number. Backed by a
 // per-day counter doc (counters/orders-YYYY-MM-DD). Display-only — the real
@@ -82,8 +84,16 @@ async function postMessage(blocks, text, threadTs = null, channel = null) {
       body: JSON.stringify(body),
     });
     const data = await res.json();
+    if (!data.ok) {
+      // Slack answers 200 with { ok:false, error } for the failures that matter
+      // — not_in_channel, channel_not_found, invalid_auth. Returning null with
+      // no trace made a bot that was never invited to a channel look exactly
+      // like a working one that had nothing to say.
+      logger.warn({ slackError: data.error, channel: body.channel }, 'slack.post_failed');
+    }
     return data.ok ? data.ts : null;
-  } catch {
+  } catch (err) {
+    logger.warn({ err: err.message }, 'slack.post_threw');
     return null;
   }
 }
@@ -243,6 +253,57 @@ async function updateQuoteStatus(quote, ts, state) {
   const { name, phone } = await resolveCustomer(quote);
   const blocks = quoteCardBlocks({ quote, name, phone, state });
   await updateMessage(ts, blocks, `📝 Quote ${quote.id} — ${state}`);
+}
+
+// ── Attendance ─────────────────────────────────────────────────────────────
+// A clock-in posts a message; the clock-out is a threaded REPLY under it, so the
+// channel reads as one thread per person per day instead of two unrelated lines.
+//
+// Posts only to SLACK_ATTENDANCE_CHANNEL_ID, and does nothing without it. It
+// deliberately does NOT fall back to the order channel: staff attendance is
+// sensitive and would be noise among order cards.
+
+const attendanceChannel = () => env.SLACK_ATTENDANCE_CHANNEL_ID || null;
+const attendanceEnabled = () => Boolean(env.SLACK_BOT_TOKEN && attendanceChannel());
+
+/** @returns {Promise<string|null>} the message ts, for the later clock-out reply */
+async function postAttendanceIn(record) {
+  if (!attendanceEnabled()) return null;
+  const when = formatISTTime(new Date(record.inAt));
+  const lines = [`🟢 *${record.name}* — In at ${when}`];
+
+  // Only said when there is something to say: a normal in-shop clock-in is just
+  // the time.
+  const note = describeVerdict({
+    verdict: record.inVerdict, reason: record.inReason,
+    distanceM: record.inDistanceM, accuracyM: record.inAccuracyM,
+  });
+  if (note) lines.push(`⚠️ ${note}`);
+
+  return postMessage(
+    [{ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } }],
+    `🟢 ${record.name} — In at ${when}`,
+    null,
+    attendanceChannel()
+  );
+}
+
+/** Threaded under the clock-in. Without a ts (the in-post failed, or Slack was
+ *  off then) it still posts, standalone, so the out is not lost. */
+async function postAttendanceOut(record, durationMinutes) {
+  if (!attendanceEnabled()) return null;
+  const when = formatISTTime(new Date(record.outAt));
+  const tag = record.outSource === 'auto' ? ' _(auto)_'
+    : record.outSource === 'edited' ? ' _(edited)_' : '';
+  const text = `🔴 Out at ${when} · ${formatDuration(durationMinutes)}${tag}`;
+  const withName = record.slackTs ? text : `🔴 *${record.name}* — Out at ${when} · ${formatDuration(durationMinutes)}${tag}`;
+
+  return postMessage(
+    [{ type: 'section', text: { type: 'mrkdwn', text: withName } }],
+    `${record.name} — ${text}`,
+    record.slackTs || null,
+    attendanceChannel()
+  );
 }
 
 // ── Payment-failure alert (separate message per attempt) ───────────────────
@@ -406,6 +467,8 @@ async function notifyPendingOrders(orders) {
 }
 
 module.exports = {
+  postAttendanceIn,
+  postAttendanceOut,
   postNewOrder,
   postNewQuoteRequest,
   updateQuoteStatus,
