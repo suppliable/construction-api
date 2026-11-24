@@ -64,3 +64,17 @@ describe('attendance routes', () => {
     });
   });
 });
+
+describe('admin API caching', () => {
+  test('every admin response is marked no-store, including login', () => {
+    // The no-store middleware must be the FIRST layer so it also covers
+    // POST /auth, which is declared before the auth gate.
+    const first = adminRouter.stack[0];
+    expect(first.route).toBeUndefined();
+    const headers = {};
+    const next = jest.fn();
+    first.handle({}, { set: (k, v) => { headers[k] = v; } }, next);
+    expect(headers['Cache-Control']).toBe('no-store');
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});

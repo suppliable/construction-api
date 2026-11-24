@@ -66,6 +66,13 @@ const {
   sendMarketingNotification
 } = require('../controllers/adminController');
 
+// Nothing under /admin is ever cached by the browser or a proxy. These answers
+// are personal (who you are, whether you are clocked in) and time-sensitive
+// (orders, stock), and without an explicit instruction a shared computer keeps
+// them after sign-out. It also stops a fresh answer being replaced by a saved
+// one. Applies to the login response too, so it is declared first.
+router.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
 // Auth — no middleware on this route
 const adminUsers = require('../controllers/adminUserController');
 const { adminAuth, requireCapability } = require('../middleware/adminAuth');
