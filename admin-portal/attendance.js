@@ -6,9 +6,10 @@
 // users pay nothing; the server re-checks it on every call, so a stale copy can
 // only ever make this script do less, never grant anything.
 //
-// Clock-in is "first login of the day", and the server makes it idempotent. The
-// portal keeps its token per browser tab, so people sign in again on every new
-// tab; calling clock-in on every page load is therefore safe and intended.
+// Clock-in is a button the person presses — a prompt right after sign-in, and a
+// permanent button in the sidebar for anyone who dismisses it. Nothing is
+// recorded until they press it. The server still makes clock-in idempotent, so
+// pressing it from two tabs is still one arrival.
 (function () {
   'use strict';
 
@@ -115,17 +116,61 @@
     return refresh().then(function (state) { if (state) render(state.record); });
   }
 
-  refresh().then(function (state) {
-    if (state === null) return;
-    if (state.record) return render(state.record);
+  var DISMISSED = 'attPromptDismissed';
+  function dismissed() { try { return sessionStorage.getItem(DISMISSED) === '1'; } catch (e) { return false; } }
+  function markDismissed() { try { sessionStorage.setItem(DISMISSED, '1'); } catch (e) { /* prompt may reappear; harmless */ } }
 
-    // First load of the day: ask where we are, then clock in.
-    pill.textContent = '📍 Clocking in…';
+  var modal = null;
+  function closeModal() { if (modal) { modal.remove(); modal = null; } }
+
+  // Pressed from either the prompt or the sidebar. Location is asked here, on a
+  // click, so the browser's permission dialog is tied to something the person
+  // just did. A refusal still clocks in, flagged — see position().
+  function clockIn() {
+    closeModal();
+    pill.textContent = '📍 Getting your location…';
     return position(15000)
       .then(function (pos) { return call('POST', '/clock-in', pos); })
       .then(function (res) {
         if (res.success) render(res.data.record);
-        else pill.textContent = '⚠️ ' + (res.message || 'Clock-in failed');
-      });
+        else { window.alert(res.message || 'Clock-in failed'); redraw(); }
+      })
+      .catch(function () { window.alert('Could not clock in — check your connection.'); redraw(); });
+  }
+
+  function showNotClockedIn() {
+    pill.innerHTML = '⚪ Not clocked in<button id="attIn" style="' + BTN + '">Clock in</button>';
+    document.getElementById('attIn').addEventListener('click', clockIn);
+  }
+
+  function showPrompt() {
+    modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;' +
+      'display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML =
+      '<div style="background:#fff;color:#111827;border-radius:14px;padding:26px 28px;max-width:380px;width:100%;' +
+      'box-shadow:0 20px 50px rgba(0,0,0,.3);font-family:inherit;">' +
+      '<div style="font-size:19px;font-weight:700;margin-bottom:6px;">Good day, ' + esc(user.name || '') + '</div>' +
+      '<div style="font-size:14px;color:#4b5563;line-height:1.5;margin-bottom:20px;">' +
+      'Clock in to start your day. Your browser will ask to share your location — ' +
+      'it is only used to check you are at the shop.</div>' +
+      '<div style="display:flex;gap:10px;">' +
+      '<button id="attModalIn" style="flex:1;padding:11px;border:0;border-radius:9px;background:#16a34a;color:#fff;' +
+      'font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">🟢 Clock in</button>' +
+      '<button id="attModalLater" style="padding:11px 16px;border:1px solid #d1d5db;border-radius:9px;background:#fff;' +
+      'color:#374151;font-size:14px;cursor:pointer;font-family:inherit;">Later</button>' +
+      '</div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('attModalIn').addEventListener('click', clockIn);
+    document.getElementById('attModalLater').addEventListener('click', function () {
+      markDismissed(); closeModal();
+    });
+  }
+
+  refresh().then(function (state) {
+    if (state === null) return;                 // attendance is off for this person
+    if (state.record) return render(state.record);
+    showNotClockedIn();
+    if (!dismissed()) showPrompt();
   }).catch(function () { pill.textContent = '⚠️ Attendance unavailable'; });
 })();
