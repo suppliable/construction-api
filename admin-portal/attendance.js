@@ -94,21 +94,30 @@
       .then(function (pos) { return call('POST', '/clock-out', pos); })
       .then(function (res) {
         if (res.success) render(res.data.record);
-        else { window.alert(res.message || 'Could not clock out'); refresh(); }
+        else { window.alert(res.message || 'Could not clock out'); redraw(); }
       })
-      .catch(function () { window.alert('Could not clock out — check your connection.'); refresh(); });
+      .catch(function () { window.alert('Could not clock out — check your connection.'); redraw(); });
   }
 
+  // Resolves to null when attendance is off for this person, otherwise to
+  // { record } — where record is itself null before the first clock-in of the
+  // day. Those are different answers and must not share a value: returning the
+  // bare record made "on, not clocked in yet" look like "off", so the script
+  // stopped before ever asking for location.
   function refresh() {
     return call('GET', '/me').then(function (res) {
       if (!res.success || !res.data.enabled) { pill.remove(); return null; }
-      return res.data.record;
+      return { record: res.data.record };
     });
   }
 
-  refresh().then(function (record) {
-    if (record === null) return;
-    if (record) return render(record);
+  function redraw() {
+    return refresh().then(function (state) { if (state) render(state.record); });
+  }
+
+  refresh().then(function (state) {
+    if (state === null) return;
+    if (state.record) return render(state.record);
 
     // First load of the day: ask where we are, then clock in.
     pill.textContent = '📍 Clocking in…';
