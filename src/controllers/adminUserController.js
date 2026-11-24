@@ -115,6 +115,7 @@ const setAttendance = async (req, res) => {
     const user = await authService.setAttendance(
       req.params.userId, enabled, req.adminUser?.userId, req.traceContext
     );
+    require('../services/attendanceService').forget(user.userId);
     await audit.record(req, audit.ACTIONS.ADMIN_USER_ATTENDANCE_CHANGED,
       { type: 'admin_user', id: user.userId, name: user.name },
       { before: !enabled, after: enabled });

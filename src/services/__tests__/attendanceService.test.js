@@ -257,3 +257,61 @@ describe('editPunch', () => {
     await expect(svc.editPunch('nope', { outAt: '2026-11-24T12:00:00Z' }, req)).rejects.toMatchObject({ statusCode: 404 });
   });
 });
+
+describe('the clock-in gate (mustClockIn)', () => {
+  const ID = 'gate@suppliable.in';
+  beforeEach(() => svc.forget(ID));
+
+  test('true when attendance is on and there is no record today', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID }));
+    repo.get.mockResolvedValue(null);
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(true);
+  });
+
+  test('false once a record exists, and then not re-read for the rest of the day', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID }));
+    repo.get.mockResolvedValue({ id: `${ID}_2026-11-24`, inAt: NOW.toISOString() });
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(false);
+    repo.get.mockClear(); userRepo.getUser.mockClear();
+    expect(await svc.mustClockIn(ID, null, new Date('2026-11-24T10:00:00Z'))).toBe(false);
+    expect(repo.get).not.toHaveBeenCalled();
+    expect(userRepo.getUser).not.toHaveBeenCalled();
+  });
+
+  test('a new IST day needs a new clock-in', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID }));
+    repo.get.mockResolvedValueOnce({ id: 'today' });
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(false);
+    repo.get.mockResolvedValue(null);
+    expect(await svc.mustClockIn(ID, null, new Date('2026-11-25T04:00:00Z'))).toBe(true);
+  });
+
+  test('"not clocked in yet" is never cached: the request after clock-in passes at once', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID }));
+    repo.get.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'now-exists' });
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(true);
+    expect(await svc.mustClockIn(ID, null, new Date(NOW.getTime() + 5000))).toBe(false);
+  });
+
+  test('false for someone without attendance, or a deactivated account, with no record read', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID, attendanceEnabled: false }));
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(false);
+    expect(repo.get).not.toHaveBeenCalled();
+    svc.forget(ID);
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID, isActive: false }));
+    expect(await svc.mustClockIn(ID, null, NOW)).toBe(false);
+  });
+
+  test('the enabled flag is cached briefly, and forget() applies a toggle immediately', async () => {
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID, attendanceEnabled: false }));
+    await svc.mustClockIn(ID, null, NOW);
+    userRepo.getUser.mockClear();
+    await svc.mustClockIn(ID, null, new Date(NOW.getTime() + 5000));
+    expect(userRepo.getUser).not.toHaveBeenCalled();           // within the TTL
+
+    userRepo.getUser.mockResolvedValue(enabledUser({ userId: ID }));
+    repo.get.mockResolvedValue(null);
+    svc.forget(ID);                                             // admin switched it on
+    expect(await svc.mustClockIn(ID, null, new Date(NOW.getTime() + 6000))).toBe(true);
+  });
+});

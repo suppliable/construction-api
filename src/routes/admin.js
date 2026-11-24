@@ -87,21 +87,28 @@ router.use(adminAuth);
 router.post('/logout', adminUsers.logout);
 router.get('/me', adminUsers.me);
 
-// User management is admin-only: these create credentials and revoke access.
-// Who did what. Visible to any signed-in admin user: accountability works by
-// being seen, and hiding it from staff would defeat the point.
-router.get('/activity', adminUsers.activity);
-
 // Attendance. Clock in/out and status need no capability — the service checks
-// that attendance is switched on for the caller. The report and corrections are
-// admin-only. Static paths first so '/attendance/me' is not read as an :id.
+// that attendance is switched on for the caller. These three sit ABOVE the
+// clock-in gate, because they are how a person gets past it. The report and
+// corrections are admin-only and sit below it. Static paths first so
+// '/attendance/me' is not read as an :id.
 const attendanceAdmin = require('../controllers/attendanceController');
 router.get('/attendance/me', attendanceAdmin.me);
 router.post('/attendance/clock-in', attendanceAdmin.clockIn);
 router.post('/attendance/clock-out', attendanceAdmin.clockOut);
+
+// Everything from here down needs the caller to have clocked in today (when
+// attendance is on for them). See middleware/requireClockIn.js.
+router.use(require('../middleware/requireClockIn').requireClockIn);
+
+// Who did what. Visible to any signed-in admin user: accountability works by
+// being seen, and hiding it from staff would defeat the point.
+router.get('/activity', adminUsers.activity);
+
 router.get('/attendance', requireCapability('view_attendance'), attendanceAdmin.report);
 router.put('/attendance/:id', requireCapability('edit_attendance'), attendanceAdmin.edit);
 
+// User management is admin-only: these create credentials and revoke access.
 router.get('/users', requireCapability('manage_users'), adminUsers.listUsers);
 router.post('/users', requireCapability('manage_users'), adminUsers.createUser);
 router.post('/users/:userId/active', requireCapability('manage_users'), adminUsers.setActive);

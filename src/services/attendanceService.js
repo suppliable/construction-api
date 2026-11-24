@@ -169,6 +169,52 @@ async function status(userId, traceContext = null, now = new Date()) {
   return { enabled: true, record: withDerived(record) };
 }
 
+// ── the clock-in gate ───────────────────────────────────────────────────────
+//
+// Anyone with attendance on cannot use the admin API until they have clocked in
+// today. Enforced here, on the server, because the prompt on the page is only a
+// courtesy — it can be dismissed, hidden or never loaded.
+//
+// This runs on EVERY admin request, so it must be cheap:
+//  - the per-person "is attendance on" flag is cached for ENABLED_TTL_MS, which
+//    also bounds how long a freshly switched-on person goes ungated;
+//  - "clocked in today" is cached for the rest of that IST day once true (it
+//    can only become false again at midnight, which changes the key);
+//  - "not clocked in yet" is never cached, so the request right after clocking
+//    in is let through without waiting for anything to expire.
+const ENABLED_TTL_MS = 30 * 1000;
+const enabledCache = new Map();     // userId -> { enabled, at }
+const clockedInDay = new Map();     // userId -> IST date key already confirmed
+
+/** Forget a person's cached flag. Called when an admin toggles attendance so the
+ *  change bites at once on this instance; others converge within the TTL. */
+function forget(userId) {
+  const id = normId(userId);
+  enabledCache.delete(id);
+  clockedInDay.delete(id);
+}
+
+async function isEnabledCached(id, traceContext, nowMs) {
+  const hit = enabledCache.get(id);
+  if (hit && nowMs - hit.at < ENABLED_TTL_MS) return hit.enabled;
+  const user = await userRepo.getUser(id, traceContext);
+  const enabled = Boolean(user && user.isActive !== false && user.attendanceEnabled === true);
+  enabledCache.set(id, { enabled, at: nowMs });
+  return enabled;
+}
+
+/** True when this person has attendance on and has not clocked in today. */
+async function mustClockIn(userId, traceContext = null, now = new Date()) {
+  const id = normId(userId);
+  const date = istDateKey(now);
+  if (clockedInDay.get(id) === date) return false;
+  if (!await isEnabledCached(id, traceContext, now.getTime())) return false;
+
+  const record = await attendanceRepo.get(attendanceRepo.docIdFor(id, date), traceContext);
+  if (record) { clockedInDay.set(id, date); return false; }
+  return true;
+}
+
 // ── report + corrections (admin) ────────────────────────────────────────────
 
 async function report({ from, to, userId = null } = {}, traceContext = null) {
@@ -249,4 +295,5 @@ async function editPunch(id, { inAt, outAt }, req, traceContext = null) {
 
 module.exports = {
   clockIn, clockOut, status, report, editPunch, closeStale, requireEnabled,
+  mustClockIn, forget,
 };

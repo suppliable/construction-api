@@ -78,3 +78,32 @@ describe('admin API caching', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('the clock-in gate wiring', () => {
+  // Order is the whole mechanism in Express: a route declared above the gate is
+  // open, anything below it is locked. A mistake here either locks people out of
+  // clocking in or leaves the portal usable without it.
+  const stack = adminRouter.stack;
+  const indexOfRoute = (method, path) =>
+    stack.findIndex(l => l.route && l.route.path === path && l.route.methods[method]);
+  const gateIndex = stack.findIndex(l => !l.route && l.handle && l.handle.name === 'requireClockIn');
+
+  test('the gate exists', () => { expect(gateIndex).toBeGreaterThan(0); });
+
+  test.each([
+    ['post', '/logout'], ['get', '/me'],
+    ['get', '/attendance/me'], ['post', '/attendance/clock-in'], ['post', '/attendance/clock-out'],
+  ])('%s %s stays open (above the gate) so a locked person can clock in or leave', (method, path) => {
+    const i = indexOfRoute(method, path);
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(gateIndex);
+  });
+
+  test.each([
+    ['get', '/activity'], ['get', '/attendance'], ['get', '/users'], ['get', '/orders'],
+  ])('%s %s is locked (below the gate)', (method, path) => {
+    const i = indexOfRoute(method, path);
+    if (i === -1) return;     // path not declared literally in this router
+    expect(i).toBeGreaterThan(gateIndex);
+  });
+});
