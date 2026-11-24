@@ -85,9 +85,20 @@ router.get('/me', adminUsers.me);
 // being seen, and hiding it from staff would defeat the point.
 router.get('/activity', adminUsers.activity);
 
+// Attendance. Clock in/out and status need no capability — the service checks
+// that attendance is switched on for the caller. The report and corrections are
+// admin-only. Static paths first so '/attendance/me' is not read as an :id.
+const attendanceAdmin = require('../controllers/attendanceController');
+router.get('/attendance/me', attendanceAdmin.me);
+router.post('/attendance/clock-in', attendanceAdmin.clockIn);
+router.post('/attendance/clock-out', attendanceAdmin.clockOut);
+router.get('/attendance', requireCapability('view_attendance'), attendanceAdmin.report);
+router.put('/attendance/:id', requireCapability('edit_attendance'), attendanceAdmin.edit);
+
 router.get('/users', requireCapability('manage_users'), adminUsers.listUsers);
 router.post('/users', requireCapability('manage_users'), adminUsers.createUser);
 router.post('/users/:userId/active', requireCapability('manage_users'), adminUsers.setActive);
+router.post('/users/:userId/attendance', requireCapability('manage_users'), adminUsers.setAttendance);
 router.post('/users/:userId/password', requireCapability('manage_users'), adminUsers.setPassword);
 
 // Purchase management (low stock, POs, checklist, vendor schedule). Mounted

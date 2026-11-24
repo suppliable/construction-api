@@ -66,6 +66,16 @@ const schema = z.object({
   // Optional separate channel for warehouse open/close broadcasts. Unset means
   // they post into SLACK_CHANNEL_ID alongside order cards.
   SLACK_BROADCAST_CHANNEL_ID: z.string().optional(),
+  // Staff attendance posts. Optional and with NO fallback to the order channel:
+  // unset means attendance is recorded but nothing is posted to Slack.
+  SLACK_ATTENDANCE_CHANNEL_ID: z.string().optional(),
+
+  // Attendance geofence radius around WAREHOUSE_LAT/LNG, in metres. 200 suits
+  // desktops, which have no GPS and place themselves from nearby Wi-Fi.
+  ATTENDANCE_RADIUS_M: z.coerce.number().positive().optional(),
+  // IST time (HH:MM, 24h) at which anyone still clocked in is closed
+  // automatically and flagged `auto`. Defaults to 20:00, the store close.
+  ATTENDANCE_AUTO_OUT: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'ATTENDANCE_AUTO_OUT must be HH:MM, 24-hour').optional(),
 
   // Auth for the warehouse schedule tick. Either scheme may be configured:
   // Cloud Scheduler OIDC (service-account email) for GCP deploys, or a static

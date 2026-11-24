@@ -108,6 +108,22 @@ const setActive = async (req, res) => {
   }
 };
 
+// POST /api/v1/admin/users/:userId/attendance   { enabled }
+const setAttendance = async (req, res) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const user = await authService.setAttendance(
+      req.params.userId, enabled, req.adminUser?.userId, req.traceContext
+    );
+    await audit.record(req, audit.ACTIONS.ADMIN_USER_ATTENDANCE_CHANGED,
+      { type: 'admin_user', id: user.userId, name: user.name },
+      { before: !enabled, after: enabled });
+    res.json({ success: true, data: user });
+  } catch (err) {
+    sendError(res, err, req.log, 'setAdminUserAttendance failed');
+  }
+};
+
 // POST /api/v1/admin/users/:userId/password   { password }
 const setPassword = async (req, res) => {
   try {
@@ -134,4 +150,4 @@ const activity = async (req, res) => {
   }
 };
 
-module.exports = { login, logout, me, listUsers, createUser, setActive, setPassword, activity };
+module.exports = { login, logout, me, listUsers, createUser, setActive, setPassword, setAttendance, activity };

@@ -9,7 +9,9 @@ jest.mock('../../config/env', () => ({
   SLACK_BOT_TOKEN: 'xoxb-test-token',
   SLACK_CHANNEL_ID: 'C_TEST_CHANNEL',
   SLACK_BROADCAST_CHANNEL_ID: undefined,
+  SLACK_ATTENDANCE_CHANNEL_ID: 'C_ATTENDANCE',
 }));
+jest.mock('../../utils/logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }));
 jest.mock('../../utils/firebaseAdmin', () => ({
   firestore: jest.fn(),
 }));
@@ -17,7 +19,9 @@ jest.mock('../../repositories/customerRepository', () => ({
   getCustomer: jest.fn(),
 }));
 
-const { notifyPendingOrders, postNewQuoteRequest, updateQuoteStatus } = require('../slackService');
+const { notifyPendingOrders, postNewQuoteRequest, updateQuoteStatus, postAttendanceIn, postAttendanceOut } = require('../slackService');
+const logger = require('../../utils/logger');
+const env = require('../../config/env');
 const { getCustomer } = require('../../repositories/customerRepository');
 
 function makeOrder(overrides = {}) {
@@ -255,5 +259,96 @@ describe('updateQuoteStatus', () => {
   test('no-op without a ts — quotes raised before this existed have none', async () => {
     await updateQuoteStatus(makeQuote(), null, 'quoted');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+
+// ── Attendance ─────────────────────────────────────────────────────────────
+
+describe('attendance posts', () => {
+  let fetchMock;
+  const inRecord = (over = {}) => ({
+    name: 'Ravi', inAt: '2026-11-24T03:32:00.000Z', inVerdict: 'inside', ...over,
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    env.SLACK_ATTENDANCE_CHANNEL_ID = 'C_ATTENDANCE';
+    fetchMock = jest.fn().mockResolvedValue({ json: async () => ({ ok: true, ts: '555.666' }) });
+    global.fetch = fetchMock;
+  });
+  afterEach(() => { delete global.fetch; });
+
+  const body = call => JSON.parse(fetchMock.mock.calls[call][1].body);
+
+  test('clock-in posts to the ATTENDANCE channel, not the order channel', async () => {
+    const ts = await postAttendanceIn(inRecord());
+    expect(ts).toBe('555.666');
+    expect(body(0).channel).toBe('C_ATTENDANCE');
+    expect(body(0).channel).not.toBe('C_TEST_CHANNEL');
+    expect(body(0).blocks[0].text.text).toBe('🟢 *Ravi* — In at 9:02 AM');
+  });
+
+  test('a normal in-shop clock-in is just the time — no flag line', async () => {
+    await postAttendanceIn(inRecord());
+    expect(body(0).blocks[0].text.text).not.toContain('⚠️');
+  });
+
+  test('an outside clock-in carries the distance', async () => {
+    await postAttendanceIn(inRecord({ inVerdict: 'outside', inDistanceM: 4200 }));
+    expect(body(0).blocks[0].text.text).toContain('⚠️ Outside geofence — 4.2 km away');
+  });
+
+  test('an unverified one says why', async () => {
+    await postAttendanceIn(inRecord({ inVerdict: 'unverified', inReason: 'no_location' }));
+    expect(body(0).blocks[0].text.text).toContain('⚠️ Location unverified — location unavailable or permission denied');
+  });
+
+  test('clock-out is a THREADED reply under the clock-in', async () => {
+    await postAttendanceOut(
+      { name: 'Ravi', outAt: '2026-11-24T13:18:00.000Z', outSource: 'button', slackTs: '111.222' }, 586);
+    expect(body(0).thread_ts).toBe('111.222');
+    expect(body(0).blocks[0].text.text).toBe('🔴 Out at 6:48 PM · 9h 46m');
+  });
+
+  test('an auto clock-out is labelled, so a late-appearing reply still reads correctly', async () => {
+    await postAttendanceOut(
+      { name: 'Ravi', outAt: '2026-11-24T14:30:00.000Z', outSource: 'auto', slackTs: '111.222' }, 660);
+    expect(body(0).blocks[0].text.text).toContain('_(auto)_');
+  });
+
+  test('with no thread to reply into it posts standalone and names the person', async () => {
+    await postAttendanceOut({ name: 'Ravi', outAt: '2026-11-24T13:18:00.000Z', outSource: 'button', slackTs: null }, 586);
+    expect(body(0).thread_ts).toBeUndefined();
+    expect(body(0).blocks[0].text.text).toContain('*Ravi*');
+  });
+
+  test('does NOTHING without an attendance channel — it must not fall back to orders', async () => {
+    env.SLACK_ATTENDANCE_CHANNEL_ID = undefined;
+    expect(await postAttendanceIn(inRecord())).toBeNull();
+    expect(await postAttendanceOut({ name: 'Ravi', outAt: '2026-11-24T13:18:00.000Z' }, 1)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('slack failures are visible', () => {
+  beforeEach(() => { jest.clearAllMocks(); env.SLACK_ATTENDANCE_CHANNEL_ID = 'C_ATTENDANCE'; });
+  afterEach(() => { delete global.fetch; });
+
+  test('a rejection from Slack is logged with its reason — not_in_channel is the likely one', async () => {
+    // Slack answers 200 { ok:false } when the bot was never invited. Returning
+    // null silently made that look identical to a working channel with nothing
+    // to say.
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ ok: false, error: 'not_in_channel' }) });
+    const ts = await postAttendanceIn({ name: 'Ravi', inAt: '2026-11-24T03:32:00.000Z' });
+    expect(ts).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ slackError: 'not_in_channel', channel: 'C_ATTENDANCE' }), 'slack.post_failed');
+  });
+
+  test('a network failure is logged and swallowed', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNRESET'));
+    await expect(postAttendanceIn({ name: 'Ravi', inAt: '2026-11-24T03:32:00.000Z' })).resolves.toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ err: 'ECONNRESET' }), 'slack.post_threw');
   });
 });

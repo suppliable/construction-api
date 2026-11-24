@@ -31,6 +31,8 @@ const ADMIN_ONLY = Object.freeze([
   'manage_users',      // create, deactivate, reset another person's password
   'change_prices',     // selling price on the margin report
   'settings',          // warehouse config, delivery pricing
+  'view_attendance',   // the attendance report — everyone's hours
+  'edit_attendance',   // correcting a punch
 ]);
 
 const str = v => (typeof v === 'string' ? v.trim() : '');
@@ -60,6 +62,9 @@ function toUserDTO(u) {
     email: u.email || u.userId,
     role: u.role || 'staff',
     isActive: u.isActive !== false,
+    // Opt-in per person. Read by the portal to decide whether to ask for a
+    // location; the server re-checks it on every attendance call.
+    attendanceEnabled: u.attendanceEnabled === true,
     lastLoginAt: u.lastLoginAt || null,
     createdAt: u.createdAt || null,
     createdBy: u.createdBy || null,
@@ -196,6 +201,17 @@ async function setPassword(userId, password, actor = null, traceContext = null) 
   return toUserDTO(user);
 }
 
+/** Switch attendance on or off for one person. Takes effect on their next
+ *  attendance call (the server checks the flag every time); the portal's cached
+ *  copy refreshes at their next login. */
+async function setAttendance(userId, enabled, actor = null, traceContext = null) {
+  const user = await repo.getUser(normEmail(userId), traceContext);
+  if (!user) throw new NotFoundError('No such admin user', 'USER_NOT_FOUND');
+  await repo.saveUser({ userId: user.userId, attendanceEnabled: !!enabled }, traceContext);
+  logger.info({ userId: user.userId, enabled: !!enabled, actor }, 'admin.user.attendance_changed');
+  return toUserDTO({ ...user, attendanceEnabled: !!enabled });
+}
+
 async function listUsers(traceContext = null) {
   const users = await repo.listUsers(traceContext);
   return users.map(toUserDTO).sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -203,6 +219,6 @@ async function listUsers(traceContext = null) {
 
 module.exports = {
   login, resolveSession, logout,
-  createUser, setActive, setPassword, listUsers,
+  createUser, setActive, setPassword, setAttendance, listUsers,
   can, toUserDTO, ROLES, ADMIN_ONLY, SESSION_HOURS, MIN_PASSWORD,
 };

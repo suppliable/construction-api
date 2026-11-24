@@ -24,6 +24,8 @@ const ACTIONS = Object.freeze({
   ADMIN_USER_CREATED: 'admin_user.created',
   ADMIN_USER_ACTIVE_CHANGED: 'admin_user.active_changed',
   ADMIN_USER_PASSWORD_RESET: 'admin_user.password_reset',
+  ADMIN_USER_ATTENDANCE_CHANGED: 'admin_user.attendance_changed',
+  ATTENDANCE_EDITED: 'attendance.edited',
 });
 
 const LABELS = Object.freeze({
@@ -38,6 +40,8 @@ const LABELS = Object.freeze({
   'admin_user.created': 'Created an admin user',
   'admin_user.active_changed': 'Activated / deactivated a user',
   'admin_user.password_reset': 'Reset a password',
+  'admin_user.attendance_changed': 'Turned attendance on / off for a user',
+  'attendance.edited': 'Corrected an attendance punch',
 });
 
 /**
