@@ -6,10 +6,12 @@
 // users pay nothing; the server re-checks it on every call, so a stale copy can
 // only ever make this script do less, never grant anything.
 //
-// Clock-in is a button the person presses — a prompt right after sign-in, and a
-// permanent button in the sidebar for anyone who dismisses it. Nothing is
-// recorded until they press it. The server still makes clock-in idempotent, so
-// pressing it from two tabs is still one arrival.
+// Clock-in is a button the person presses. Until they do, a full-screen prompt
+// covers the page and cannot be dismissed — and the SERVER refuses every admin
+// call from them (403 ATTENDANCE_REQUIRED), so removing the prompt in dev tools
+// gets them a page that loads nothing. This script is the courtesy; the gate is
+// middleware/requireClockIn.js. Clock-in is idempotent per day, so pressing it
+// from two tabs is still one arrival.
 (function () {
   'use strict';
 
@@ -112,13 +114,16 @@
     });
   }
 
-  function redraw() {
-    return refresh().then(function (state) { if (state) render(state.record); });
+  // One place decides what is on screen for a given state, so a failed clock-in
+  // brings the prompt back rather than leaving a bare label.
+  function present(state) {
+    if (state === null) return;                 // attendance is off for this person
+    closeModal();
+    if (state.record) return render(state.record);
+    showNotClockedIn();
+    showPrompt();
   }
-
-  var DISMISSED = 'attPromptDismissed';
-  function dismissed() { try { return sessionStorage.getItem(DISMISSED) === '1'; } catch (e) { return false; } }
-  function markDismissed() { try { sessionStorage.setItem(DISMISSED, '1'); } catch (e) { /* prompt may reappear; harmless */ } }
+  function redraw() { return refresh().then(present); }
 
   var modal = null;
   function closeModal() { if (modal) { modal.remove(); modal = null; } }
@@ -132,8 +137,12 @@
     return position(15000)
       .then(function (pos) { return call('POST', '/clock-in', pos); })
       .then(function (res) {
-        if (res.success) render(res.data.record);
-        else { window.alert(res.message || 'Clock-in failed'); redraw(); }
+        if (res.success) {
+          render(res.data.record);
+          // Whatever the page asked for before this moment was refused (the
+          // server locks the API until clock-in), so load it again now.
+          window.location.reload();
+        } else { window.alert(res.message || 'Clock-in failed'); redraw(); }
       })
       .catch(function () { window.alert('Could not clock in — check your connection.'); redraw(); });
   }
@@ -152,25 +161,15 @@
       'box-shadow:0 20px 50px rgba(0,0,0,.3);font-family:inherit;">' +
       '<div style="font-size:19px;font-weight:700;margin-bottom:6px;">Good day, ' + esc(user.name || '') + '</div>' +
       '<div style="font-size:14px;color:#4b5563;line-height:1.5;margin-bottom:20px;">' +
-      'Clock in to start your day. Your browser will ask to share your location — ' +
-      'it is only used to check you are at the shop.</div>' +
-      '<div style="display:flex;gap:10px;">' +
+      'Clock in to start your day — the portal opens once you have. Your browser will ask ' +
+      'to share your location; it is only used to check you are at the shop.</div>' +
+      '<div style="display:flex;">' +
       '<button id="attModalIn" style="flex:1;padding:11px;border:0;border-radius:9px;background:#16a34a;color:#fff;' +
       'font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">🟢 Clock in</button>' +
-      '<button id="attModalLater" style="padding:11px 16px;border:1px solid #d1d5db;border-radius:9px;background:#fff;' +
-      'color:#374151;font-size:14px;cursor:pointer;font-family:inherit;">Later</button>' +
       '</div></div>';
     document.body.appendChild(modal);
     document.getElementById('attModalIn').addEventListener('click', clockIn);
-    document.getElementById('attModalLater').addEventListener('click', function () {
-      markDismissed(); closeModal();
-    });
   }
 
-  refresh().then(function (state) {
-    if (state === null) return;                 // attendance is off for this person
-    if (state.record) return render(state.record);
-    showNotClockedIn();
-    if (!dismissed()) showPrompt();
-  }).catch(function () { pill.textContent = '⚠️ Attendance unavailable'; });
+  refresh().then(present).catch(function () { pill.textContent = '⚠️ Attendance unavailable'; });
 })();
