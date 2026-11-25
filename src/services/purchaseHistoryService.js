@@ -29,7 +29,9 @@ const BILLS_URL = 'https://www.zohoapis.in/books/v3/bills';
 //
 //   1  rate + GST only
 //   2  net of bill and line discounts
-const EXTRACTION_VERSION = 2;
+//   3  line discount on a GST-inclusive bill measured against the taxable value;
+//      after-GST row discounts applied per row
+const EXTRACTION_VERSION = 3;
 
 const round2 = n => Math.round(n * 100) / 100;
 
@@ -112,10 +114,19 @@ function billDiscountFactor(bill) {
   return 1 - amount / base;
 }
 
-/** A line's own discount, if the vendor itemised it rather than discounting the bill. */
-function lineDiscountFactor(li) {
+/**
+ * A line's own discount, if the vendor itemised it rather than discounting the
+ * bill.
+ *
+ * Zoho's `discount_amount` is always taken from the TAXABLE value, including on
+ * a GST-inclusive bill where `rate` is inclusive — so on those the line total
+ * has to be brought to the same basis before dividing, or the discount is
+ * understated by the tax.
+ */
+function lineDiscountFactor(li, { inclusive = false } = {}) {
   const amount = Number(li?.discount_amount) || 0;
-  const gross = (Number(li?.rate) || 0) * (Number(li?.quantity) || 0);
+  let gross = (Number(li?.rate) || 0) * (Number(li?.quantity) || 0);
+  if (inclusive) gross /= 1 + (Number(li?.tax_percentage) || 0) / 100;
   if (amount > 0 && gross > 0) return 1 - amount / gross;
 
   const raw = li?.discount;
@@ -125,17 +136,45 @@ function lineDiscountFactor(li) {
   return 1 - pct / 100;
 }
 
+/**
+ * Per-row factors recorded for a bill entered with after-GST row discounts, or
+ * null if they no longer describe it.
+ *
+ * Zoho holds only the sum of those discounts. The record is trusted ONLY while
+ * the bill in Zoho still matches it — same after-tax discount, same lines in the
+ * same order. If someone edits the bill in Zoho, it stops matching and the bill
+ * is read like any other, rather than applying figures that are no longer true.
+ */
+function matchingRowFactors(bill, record) {
+  if (!record || bill.is_discount_before_tax !== false) return null;
+  const amount = Number(bill.discount_amount) || Number(bill.discount) || 0;
+  if (Math.abs(amount - record.discountAmount) > 0.05) return null;
+
+  const lines = bill.line_items || [];
+  if (lines.length !== record.lines.length) return null;
+  const same = lines.every((li, i) => {
+    const r = record.lines[i];
+    return String(li.item_id) === r.itemId
+      && Number(li.quantity) === r.quantity
+      && Math.abs(Number(li.rate) - r.rate) < 0.005;
+  });
+  return same ? record.lines.map(r => r.factor) : null;
+}
+
 /** Flatten one Zoho bill into one history entry per item line. */
-function entriesFromBill(bill) {
+function entriesFromBill(bill, rowRecord = null) {
   const inclusive = bill.is_inclusive_tax === true;
   const billFactor = billDiscountFactor(bill);
+  const rowFactors = matchingRowFactors(bill, rowRecord);
   const out = [];
-  for (const li of bill.line_items || []) {
+  for (const [index, li] of (bill.line_items || []).entries()) {
     // Freight, loading and discount lines carry no item_id; there is nothing to
     // compare them against, so they are not purchase history.
     if (!li.item_id) continue;
     const gstRate = Number(li.tax_percentage) || 0;
-    const factor = billFactor * lineDiscountFactor(li);
+    // Recorded row factors REPLACE the bill-level one: that figure is only
+    // their sum.
+    const factor = rowFactors ? rowFactors[index] : billFactor * lineDiscountFactor(li, { inclusive });
     const grossIncl = toInclusive(li.rate, gstRate, inclusive);
     const grossExcl = inclusive
       ? round2((Number(li.rate) || 0) / (1 + gstRate / 100))
@@ -224,7 +263,13 @@ async function syncFromBills({ full = false, dryRun = false } = {}, traceContext
   for (const row of changed) {
     // Serial on purpose: Zoho rate-limits, and a full walk is ~241 calls.
     const res = await zohoGet(`${BILLS_URL}/${row.bill_id}`, { label: 'zoho.api.getBill' });
-    entries.push(...entriesFromBill(res.data.bill || {}));
+    const bill = res.data.bill || {};
+    // Only an after-tax discount can have per-row figures behind it, so nothing
+    // else costs a read.
+    const rows = bill.is_discount_before_tax === false && billDiscountFactor(bill) < 1
+      ? await repo.getRowDiscounts(row.bill_id, traceContext)
+      : null;
+    entries.push(...entriesFromBill(bill, rows));
   }
 
   const latest = reduceToLatest(entries);
@@ -258,6 +303,7 @@ module.exports = {
   EXTRACTION_VERSION,
   billDiscountFactor,
   lineDiscountFactor,
+  matchingRowFactors,
   marginFor,
   entriesFromBill,
   reduceToLatest,

@@ -17,6 +17,7 @@ jest.mock('../../repositories/purchaseHistoryRepository', () => ({
   upsertMany: jest.fn(async e => e.length),
   getSyncState: jest.fn(async () => ({})),
   setSyncState: jest.fn(),
+  getRowDiscounts: jest.fn(async () => null),
 }));
 jest.mock('../zohoHttp', () => ({ zohoGet: jest.fn() }));
 
@@ -288,5 +289,61 @@ describe('sync re-walks when the extraction version moves', () => {
     repo.getSyncState.mockResolvedValue({});
     await syncFromBills({ dryRun: true });
     expect(repo.setSyncState).not.toHaveBeenCalled();
+  });
+});
+
+describe('row discounts read back from Zoho', () => {
+  const { matchingRowFactors } = require('../purchaseHistoryService');
+  const repo = require('../../repositories/purchaseHistoryRepository');
+  const { zohoGet } = require('../zohoHttp');
+
+  test('a row discount on a GST-inclusive bill is measured against the taxable value', () => {
+    // Figures from a live test bill: 10 x 100 incl 18%, 8% off => 67.80.
+    const li = { item_id: 'I1', rate: 100, quantity: 10, tax_percentage: 18, discount: '8.00%', discount_amount: 67.8 };
+    expect(lineDiscountFactor(li, { inclusive: true })).toBeCloseTo(0.92, 4);
+    const [e] = entriesFromBill({ bill_id: 'B', is_inclusive_tax: true, discount: 0, line_items: [li] });
+    expect(e.rateIncl).toBe(92);
+  });
+
+  const bill = {
+    bill_id: 'B7', date: '2026-11-25', is_inclusive_tax: false, is_discount_before_tax: false,
+    discount: 94.4, discount_amount: 94.4, discount_applied_on_amount: 1298,
+    line_items: [
+      { item_id: 'I1', rate: 100, quantity: 10, tax_percentage: 18 },
+      { item_id: 'I2', rate: 100, quantity: 1, tax_percentage: 18 },
+    ],
+  };
+  const record = {
+    discountAmount: 94.4,
+    lines: [
+      { itemId: 'I1', quantity: 10, rate: 100, factor: 0.92 },
+      { itemId: 'I2', quantity: 1, rate: 100, factor: 1 },
+    ],
+  };
+
+  test('the record replaces the even spread', () => {
+    expect(entriesFromBill(bill, record).map(e => e.rateIncl)).toEqual([108.56, 118]);
+  });
+
+  test.each([
+    ['the discount was changed', { discount: 50, discount_amount: 50 }],
+    ['a quantity was changed', { line_items: [{ ...bill.line_items[0], quantity: 9 }, bill.line_items[1]] }],
+    ['a line was removed', { line_items: [bill.line_items[0]] }],
+    ['lines were reordered', { line_items: [bill.line_items[1], bill.line_items[0]] }],
+    ['it became a before-tax discount', { is_discount_before_tax: true }],
+  ])('a record is ignored once %s in Zoho', (_why, change) => {
+    expect(matchingRowFactors({ ...bill, ...change }, record)).toBeNull();
+  });
+
+  test('the sync applies the stored record to an after-tax bill', async () => {
+    repo.getSyncState.mockResolvedValue({});
+    repo.getRowDiscounts.mockResolvedValue(record);
+    repo.upsertMany.mockClear();
+    zohoGet.mockImplementation(async url => (url.endsWith('/bills')
+      ? { data: { bills: [{ bill_id: 'B7', last_modified_time: '2026-11-25T10:00:00+0530' }], page_context: {} } }
+      : { data: { bill } }));
+    await syncFromBills({});
+    expect(repo.getRowDiscounts).toHaveBeenCalledWith('B7', null);
+    expect(repo.upsertMany.mock.calls[0][0].map(e => e.rateIncl).sort()).toEqual([108.56, 118]);
   });
 });

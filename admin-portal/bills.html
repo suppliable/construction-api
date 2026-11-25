@@ -65,6 +65,15 @@
   .tin { -moz-appearance:textfield; }
   .w-qty { width:92px; } .w-rate { width:118px; } .w-gst { width:78px; }
 
+  /* The per-row discount column exists only in "Each row" mode. */
+  .item-table .col-disc { display:none; }
+  .item-table.rowdisc .col-disc { display:table-cell; }
+  .disc-cell { display:flex; gap:6px; justify-content:flex-end; }
+  .w-disc { width:82px; }
+  .btn-unit { border:1.5px solid var(--border); background:#f1f5f9; border-radius:7px; min-width:36px;
+    font-weight:700; cursor:pointer; font-family:inherit; color:var(--text); }
+  .btn-unit:hover { border-color:var(--blue2); }
+
   .btn-row-del { background:none; border:1.5px solid transparent; border-radius:7px; color:var(--muted);
     cursor:pointer; font-size:17px; line-height:1; padding:7px 10px; }
   .btn-row-del:hover { color:var(--red2); border-color:#fecaca; background:#fef2f2; }
@@ -175,12 +184,13 @@
         <span id="lineCount" style="font-size:12px; font-weight:500; color:var(--muted);">0 items</span>
       </div>
 
-      <table class="item-table">
+      <table class="item-table" id="itemTable">
         <thead>
           <tr>
-            <th style="width:30%">Item details</th>
+            <th style="width:26%">Item details</th>
             <th class="num" style="width:104px">Quantity</th>
             <th class="num" style="width:130px">Rate <span id="rateBasis">(excl GST)</span></th>
+            <th class="num col-disc" style="width:150px">Discount <span id="discBasis">(before GST)</span></th>
             <th class="num" style="width:90px">GST %</th>
             <th class="num" style="width:120px">Cost incl</th>
             <th class="num" style="width:118px">Selling</th>
@@ -189,7 +199,7 @@
           </tr>
         </thead>
         <tbody id="rows">
-          <tr class="empty-row"><td colspan="8">No items yet — search below to add one.</td></tr>
+          <tr class="empty-row"><td colspan="9">No items yet — search below to add one.</td></tr>
         </tbody>
       </table>
 
@@ -206,14 +216,20 @@
         <div class="card-header">Discount</div>
         <div class="card-body">
           <div class="field-grid">
-            <div class="field-group"><span class="field-label">Discount</span>
+            <div class="field-group"><span class="field-label">Discount on</span>
+              <div class="seg"><button id="lvlBill" class="on" onclick="setDiscLevel('bill')">Whole bill</button>
+                <button id="lvlLine" onclick="setDiscLevel('line')">Each row</button></div></div>
+            <div class="field-group bill-only"><span class="field-label">Discount</span>
               <input type="number" id="discount" class="field-input" min="0" step="0.01" value="0" oninput="recalc()"></div>
-            <div class="field-group"><span class="field-label">Type</span>
+            <div class="field-group bill-only"><span class="field-label">Type</span>
               <div class="seg"><button id="dPct" class="on" onclick="setDiscPct(true)">%</button>
                 <button id="dAmt" onclick="setDiscPct(false)">₹</button></div></div>
             <div class="field-group"><span class="field-label">Applied</span>
               <div class="seg"><button id="dBefore" class="on" onclick="setDiscBefore(true)">Before GST</button>
                 <button id="dAfter" onclick="setDiscBefore(false)">After GST</button></div></div>
+          </div>
+          <div id="rowDiscHint" style="display:none; margin-top:12px; font-size:12.5px; color:var(--muted);">
+            Enter each row's discount in the item table. % or ₹ can differ per row; a ₹ amount is for the whole row, not per unit.
           </div>
         </div>
       </div>
@@ -264,7 +280,7 @@ function logout() {
   window.location.href = 'login.html';
 }
 
-let lines = [], results = [], hi = -1, mode = 'excl', discPct = true, discBefore = true;
+let lines = [], results = [], hi = -1, mode = 'excl', discPct = true, discBefore = true, discLevel = 'bill';
 document.getElementById('billDate').value = new Date().toISOString().slice(0, 10);
 
 function setMode(m) {
@@ -284,6 +300,23 @@ function setDiscBefore(v) {
   discBefore = v;
   document.getElementById('dBefore').classList.toggle('on', v);
   document.getElementById('dAfter').classList.toggle('on', !v);
+  document.getElementById('discBasis').textContent = v ? '(before GST)' : '(after GST)';
+  recalc();
+}
+// A bill is discounted either as a whole or row by row, never both.
+function setDiscLevel(level) {
+  discLevel = level;
+  const byRow = level === 'line';
+  document.getElementById('lvlBill').classList.toggle('on', !byRow);
+  document.getElementById('lvlLine').classList.toggle('on', byRow);
+  document.querySelectorAll('.bill-only').forEach(el => { el.style.display = byRow ? 'none' : ''; });
+  document.getElementById('rowDiscHint').style.display = byRow ? 'block' : 'none';
+  document.getElementById('itemTable').classList.toggle('rowdisc', byRow);
+  recalc();
+}
+function toggleRowUnit(i, btn) {
+  lines[i].discPct = !lines[i].discPct;
+  btn.textContent = lines[i].discPct ? '%' : '₹';
   recalc();
 }
 
@@ -329,7 +362,7 @@ function addLine(n) {
   lines.push({
     itemId: i.itemId, name: i.name, unit: i.unit || '',
     sellingRate: num(i.sellingRate),
-    quantity: '1', rate: '', gstRate: String(i.gstRate ?? 0),
+    quantity: '1', rate: '', gstRate: String(i.gstRate ?? 0), disc: '', discPct: true,
   });
   document.getElementById('itemSearch').value = '';
   hideResults();
@@ -349,22 +382,55 @@ function onEdit(i, field, el) { lines[i][field] = el.value; recalc(); }
 function rateExcl(l) { return r2(mode === 'incl' ? num(l.rate) / (1 + num(l.gstRate) / 100) : num(l.rate)); }
 function rateIncl(l) { return mode === 'incl' ? num(l.rate) : num(l.rate) * (1 + num(l.gstRate) / 100); }
 
+// One row's own discount: before GST it comes off the row's taxable value,
+// after GST off its inclusive total.
+function rowDisc(l) {
+  const g = 1 + num(l.gstRate) / 100;
+  const gross = num(l.rate) * num(l.quantity);
+  const base = discBefore
+    ? r2(mode === 'incl' ? gross / g : gross)
+    : r2(mode === 'incl' ? gross : gross * g);
+  const v = num(l.disc);
+  // The server refuses a discount above the line's value; cap the preview too.
+  const amount = v <= 0 ? 0 : Math.min(base, r2(l.discPct ? (base * v) / 100 : v));
+  return { base, amount, factor: base > 0 ? 1 - amount / base : 1 };
+}
+
+// What each row's cost is multiplied by: its own discount, or its share of the
+// whole-bill one.
+function costFactor(l, t) {
+  if (discLevel === 'line') return rowDisc(l).factor;
+  return t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
+}
+
 function totals() {
   const taxable = r2(lines.reduce((s, l) => s + rateExcl(l) * num(l.quantity), 0));
   const grossIncl = r2(lines.reduce((s, l) => s + rateIncl(l) * num(l.quantity), 0));
+  const tax = r2(grossIncl - taxable);
+  if (discLevel === 'line') {
+    const discount = r2(lines.reduce((s, l) => s + rowDisc(l).amount, 0));
+    const total = discBefore
+      ? r2(lines.reduce((s, l) => {
+          const g = 1 + num(l.gstRate) / 100;
+          const gross = num(l.rate) * num(l.quantity);
+          return s + ((mode === 'incl' ? gross / g : gross) - rowDisc(l).amount) * g;
+        }, 0))
+      : r2(grossIncl - discount);
+    return { taxable, tax, grossIncl, discount, total, base: discBefore ? taxable : grossIncl };
+  }
   const v = num(document.getElementById('discount').value);
   const base = discBefore ? taxable : grossIncl;
   const discount = v <= 0 ? 0 : r2(discPct ? (base * v) / 100 : v);
   const total = discBefore
     ? r2((taxable - discount) * (taxable > 0 ? grossIncl / taxable : 1))
     : r2(grossIncl - discount);
-  return { taxable, tax: r2(grossIncl - taxable), grossIncl, discount, total, base };
+  return { taxable, tax, grossIncl, discount, total, base };
 }
 
 function drawRows() {
   document.getElementById('rows').innerHTML = lines.length
     ? lines.map(rowHtml).join('')
-    : '<tr class="empty-row"><td colspan="8">No items yet — search below to add one.</td></tr>';
+    : '<tr class="empty-row"><td colspan="9">No items yet — search below to add one.</td></tr>';
   recalc();
 }
 
@@ -379,6 +445,11 @@ function rowHtml(l, i) {
           oninput="onEdit(${i},'quantity',this)"></td>
     <td><input id="rate${i}" class="tin w-rate" type="number" min="0" step="0.01" value="${esc(l.rate)}"
           placeholder="0.00" oninput="onEdit(${i},'rate',this)"></td>
+    <td class="col-disc"><div class="disc-cell">
+      <input id="disc${i}" class="tin w-disc" type="number" min="0" step="0.01" value="${esc(l.disc)}"
+          placeholder="0" oninput="onEdit(${i},'disc',this)">
+      <button type="button" class="btn-unit" title="Switch between % and ₹" onclick="toggleRowUnit(${i},this)">${l.discPct ? '%' : '₹'}</button>
+    </div></td>
     <td><input id="gst${i}" class="tin w-gst" type="number" min="0" step="0.01" value="${esc(l.gstRate)}"
           oninput="onEdit(${i},'gstRate',this)"></td>
     <td class="cell-num" id="cost${i}">—</td>
@@ -392,10 +463,9 @@ function rowHtml(l, i) {
 // caret survive.
 function recalc() {
   const t = totals();
-  const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
 
   lines.forEach((l, i) => {
-    const cost = r2(rateIncl(l) * factor);
+    const cost = r2(rateIncl(l) * costFactor(l, t));
     const sell = l.sellingRate || 0;
     const has = cost > 0 && sell > 0;
     const pct = has ? r2(((sell - cost) / sell) * 100) : null;
@@ -454,13 +524,13 @@ let saving = false;
 async function submitBill() {
   if (saving || !lines.length) return;
   const t = totals();
-  const factor = t.base > 0 && t.discount > 0 ? 1 - t.discount / t.base : 1;
 
   // Not a block — the agreed behaviour is to show the margin, not refuse the
   // bill. But saving without noticing is the failure this page prevents.
-  const bad = lines.filter(l => l.sellingRate > 0 && r2(rateIncl(l) * factor) >= l.sellingRate);
+  const cost = l => r2(rateIncl(l) * costFactor(l, t));
+  const bad = lines.filter(l => l.sellingRate > 0 && cost(l) >= l.sellingRate);
   if (bad.length) {
-    const list = bad.map(l => `• ${l.name}: costs ₹${r2(rateIncl(l) * factor)}, sells at ₹${l.sellingRate}`).join('\n');
+    const list = bad.map(l => `• ${l.name}: costs ₹${cost(l)}, sells at ₹${l.sellingRate}`).join('\n');
     if (!confirm(`${bad.length} line(s) cost at or above the selling price:\n\n${list}\n\nSave anyway?`)) return;
   }
 
@@ -473,19 +543,22 @@ async function submitBill() {
     date: document.getElementById('billDate').value,
     dueDate: document.getElementById('dueDate').value || undefined,
     rateMode: mode,
-    discount: num(document.getElementById('discount').value),
+    discountLevel: discLevel,
+    discount: discLevel === 'line' ? 0 : num(document.getElementById('discount').value),
     discountIsPercent: discPct,
     discountBeforeTax: discBefore,
     lines: lines.map(l => ({
       itemId: l.itemId, name: l.name, unit: l.unit,
       quantity: num(l.quantity), rate: num(l.rate), gstRate: num(l.gstRate),
+      ...(discLevel === 'line' ? { discount: num(l.disc), discountIsPercent: l.discPct } : {}),
     })),
   });
   saving = false;
   btn.textContent = 'Save to Zoho';
   if (!res.success) { btn.disabled = false; toast(res.message || 'Could not save the bill', false); return; }
 
-  toast(`Bill ${res.data.billNumber} saved — ${rupee(res.data.total)}`);
+  if (res.data.warning) toast(res.data.warning, false);
+  else toast(`Bill ${res.data.billNumber} saved — ${rupee(res.data.total)}`);
   lines = [];
   document.getElementById('billNumber').value = '';
   document.getElementById('discount').value = 0;
