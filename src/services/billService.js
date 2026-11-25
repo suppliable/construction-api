@@ -41,6 +41,7 @@ const str = v => (typeof v === 'string' ? v.trim() : '');
 // ourselves would drift by rounding paise and waste an afternoon at
 // reconciliation.
 const RATE_MODES = ['excl', 'incl'];
+const DISCOUNT_LEVELS = ['bill', 'line'];
 
 function assertDate(value, label) {
   const v = str(value);
@@ -48,6 +49,45 @@ function assertDate(value, label) {
     throw new ValidationError(`${label} must be a date as YYYY-MM-DD`, 'INVALID_PARAM');
   }
   return v;
+}
+
+/**
+ * One row's own discount, resolved to rupees and to a cost multiplier.
+ *
+ * Before GST, the figure comes off the row's TAXABLE value; after GST, off the
+ * row's GST-inclusive total. A ₹ amount is for the whole row, not per unit.
+ * Zoho does the same (verified against a live bill: a ₹15 row discount on a
+ * GST-inclusive bill was taken from the taxable value, not the inclusive one),
+ * so the bases here are computed the way Zoho computes them — from the line
+ * total, not from a per-unit rate already rounded to paise.
+ */
+function rowDiscountFor(raw, { n, byRow, isInclusive, beforeTax, rate, quantity, gstRate }) {
+  const none = { discountValue: 0, discountIsPercent: true, discountAmount: 0, costFactor: 1 };
+  if (!byRow) return none;
+
+  const value = Number(raw.discount) || 0;
+  if (value < 0) throw new ValidationError(`Line ${n}: discount cannot be negative`, 'INVALID_PARAM');
+  if (value === 0) return none;
+  const isPercent = raw.discountIsPercent !== false;
+  if (isPercent && value > 100) {
+    throw new ValidationError(`Line ${n}: a percentage discount cannot exceed 100`, 'INVALID_PARAM');
+  }
+
+  const gross = rate * quantity;
+  const g = 1 + gstRate / 100;
+  const base = beforeTax
+    ? round2(isInclusive ? gross / g : gross)
+    : round2(isInclusive ? gross : gross * g);
+  const amount = round2(isPercent ? (base * value) / 100 : value);
+  if (amount > base) {
+    throw new ValidationError(`Line ${n}: the discount is more than the line is worth`, 'INVALID_PARAM');
+  }
+  return {
+    discountValue: value,
+    discountIsPercent: isPercent,
+    discountAmount: amount,
+    costFactor: base > 0 ? 1 - amount / base : 1,
+  };
 }
 
 /**
@@ -72,6 +112,19 @@ function assembleBill(body = {}) {
   }
   const isInclusive = rateMode === 'incl';
 
+  // A bill carries its discount EITHER as one figure for the whole bill OR row
+  // by row, never both — that is how these vendors invoice, and Zoho has a
+  // single discount level per bill.
+  const discountLevel = str(body.discountLevel) || 'bill';
+  if (!DISCOUNT_LEVELS.includes(discountLevel)) {
+    throw new ValidationError(`discountLevel must be one of: ${DISCOUNT_LEVELS.join(', ')}`, 'INVALID_PARAM');
+  }
+  const byRow = discountLevel === 'line';
+  const beforeTax = body.discountBeforeTax !== false;
+  if (byRow && Number(body.discount) > 0) {
+    throw new ValidationError('Use a discount on each row or on the whole bill, not both', 'INVALID_PARAM');
+  }
+
   const rawLines = Array.isArray(body.lines) ? body.lines : [];
   if (!rawLines.length) throw new ValidationError('Add at least one line', 'MISSING_PARAM');
 
@@ -90,7 +143,9 @@ function assembleBill(body = {}) {
     }
 
     const gstRate = Number(l.gstRate) || 0;
+    const rowDiscount = rowDiscountFor(l, { n, byRow, isInclusive, beforeTax, rate: round2(rate), quantity, gstRate });
     return {
+      ...rowDiscount,
       itemId,
       name: str(l.name),
       quantity,
@@ -124,7 +179,8 @@ function assembleBill(body = {}) {
     lines,
     discountValue,
     discountIsPercent,
-    discountBeforeTax: body.discountBeforeTax !== false,
+    discountBeforeTax: beforeTax,
+    discountLevel,
     notes: str(body.notes) || null,
   };
 }
@@ -134,6 +190,25 @@ function billTotals(bill) {
   const taxable = round2(bill.lines.reduce((s, l) => s + l.rateExcl * l.quantity, 0));
   const grossIncl = round2(bill.lines.reduce((s, l) => s + l.rateIncl * l.quantity, 0));
   const tax = round2(grossIncl - taxable);
+
+  if (bill.discountLevel === 'line') {
+    const discount = round2(bill.lines.reduce((s, l) => s + l.discountAmount, 0));
+    // Before tax each row's GST follows its own discounted value, so it is
+    // summed row by row; after tax the discount simply comes off the total.
+    const total = bill.discountBeforeTax
+      ? round2(bill.lines.reduce((s, l) => {
+        const gross = l.rate * l.quantity;
+        const net = (bill.isInclusive ? gross / (1 + l.gstRate / 100) : gross) - l.discountAmount;
+        return s + net * (1 + l.gstRate / 100);
+      }, 0))
+      // From line totals, not the per-unit inclusive rate: rounding that to
+      // paise first and multiplying drifts by up to tens of paise on a bill.
+      : round2(bill.lines.reduce((s, l) => {
+        const gross = l.rate * l.quantity;
+        return s + (bill.isInclusive ? gross : gross * (1 + l.gstRate / 100));
+      }, 0) - discount);
+    return { taxable, tax, grossIncl, discount, total, discountBase: bill.discountBeforeTax ? taxable : grossIncl };
+  }
 
   const base = bill.discountBeforeTax ? taxable : grossIncl;
   const discount = bill.discountValue <= 0
@@ -162,12 +237,13 @@ function billTotals(bill) {
  */
 function lineMargins(bill, itemsById = new Map()) {
   const { discountBase, discount } = billTotals(bill);
-  // The discount applies pro-rata, so one factor serves every line.
-  const factor = discountBase > 0 && discount > 0 ? 1 - discount / discountBase : 1;
+  // A whole-bill discount applies pro-rata, so one factor serves every line.
+  const billFactor = discountBase > 0 && discount > 0 ? 1 - discount / discountBase : 1;
 
   return bill.lines.map((l) => {
     const item = itemsById.get(String(l.itemId));
-    const costIncl = round2(l.rateIncl * factor);
+    // Row discounts belong to their own row; only a whole-bill discount spreads.
+    const costIncl = round2(l.rateIncl * (bill.discountLevel === 'line' ? l.costFactor : billFactor));
     const m = marginFor({ rate: item?.sellingRate ?? 0 }, { rateIncl: costIncl });
     return {
       itemId: l.itemId,
@@ -269,8 +345,22 @@ async function vendorTaxSpecification(vendorId) {
   return gstin.slice(0, 2) === ORG_STATE_CODE() ? 'intra' : 'inter';
 }
 
+/** "Disc 8% after GST" — so the row's discount can be read on the bill in Zoho. */
+function rowDiscountNote(l) {
+  return `Disc ${l.discountIsPercent ? `${l.discountValue}%` : `₹${l.discountValue}`} after GST`;
+}
+
 /** Payload for POST /books/v3/bills. */
 function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = null } = {}) {
+  const byRow = bill.discountLevel === 'line';
+  const rowTotal = byRow ? round2(bill.lines.reduce((s, l) => s + l.discountAmount, 0)) : 0;
+  // Row discounts before GST are Zoho's own item-level discount. After GST it
+  // has no such thing (an item discount always reduces the taxable value), so
+  // they go as ONE after-tax figure on the bill, which keeps GST and total
+  // matching the vendor's invoice.
+  const nativeRows = byRow && bill.discountBeforeTax && rowTotal > 0;
+  const rolledUpRows = byRow && !bill.discountBeforeTax && rowTotal > 0;
+
   const payload = {
     vendor_id: bill.vendorId,
     bill_number: bill.billNumber,
@@ -283,6 +373,10 @@ function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = nul
       // so the bill total matches the vendor's document to the paisa.
       rate: l.rate,
       quantity: l.quantity,
+      ...(nativeRows && l.discountValue > 0
+        ? { discount: l.discountIsPercent ? `${l.discountValue}%` : l.discountValue }
+        : {}),
+      ...(rolledUpRows && l.discountValue > 0 ? { description: rowDiscountNote(l) } : {}),
       // `unit` is deliberately NOT sent. Zoho takes it from the item, and a
       // value that does not match a unit configured in the org is rejected —
       // the catalogue's unit string is free text ("box", "Pcs"), so sending it
@@ -291,13 +385,43 @@ function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = nul
   };
   if (bill.dueDate) payload.due_date = bill.dueDate;
   if (bill.notes) payload.notes = bill.notes;
-  if (bill.discountValue > 0) {
+
+  if (nativeRows) {
+    payload.discount_type = 'item_level';
+    payload.is_discount_before_tax = true;
+  } else if (rolledUpRows) {
+    payload.discount = rowTotal;
+    payload.discount_type = 'entity_level';
+    payload.is_discount_before_tax = false;
+  } else if (bill.discountValue > 0) {
     payload.discount = bill.discountIsPercent ? `${bill.discountValue}%` : bill.discountValue;
     payload.discount_type = 'entity_level';
     payload.is_discount_before_tax = bill.discountBeforeTax;
-    if (accountId) payload.discount_account_id = accountId;
   }
+  if (accountId && payload.discount_type) payload.discount_account_id = accountId;
   return payload;
+}
+
+/**
+ * What the purchase history needs to remember about after-GST row discounts.
+ * Zoho only holds their sum, and spreading that evenly would give every item the
+ * wrong cost. Null when Zoho's own record is already enough.
+ */
+function rowDiscountRecord(bill, billId) {
+  if (bill.discountLevel !== 'line' || bill.discountBeforeTax) return null;
+  const discountAmount = round2(bill.lines.reduce((s, l) => s + l.discountAmount, 0));
+  if (discountAmount <= 0) return null;
+  return {
+    billId: String(billId),
+    billNumber: bill.billNumber,
+    discountAmount,
+    lines: bill.lines.map(l => ({
+      itemId: String(l.itemId), quantity: l.quantity, rate: l.rate,
+      discountValue: l.discountValue, discountIsPercent: l.discountIsPercent,
+      factor: l.costFactor,
+    })),
+    createdAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -311,7 +435,7 @@ async function createBill(body, traceContext = null) {
   const bill = assembleBill(body);
   // Only looked up when there is a discount, so an undiscounted bill costs no
   // extra Zoho call.
-  const accountId = bill.discountValue > 0 ? await purchaseDiscountAccountId() : null;
+  const accountId = billTotals(bill).discount > 0 ? await purchaseDiscountAccountId() : null;
 
   // One lookup per distinct GST rate on the bill, not per line.
   const specification = await vendorTaxSpecification(bill.vendorId);
@@ -334,10 +458,24 @@ async function createBill(body, traceContext = null) {
   const created = res.data?.bill;
   if (!created) throw new ValidationError('Zoho did not return a bill', 'ZOHO_NO_BILL');
 
+  // After-GST row discounts: remember them BEFORE touching history, so both
+  // this write and every later sync cost each item correctly.
+  let warning = null;
+  const rows = rowDiscountRecord(bill, created.bill_id);
+  if (rows) {
+    try {
+      await repo.saveRowDiscounts(rows, traceContext);
+    } catch (err) {
+      logger.error({ err: err.message, billId: created.bill_id }, 'bill.row_discounts_save_failed');
+      warning = 'Saved in Zoho, but the row discounts could not be recorded: '
+        + 'the Margins page will spread this bill\'s discount evenly across its items.';
+    }
+  }
+
   // Best-effort: the bill exists in Zoho either way, and the hourly sync would
   // pick it up regardless. Failing here must not look like the bill failed.
   try {
-    await repo.upsertMany(reduceToLatest(entriesFromBill(created)), traceContext);
+    await repo.upsertMany(reduceToLatest(entriesFromBill(created, rows)), traceContext);
   } catch (err) {
     logger.warn({ err: err.message, billId: created.bill_id },
       'bill.history_update_failed');
@@ -352,6 +490,7 @@ async function createBill(body, traceContext = null) {
     date: created.date,
     total: created.total,
     vendorName: created.vendor_name,
+    ...(warning ? { warning } : {}),
   };
 }
 

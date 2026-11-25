@@ -11,6 +11,7 @@ jest.mock('../../utils/firebaseAdmin', () => ({
 jest.mock('../zohoHttp', () => ({ zohoPost: jest.fn(), zohoGet: jest.fn() }));
 jest.mock('../../repositories/purchaseHistoryRepository', () => ({
   upsertMany: jest.fn(async () => 1),
+  saveRowDiscounts: jest.fn(async () => {}), getRowDiscounts: jest.fn(),
   getSyncState: jest.fn(), setSyncState: jest.fn(), listAll: jest.fn(), getOne: jest.fn(),
 }));
 
@@ -385,5 +386,131 @@ describe('line tax', () => {
     }));
     // one vendor fetch + one tax list fetch, not one per line
     expect(zohoGet).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Row discounts ───────────────────────────────────────────────────────────
+// A vendor discounts either the whole bill or each row. The figures for the
+// before-GST case are the ones Zoho itself returned for a live test bill.
+
+describe('a discount on each row', () => {
+  const svc = require('../billService');
+  const rows = (over = {}) => base({
+    discountLevel: 'line',
+    lines: [
+      { itemId: 'I1', quantity: 10, rate: 100, gstRate: 18, discount: 8 },
+      { itemId: 'I2', quantity: 3, rate: 200, gstRate: 18, discount: 15, discountIsPercent: false },
+      { itemId: 'I3', quantity: 1, rate: 50, gstRate: 18 },
+    ],
+    ...over,
+  });
+
+  beforeEach(() => { jest.clearAllMocks(); svc._resetDiscountAccountCache(); routeZoho(); });
+
+  test('before GST: matches what Zoho computed', () => {
+    const bill = assembleBill(rows());
+    expect(bill.lines.map(l => l.discountAmount)).toEqual([80, 15, 0]);
+    expect(billTotals(bill)).toMatchObject({ discount: 95, total: 1834.9 });
+  });
+
+  test('before GST on inclusive rates, the discount comes off the taxable value', () => {
+    const bill = assembleBill(rows({ rateMode: 'incl' }));
+    expect(bill.lines.map(l => l.discountAmount)).toEqual([67.8, 15, 0]);   // Zoho: 67.8 and 15
+    expect(billTotals(bill).total).toBeCloseTo(1552.3, 1);
+  });
+
+  test.each([
+    [{ discount: 8 }, true, 108.56],
+    [{ discount: 8 }, false, 108.56],
+    [{ discount: 8, discountIsPercent: false }, true, 108.56],
+    [{ discount: 8, discountIsPercent: false }, false, 110],
+  ])('cost per unit for %j, before GST = %s, is %s', (disc, before, cost) => {
+    const bill = assembleBill(base({
+      discountLevel: 'line', discountBeforeTax: before,
+      lines: [{ itemId: 'I1', quantity: 1, rate: 100, gstRate: 18, ...disc }],
+    }));
+    expect(lineMargins(bill)[0].costIncl).toBe(cost);
+  });
+
+  test('each row keeps its own cost; nothing spreads to the others', () => {
+    expect(lineMargins(assembleBill(rows())).map(m => m.costIncl)).toEqual([108.56, 230.1, 59]);
+  });
+
+  test.each([
+    [{ discount: 5 }, /not both/],
+    [{ lines: [{ itemId: 'I1', quantity: 1, rate: 10, discount: 101 }] }, /Line 1: a percentage/],
+    [{ lines: [{ itemId: 'I1', quantity: 1, rate: 10, discount: -1 }] }, /Line 1: discount cannot be negative/],
+    [{ lines: [{ itemId: 'I1', quantity: 1, rate: 10, discount: 11, discountIsPercent: false }] }, /more than the line/],
+    [{ discountLevel: 'both' }, /discountLevel/],
+  ])('rejects %j', (over, msg) => {
+    expect(() => assembleBill(rows(over))).toThrow(msg);
+  });
+
+  test('row figures are ignored on a whole-bill discount', () => {
+    const bill = assembleBill(rows({ discountLevel: 'bill' }));
+    expect(billTotals(bill).discount).toBe(0);
+    expect(toZohoPayload(bill).line_items[0]).not.toHaveProperty('discount');
+  });
+
+  test('before GST goes to Zoho as its own item-level discount', () => {
+    const p = toZohoPayload(assembleBill(rows()), { discountAccountId: 'ACC-PURCH' });
+    expect(p).toMatchObject({ discount_type: 'item_level', is_discount_before_tax: true, discount_account_id: 'ACC-PURCH' });
+    expect(p).not.toHaveProperty('discount');
+    expect(p.line_items.map(l => l.discount)).toEqual(['8%', 15, undefined]);
+  });
+
+  test('after GST goes as one after-tax figure, with each row noted on the bill', () => {
+    const p = toZohoPayload(assembleBill(rows({ discountBeforeTax: false })), { discountAccountId: 'ACC-PURCH' });
+    // 8% of 1180 = 94.4, plus a flat 15
+    expect(p).toMatchObject({ discount: 109.4, discount_type: 'entity_level', is_discount_before_tax: false });
+    expect(p.line_items.map(l => l.description)).toEqual(['Disc 8% after GST', 'Disc ₹15 after GST', undefined]);
+    p.line_items.forEach(l => expect(l).not.toHaveProperty('discount'));
+  });
+
+  test('no row actually discounted: no discount fields and no account lookup', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B1', bill_number: 'X', line_items: [] } } });
+    await createBill(base({ discountLevel: 'line' }));
+    expect(zohoPost.mock.calls[0][1]).not.toHaveProperty('discount_type');
+    expect(zohoGet.mock.calls.some(c => c[0].includes('/chartofaccounts'))).toBe(false);
+  });
+
+  const zohoAfterTax = {
+    bill_id: 'B7', bill_number: 'TN123', date: '2026-11-25', is_inclusive_tax: false,
+    discount: 94.4, discount_amount: 94.4, discount_applied_on_amount: 1298, is_discount_before_tax: false,
+    line_items: [
+      { item_id: 'I1', rate: 100, quantity: 10, tax_percentage: 18 },
+      { item_id: 'I2', rate: 100, quantity: 1, tax_percentage: 18 },
+    ],
+  };
+  const afterTaxEntry = () => base({
+    discountLevel: 'line', discountBeforeTax: false,
+    lines: [
+      { itemId: 'I1', quantity: 10, rate: 100, gstRate: 18, discount: 8 },
+      { itemId: 'I2', quantity: 1, rate: 100, gstRate: 18 },
+    ],
+  });
+
+  test('after GST: row figures are saved and history costs each item by its own', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: zohoAfterTax } });
+    const out = await createBill(afterTaxEntry());
+    expect(repo.saveRowDiscounts).toHaveBeenCalledWith(
+      expect.objectContaining({ billId: 'B7', discountAmount: 94.4 }), null);
+    const [entries] = repo.upsertMany.mock.calls[0];
+    const cost = Object.fromEntries(entries.map(e => [e.itemId, e.rateIncl]));
+    expect(cost).toEqual({ I1: 108.56, I2: 118 });     // not spread across both
+    expect(out).not.toHaveProperty('warning');
+  });
+
+  test('if the record cannot be saved the bill still succeeds, and says so', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: zohoAfterTax } });
+    repo.saveRowDiscounts.mockRejectedValueOnce(new Error('firestore down'));
+    const out = await createBill(afterTaxEntry());
+    expect(out).toMatchObject({ billId: 'B7', warning: expect.stringMatching(/spread/) });
+  });
+
+  test('before GST needs no record — Zoho holds each row', async () => {
+    zohoPost.mockResolvedValue({ data: { bill: { bill_id: 'B8', bill_number: 'X', line_items: [] } } });
+    await createBill(rows());
+    expect(repo.saveRowDiscounts).not.toHaveBeenCalled();
   });
 });

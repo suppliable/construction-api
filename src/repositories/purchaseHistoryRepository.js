@@ -20,6 +20,7 @@ const { getTrackedDb } = require('../middleware/firestoreTracker');
 const db = getTrackedDb();
 const COLLECTION = 'itemPurchaseHistory';
 const SYNC_DOC = 'purchaseHistorySync';
+const ROW_DISCOUNTS = 'billRowDiscounts';
 
 async function listAll(traceContext = null) {
   return dbOp('listPurchaseHistory', async () => {
@@ -69,6 +70,24 @@ async function upsertMany(entries, traceContext = null) {
   }, traceContext);
 }
 
+// ── after-GST row discounts ─────────────────────────────────────────────────
+// One document per Zoho bill id, written only for bills entered here with a
+// discount on each row, applied after GST. Zoho stores just their sum; this is
+// what lets each item keep its own cost.
+
+async function saveRowDiscounts(record, traceContext = null) {
+  return dbOp('saveBillRowDiscounts', async () => {
+    await db.collection(ROW_DISCOUNTS).doc(String(record.billId)).set(record);
+  }, traceContext);
+}
+
+async function getRowDiscounts(billId, traceContext = null) {
+  return dbOp('getBillRowDiscounts', async () => {
+    const doc = await db.collection(ROW_DISCOUNTS).doc(String(billId)).get();
+    return doc.exists ? doc.data() : null;
+  }, traceContext);
+}
+
 // ── sync state ──────────────────────────────────────────────────────────────
 // Zoho's bill list ignores last_modified_time as a filter (verified: passing it
 // changes nothing), so the whole list is pulled — 200/page, ~2 calls — and
@@ -97,4 +116,7 @@ async function setSyncState(lastModifiedTime, logicVersion, stats = {}, traceCon
   }, traceContext);
 }
 
-module.exports = { listAll, getOne, upsertMany, getSyncState, setSyncState, COLLECTION };
+module.exports = {
+  listAll, getOne, upsertMany, saveRowDiscounts, getRowDiscounts,
+  getSyncState, setSyncState, COLLECTION,
+};
