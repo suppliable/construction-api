@@ -235,9 +235,11 @@
       </div>
 
       <div class="totals-box">
-        <div class="trow"><span>Sub total (taxable)</span><span class="amt" id="tTaxable">₹0</span></div>
-        <div class="trow"><span>GST</span><span class="amt" id="tTax">₹0</span></div>
-        <div class="trow"><span>Discount</span><span class="amt" id="tDisc">₹0</span></div>
+        <!-- Rows are listed in the order the discount applies; recalc() swaps
+             GST and Discount to match Before / After GST. -->
+        <div class="trow"><span>Sub total</span><span class="amt" id="tTaxable">₹0</span></div>
+        <div class="trow" id="rowDiscount"><span>Discount</span><span class="amt" id="tDisc">₹0</span></div>
+        <div class="trow" id="rowGst"><span>GST</span><span class="amt" id="tTax">₹0</span></div>
         <div class="trow grand"><span>Total</span><span class="amt" id="tTotal">₹0</span></div>
         <button id="saveBtn" class="btn-save" onclick="submitBill()" disabled>Save to Zoho</button>
       </div>
@@ -493,7 +495,14 @@ function recalc() {
   });
 
   document.getElementById('tTaxable').textContent = rupee(t.taxable);
-  document.getElementById('tTax').textContent = rupee(t.tax);
+  // Show the GST actually payable, in the order it is worked out, so the box
+  // reads down like the paper bill. Before GST: the discount comes first and
+  // GST is on what is left. After GST: GST on the sub total, then the discount.
+  // (t.tax is the undiscounted figure, which is right only in the second case.)
+  const gst = discBefore ? r2(t.total - (t.taxable - t.discount)) : t.tax;
+  const discRow = document.getElementById('rowDiscount'), gstRow = document.getElementById('rowGst');
+  discRow.parentNode.insertBefore(discBefore ? discRow : gstRow, discBefore ? gstRow : discRow);
+  document.getElementById('tTax').textContent = rupee(gst);
   document.getElementById('tDisc').textContent = t.discount ? '− ' + rupee(t.discount) : '₹0';
   document.getElementById('tTotal').textContent = rupee(t.total);
   const n = lines.length;
