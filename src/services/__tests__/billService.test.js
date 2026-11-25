@@ -452,11 +452,54 @@ describe('a discount on each row', () => {
     expect(toZohoPayload(bill).line_items[0]).not.toHaveProperty('discount');
   });
 
-  test('before GST goes to Zoho as its own item-level discount', () => {
-    const p = toZohoPayload(assembleBill(rows()), { discountAccountId: 'ACC-PURCH' });
-    expect(p).toMatchObject({ discount_type: 'item_level', is_discount_before_tax: true, discount_account_id: 'ACC-PURCH' });
+  test('before GST goes to Zoho as its own item-level discount, account per row', () => {
+    const rowAccountIds = new Map([['I1', 'INV-A'], ['I2', 'INV-B']]);
+    const p = toZohoPayload(assembleBill(rows()), { rowAccountIds });
+    expect(p).toMatchObject({ discount_type: 'item_level', is_discount_before_tax: true });
     expect(p).not.toHaveProperty('discount');
+    expect(p).not.toHaveProperty('discount_account_id');
     expect(p.line_items.map(l => l.discount)).toEqual(['8%', 15, undefined]);
+    expect(p.line_items.map(l => l.discount_account_id)).toEqual(['INV-A', 'INV-B', undefined]);
+  });
+
+  // Zoho: "The Discount Account must be the same as its Inventory Asset Account".
+  const routeItems = items => zohoGet.mockImplementation(async (url) => {
+    const m = url.match(/\/books\/v3\/items\/(\w+)$/);
+    if (m) return { data: { item: items[m[1]] } };
+    if (url.includes('/contacts/')) return vendorWith('33AAACA3622K1Z2');
+    if (url.includes('/settings/taxes')) return TAXES;
+    return DISCOUNT_ACCOUNTS;
+  });
+  const created = { data: { bill: { bill_id: 'B9', bill_number: 'X', line_items: [] } } };
+
+  test('a stock-tracked item posts its row discount to its own inventory account', async () => {
+    routeItems({
+      I1: { track_inventory: true, inventory_account_id: 'INV-A' },
+      I2: { track_inventory: false },
+    });
+    zohoPost.mockResolvedValue(created);
+    await createBill(rows());
+    expect(zohoPost.mock.calls[0][1].line_items.map(l => l.discount_account_id))
+      .toEqual(['INV-A', 'ACC-PURCH', undefined]);
+    // the undiscounted third row is never looked up
+    expect(zohoGet.mock.calls.some(c => c[0].endsWith('/items/I3'))).toBe(false);
+  });
+
+  test('all stock items: Purchase Discounts is not even looked up', async () => {
+    routeItems({ I1: { inventory_account_id: 'INV-A' }, I2: { inventory_account_id: 'INV-A' } });
+    zohoPost.mockResolvedValue(created);
+    await createBill(rows());
+    expect(zohoGet.mock.calls.some(c => c[0].includes('/chartofaccounts'))).toBe(false);
+  });
+
+  test('if an item cannot be read, no bill is sent with a guessed account', async () => {
+    zohoGet.mockImplementation(async (url) => {
+      if (url.includes('/books/v3/items/')) throw new Error('zoho down');
+      if (url.includes('/contacts/')) return vendorWith('33AAACA3622K1Z2');
+      return TAXES;
+    });
+    await expect(createBill(rows())).rejects.toThrow('zoho down');
+    expect(zohoPost).not.toHaveBeenCalled();
   });
 
   test('after GST goes as one after-tax figure, with each row noted on the bill', () => {

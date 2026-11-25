@@ -26,6 +26,7 @@ const BILLS_URL = 'https://www.zohoapis.in/books/v3/bills';
 const ACCOUNTS_URL = 'https://www.zohoapis.in/books/v3/chartofaccounts';
 const TAXES_URL = 'https://www.zohoapis.in/books/v3/settings/taxes';
 const CONTACT_URL = 'https://www.zohoapis.in/books/v3/contacts';
+const ITEMS_URL = 'https://www.zohoapis.in/books/v3/items';
 
 // The org's own GST state. Tamil Nadu is 33; it decides whether a purchase is
 // intra-state (CGST+SGST) or inter-state (IGST), so it is configurable rather
@@ -297,6 +298,35 @@ async function purchaseDiscountAccountId() {
   return discountAccountId;
 }
 
+// A discount on a single ROW of a stock-tracked item must be posted to that
+// item's own inventory asset account, so the discount lowers what the stock is
+// carried at: "The Discount Account must be the same as its Inventory Asset
+// Account." Purchase Discounts is only right for items that do not track stock.
+// (A whole-bill discount is not tied to an item and keeps using it.)
+const inventoryAccounts = new Map();     // itemId -> account id, or null
+
+async function inventoryAccountFor(itemId) {
+  const id = String(itemId);
+  if (inventoryAccounts.has(id)) return inventoryAccounts.get(id);
+  const res = await zohoGet(`${ITEMS_URL}/${id}`, { label: 'zoho.api.getItem' });
+  const item = res.data?.item;
+  const account = item?.track_inventory === false ? null : (item?.inventory_account_id || null);
+  if (item) inventoryAccounts.set(id, account);
+  return account;
+}
+
+/** itemId -> discount account, for every discounted row of a before-GST bill. */
+async function rowDiscountAccounts(bill) {
+  const accounts = new Map();
+  for (const l of bill.lines.filter(x => x.discountAmount > 0)) {
+    const id = String(l.itemId);
+    if (accounts.has(id)) continue;
+    // Sequential: Zoho rate-limits, and a bill has a handful of rows.
+    accounts.set(id, await inventoryAccountFor(id) || await purchaseDiscountAccountId());
+  }
+  return accounts;
+}
+
 // Zoho will not accept a bill line without a tax: "Specify either a Tax or Tax
 // Exemption or Reverse Charge." It does not fall back to the item's own tax
 // preference, so the tax id has to be sent explicitly.
@@ -351,7 +381,7 @@ function rowDiscountNote(l) {
 }
 
 /** Payload for POST /books/v3/bills. */
-function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = null } = {}) {
+function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = null, rowAccountIds = null } = {}) {
   const byRow = bill.discountLevel === 'line';
   const rowTotal = byRow ? round2(bill.lines.reduce((s, l) => s + l.discountAmount, 0)) : 0;
   // Row discounts before GST are Zoho's own item-level discount. After GST it
@@ -374,7 +404,11 @@ function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = nul
       rate: l.rate,
       quantity: l.quantity,
       ...(nativeRows && l.discountValue > 0
-        ? { discount: l.discountIsPercent ? `${l.discountValue}%` : l.discountValue }
+        ? {
+          discount: l.discountIsPercent ? `${l.discountValue}%` : l.discountValue,
+          ...(rowAccountIds?.get(String(l.itemId))
+            ? { discount_account_id: rowAccountIds.get(String(l.itemId)) } : {}),
+        }
         : {}),
       ...(rolledUpRows && l.discountValue > 0 ? { description: rowDiscountNote(l) } : {}),
       // `unit` is deliberately NOT sent. Zoho takes it from the item, and a
@@ -398,7 +432,9 @@ function toZohoPayload(bill, { discountAccountId: accountId = null, taxIds = nul
     payload.discount_type = 'entity_level';
     payload.is_discount_before_tax = bill.discountBeforeTax;
   }
-  if (accountId && payload.discount_type) payload.discount_account_id = accountId;
+  // Row discounts name their account on each line instead — one bill-wide
+  // account cannot be right for items that each need their own.
+  if (accountId && payload.discount_type === 'entity_level') payload.discount_account_id = accountId;
   return payload;
 }
 
@@ -435,7 +471,10 @@ async function createBill(body, traceContext = null) {
   const bill = assembleBill(body);
   // Only looked up when there is a discount, so an undiscounted bill costs no
   // extra Zoho call.
-  const accountId = billTotals(bill).discount > 0 ? await purchaseDiscountAccountId() : null;
+  const discounted = billTotals(bill).discount > 0;
+  const nativeRows = discounted && bill.discountLevel === 'line' && bill.discountBeforeTax;
+  const accountId = discounted && !nativeRows ? await purchaseDiscountAccountId() : null;
+  const rowAccountIds = nativeRows ? await rowDiscountAccounts(bill) : null;
 
   // One lookup per distinct GST rate on the bill, not per line.
   const specification = await vendorTaxSpecification(bill.vendorId);
@@ -444,7 +483,7 @@ async function createBill(body, traceContext = null) {
     taxIds.set(rate, await taxIdFor(rate, specification));
   }
 
-  const payload = toZohoPayload(bill, { discountAccountId: accountId, taxIds });
+  const payload = toZohoPayload(bill, { discountAccountId: accountId, taxIds, rowAccountIds });
 
   let res;
   try {
@@ -501,7 +540,7 @@ module.exports = {
   vendorTaxSpecification,
   // The resolved account is cached for the process lifetime; tests need to
   // clear it to prove the lookup itself picks the right one.
-  _resetDiscountAccountCache: () => { discountAccountId = null; taxCache = null; },
+  _resetDiscountAccountCache: () => { discountAccountId = null; taxCache = null; inventoryAccounts.clear(); },
   billTotals,
   lineMargins,
   toZohoPayload,
