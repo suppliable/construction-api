@@ -43,11 +43,26 @@ async function getDriverById(driverId, traceContext = null) {
   }, traceContext);
 }
 
+/**
+ * The driver who may sign in with this number.
+ *
+ * One number can have SEVERAL records: removing a driver only marks it inactive,
+ * and adding them again creates a new one. Taking whichever came back first
+ * picked the oldest, so a re-added driver was told their account was inactive
+ * while the admin portal showed them active. An active record therefore always
+ * wins; between several active ones, one with a PIN, then the newest (ids are
+ * "DR" + creation time). With no active record the newest is returned, so the
+ * caller can still say "inactive" rather than "not registered".
+ */
 async function getDriverByPhone(phone, traceContext = null) {
   return dbOp('getDriverByPhone', async () => {
-    const snapshot = await db.collection('drivers').where('phone', '==', phone).limit(1).get();
+    const snapshot = await db.collection('drivers').where('phone', '==', phone).get();
     if (snapshot.empty) return null;
-    return { driverId: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+    const rank = d => (d.isActive ? 2 : 0) + (d.isActive && d.pin ? 1 : 0);
+    const [best] = snapshot.docs
+      .map(doc => ({ driverId: doc.id, ...doc.data() }))
+      .sort((a, b) => rank(b) - rank(a) || String(b.driverId).localeCompare(String(a.driverId)));
+    return best;
   }, traceContext);
 }
 
