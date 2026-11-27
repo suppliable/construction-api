@@ -7,7 +7,7 @@ const {
   findOrders, getAllOrders, getOrdersPage, getOrdersPageByStatuses, countOrdersByStatusSince, getOrderById, updateOrder,
   getCustomer, getCustomerByPhone, getAddressById, getOrdersByUser,
   getVehicles, addVehicle, deleteVehicle, getVehicleById,
-  getDrivers, addDriver, softDeleteDriver, getDriverById, updateDriver, updateVehicle,
+  getDrivers, addDriver, softDeleteDriver, getDriverById, getDriverByPhone, updateDriver, updateVehicle,
   getAllHandovers, getHandoverById, updateHandover
 } = require('../services/firestoreService');
 const { updateLiveOrderStatus, deleteLiveOrder } = require('../services/realtimeDBService');
@@ -794,6 +794,15 @@ const createDriver = async (req, res) => {
     if (!phone) return res.status(400).json({ success: false, error: 'MISSING_PARAM', message: 'phone is required' });
     const normalizedPhone = normalizePhone(phone);
     if (!normalizedPhone) return res.status(400).json({ success: false, error: 'INVALID_PHONE', message: 'Valid Indian mobile number required' });
+    // Two active records on one number would make sign-in pick between them.
+    // A removed one is fine to re-add.
+    const existing = await getDriverByPhone(normalizedPhone, req.traceContext);
+    if (existing?.isActive) {
+      return res.status(409).json({
+        success: false, error: 'DRIVER_EXISTS',
+        message: `${existing.name} is already an active driver with this number`,
+      });
+    }
     const driver = await addDriver(name.trim(), normalizedPhone, req.traceContext);
     res.json({ success: true, data: { driver } });
   } catch (err) {
