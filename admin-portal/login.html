@@ -77,8 +77,30 @@
 <script>
 const API_BASE = window.location.origin;
 
-if (sessionStorage.getItem('adminToken')) {
-  window.location.href = 'orders.html';
+// A saved token is not proof of a session: it expires after 12 hours, and ends
+// early if the password is reset or the account is switched off. Every page
+// sends a 401 here WITHOUT removing the token, so forwarding on its mere
+// presence bounced the tab between this page and Orders forever. Ask the server
+// first.
+const savedToken = sessionStorage.getItem('adminToken');
+if (savedToken) resumeSession(savedToken);
+
+async function resumeSession(token) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/admin/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+    // A fresh sign-in may have replaced the token while we were waiting.
+    if (sessionStorage.getItem('adminToken') !== token) return;
+    if (res.ok) { window.location.replace('orders.html'); return; }
+    if (res.status === 401) {
+      sessionStorage.removeItem('adminToken');
+      sessionStorage.removeItem('adminUser');
+      const err = document.getElementById('errorMsg');
+      err.textContent = 'Your session ended. Please sign in again.';
+      err.classList.add('show');
+    }
+    // Anything else (server restarting, 5xx) proves nothing about the session:
+    // stay on the form and keep the token.
+  } catch (e) { /* unreachable: same — stay here, keep the token */ }
 }
 
 ['email', 'password'].forEach(id =>
